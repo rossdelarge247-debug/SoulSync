@@ -94,4 +94,25 @@ describe('the player’s lyrics, for the layer', () => {
     expect(h.state.raw).toMatchObject({ synced: '[00:01.00]Static Bloom' });
     expect(h.state.synced).toBe(true);
   });
+
+  it('a fetch for the track before that fails late doesn’t write over this one (review L1)', async () => {
+    document.body.innerHTML = '<div id="np-lyrics-content">kept</div>';
+    const pending: { ok: (v: unknown) => void; fail: (e: unknown) => void }[] = [];
+    const h = harness(
+      () =>
+        new Promise((ok, fail) => {
+          pending.push({ ok, fail });
+        }),
+    );
+    const first = h.load(night);
+    const second = h.load(bloom);
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    pending[1]!.ok({ success: true, synced: '[00:01.00]Static Bloom', source: 'lrclib' });
+    await second;
+    pending[0]!.fail(new Error('network'));
+    await first;
+    expect(document.getElementById('np-lyrics-content')!.textContent).toBe('kept');
+    expect(h.state.raw).toMatchObject({ done: true, synced: '[00:01.00]Static Bloom' });
+    document.body.innerHTML = '';
+  });
 });

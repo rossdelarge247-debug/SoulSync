@@ -9,9 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RawLyrics } from './lyrics.logic';
 
-import { LyricsLayer, LyricsRecord, outputDelay } from './lyrics-layer';
-import { syncChrome } from './lyrics-mount';
+import { LyricsLayer, LyricsRecord, outputDelay, seekTo } from './lyrics-layer';
+import { phoneTurn, syncChrome } from './lyrics-mount';
 import { LyricsStore } from './lyrics-store';
+import { parseLrc } from './lyrics.logic';
 
 type W = { SoulSyncPlayer?: unknown };
 
@@ -75,11 +76,13 @@ describe('the layer in the Visuals (27a)', () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Where the reeds forget the shore/ }));
     expect(seek).toHaveBeenCalledWith(10.05);
-    // a screen reader gets the line, not the sweep
-    expect(screen.getByText('Hold the lantern low', { selector: 'p' })).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
+    // a screen reader gets the line, not the sweep, and only while focus is on the lines (L10)
+    const live = screen.getByText('Hold the lantern low', { selector: 'p' });
+    expect(live).toHaveAttribute('aria-live', 'off');
+    act(() => now.focus());
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    act(() => now.blur());
+    expect(live).toHaveAttribute('aria-live', 'off');
   });
 
   it('the pill: Lyrics only, A− / A+, Earlier / Later with the offset, and the source', () => {
@@ -195,5 +198,32 @@ describe('the legacy chrome', () => {
       outputDelay({ baseLatency: 0.01, outputLatency: 0.04 } as unknown as AudioContext),
     ).toBeCloseTo(0.05);
     expect(outputDelay({ baseLatency: 5 } as unknown as AudioContext)).toBe(0);
+  });
+});
+
+describe('review round 1', () => {
+  it('a line plays from where its words show: the output delay added, the nudge taken off (L10)', () => {
+    const w = window as unknown as W;
+    w.SoulSyncPlayer = {
+      seek,
+      outputTargets: () => ({ context: { baseLatency: 0.01, outputLatency: 0.09 } }),
+    };
+    const [line] = parseLrc('[00:10.00]Where the reeds');
+    seekTo(line!, 0.3);
+    expect(seek.mock.calls[0]![0]).toBeCloseTo(10 - 0.3 + 0.1 + 0.05, 5);
+  });
+
+  it('only a turn opens the Visuals; closing them on its side keeps them closed (M1)', () => {
+    const c = { sheet: true, lyrics: true, open: false, opened: false };
+    expect(phoneTurn(false, true, c)).toBe('open');
+    // closed by the person while still on its side: nothing reopens it
+    expect(phoneTurn(true, true, c)).toBeNull();
+    expect(phoneTurn(true, true, { ...c, opened: true })).toBeNull();
+    // turned back: what the turn opened closes; what the person opened stays
+    expect(phoneTurn(true, false, { ...c, open: true, opened: true })).toBe('close');
+    expect(phoneTurn(true, false, { ...c, open: true, opened: false })).toBeNull();
+    // no sheet, or Lyrics off: a turn does nothing
+    expect(phoneTurn(false, true, { ...c, sheet: false })).toBeNull();
+    expect(phoneTurn(false, true, { ...c, lyrics: false })).toBeNull();
   });
 });

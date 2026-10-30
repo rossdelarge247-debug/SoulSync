@@ -112,10 +112,19 @@ function Words({
   );
 }
 
-function seekTo(line: LyricLine, offset: number): void {
+/**
+ * Play from a line: the position where the words show it (the inverse of
+ * lyricTime: plus the output delay, less the nudge), a hair after its start.
+ */
+export function seekTo(line: LyricLine, offset: number): void {
   const p = player();
-  // a hair after the line's start, so it's the line that plays
-  p?.seek?.(Math.max(0, line.time - offset + 0.05));
+  let ctx: AudioContext | null = null;
+  try {
+    ctx = p?.outputTargets?.()?.context ?? null;
+  } catch {
+    ctx = null;
+  }
+  p?.seek?.(Math.max(0, line.time - offset + outputDelay(ctx) + 0.05));
 }
 
 /**
@@ -133,6 +142,7 @@ export function TimedLines({
 }) {
   const lines = s.doc?.lines ?? [];
   const [idx, setIdx] = useState(-1);
+  const [focused, setFocused] = useState(false);
   const wordRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const offsetRef = useRef(s.offset);
   offsetRef.current = s.offset;
@@ -193,6 +203,10 @@ export function TimedLines({
   return (
     <div
       className={styles.lines}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+      }}
       data-variant={variant}
       data-sweep={real ? 'real' : 'estimate'}
       data-still={still ? 'true' : undefined}
@@ -226,8 +240,9 @@ export function TimedLines({
       )}
       {lineButton(next, 'next')}
       {variant === 'record' ? lineButton(after, 'after') : null}
-      {/* the line, not the sweep, as a polite update when it changes (27a) */}
-      <p className={styles.srOnly} aria-live="polite">
+      {/* the line, not the sweep, as a polite update when it changes (27a);
+          only while focus is on the lines, so it doesn't talk over a whole song */}
+      <p className={styles.srOnly} aria-live={focused ? 'polite' : 'off'}>
         {cur?.text ?? ''}
       </p>
     </div>

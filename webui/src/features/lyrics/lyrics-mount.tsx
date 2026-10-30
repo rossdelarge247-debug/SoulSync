@@ -11,7 +11,7 @@
  * lyrics) and draws nothing until the layer shows.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 
@@ -63,6 +63,21 @@ function useMedia(query: string): boolean {
     return () => q.removeEventListener?.('change', on);
   }, [query]);
   return m;
+}
+
+/**
+ * What turning the phone does (27f): into landscape with the sheet up and
+ * Lyrics on, open the Visuals; back to portrait, close them if the turn
+ * opened them. Nothing happens without a turn.
+ */
+export function phoneTurn(
+  was: boolean,
+  now: boolean,
+  c: { sheet: boolean; lyrics: boolean; open: boolean; opened: boolean },
+): 'open' | 'close' | null {
+  if (now && !was && c.sheet && c.lyrics && !c.open) return 'open';
+  if (!now && was && c.opened && c.open) return 'close';
+  return null;
 }
 
 /** The legacy markup the store drives: buttons, the overlay's marks, the "…" rows. */
@@ -120,19 +135,28 @@ function Root({
   }, [s, phone]);
 
   // 27f: turning the phone opens the Visuals full screen, lyrics over them;
-  // turning it back closes what the turn opened
+  // turning it back closes what the turn opened. Only the turn itself acts:
+  // closing the Visuals while on its side leaves them closed until the next turn.
+  const wasLandscape = useRef(landscape);
+  const turnOpened = useRef(false);
   useEffect(() => {
     const v2 = (
       window as Window & { npV2?: { openVisuals?: () => void; closeVisuals?: () => void } }
     ).npV2;
-    const w = window as Window & { __ssLyricsTurned?: boolean };
-    if (landscape && sheet && s.on && s.available && !open) {
-      w.__ssLyricsTurned = true;
+    const act = phoneTurn(wasLandscape.current, landscape, {
+      sheet,
+      lyrics: s.on && s.available,
+      open,
+      opened: turnOpened.current,
+    });
+    wasLandscape.current = landscape;
+    if (act === 'open') {
+      turnOpened.current = true;
       v2?.openVisuals?.();
-    } else if (!landscape && w.__ssLyricsTurned) {
-      w.__ssLyricsTurned = false;
-      if (open) v2?.closeVisuals?.();
-    }
+    } else if (act === 'close') {
+      turnOpened.current = false;
+      v2?.closeVisuals?.();
+    } else if (!landscape) turnOpened.current = false;
   }, [landscape, sheet, s.on, s.available, open]);
 
   return (

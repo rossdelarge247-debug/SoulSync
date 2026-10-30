@@ -190,3 +190,22 @@ describe('the controls (27a)', () => {
     expect(s.key('T')).toBe(false);
   });
 });
+
+describe('Lyrics only needs words (review M2)', () => {
+  it('with none found or an instrumental, the visual comes back', () => {
+    const s = new LyricsStore(window);
+    s.setOn(true);
+    s.setOnly(true);
+    s.refresh();
+    expect(s.snapshot().onlyActive).toBe(true);
+    raw = lyrics({ key: 'k-none', synced: null, plain: null });
+    s.refresh();
+    expect(s.snapshot().onlyActive).toBe(false);
+    raw = lyrics({ key: 'k-inst', synced: null, plain: null, instrumental: true });
+    s.refresh();
+    expect(s.snapshot().onlyActive).toBe(false);
+    raw = lyrics({ key: 'k-load', done: false });
+    s.refresh();
+    expect(s.snapshot().onlyActive).toBe(true);
+  });
+});

@@ -141,7 +141,12 @@ export class LyricsStore {
         next.state === 'synced' ||
         next.state === 'plain' ||
         ((next.state === 'none' || next.state === 'instrumental') && next.quiet));
-    next.onlyActive = next.on && next.only && next.available;
+    // Lyrics only needs words to read: with none found or an instrumental the visual comes back
+    next.onlyActive =
+      next.on &&
+      next.only &&
+      next.available &&
+      (next.state === 'loading' || next.state === 'synced' || next.state === 'plain');
     const changed = (Object.keys(next) as (keyof LyricsSnapshot)[]).some(
       (k) => next[k] !== this.s[k],
     );

@@ -1053,6 +1053,8 @@ async function _npLyricsLoadForTrack(track) {
         if (status) status.textContent = '';
     } catch (e) {
         console.debug('lyrics fetch failed:', e);
+        // a fetch for the track before failing late mustn't write over this one's panel
+        if (gen !== _npLyricsState.gen) return;
         const content = document.getElementById('np-lyrics-content');
         if (content) content.innerHTML = '<div class="np-lyrics-empty">Lyrics unavailable</div>';
         if (status) status.textContent = '';
