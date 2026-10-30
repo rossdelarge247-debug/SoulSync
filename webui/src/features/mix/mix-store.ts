@@ -19,8 +19,15 @@
  *   starts it at that track and opens the tray in Mix (33a; the docked
  *   Mixes panel is retired, HANDOFF 329): `followTrack`;
  * - `wide`: "Widen the search" (29d), until the track changes.
+ *
+ * While the Mix tab is hidden (Settings → Library → DJ, mix-visibility.ts)
+ * the mode is Now playing: a remembered Mix reads as Now playing (the
+ * browser keeps it, for when the tab is back), a tray in Mix when the
+ * setting goes off falls back to Now playing, and nothing switches to Mix.
  */
 import { useSyncExternalStore } from 'react';
+
+import { mixTabShown, subscribeMixTab } from './mix-visibility';
 
 export type TrayMode = 'now' | 'mix' | 'dj';
 
@@ -75,6 +82,7 @@ export function forgetRetiredKeys(): void {
 const MAX_CHAIN = 20;
 
 function readMode(): TrayMode {
+  if (!mixTabShown()) return 'now';
   try {
     const kept = window.localStorage.getItem(MODE_STORAGE_KEY);
     if (kept === 'mix') return 'mix';
@@ -130,6 +138,7 @@ export function getMixState(): MixState {
 
 export function setTrayMode(mode: TrayMode): void {
   if (mode === 'dj' && !DJ_MODE_READY) return;
+  if (mode !== 'now' && !mixTabShown()) return;
   try {
     window.localStorage.setItem(MODE_STORAGE_KEY, mode);
   } catch {
@@ -176,6 +185,7 @@ export function moreLikeThis(step: ChainStep): void {
  * (mix-host.tsx's `openMixWith` does the opening).
  */
 export function followTrack(step: ChainStep): void {
+  if (!mixTabShown()) return;
   try {
     window.localStorage.setItem(MODE_STORAGE_KEY, 'mix');
   } catch {
@@ -194,6 +204,21 @@ export function trackChanged(): void {
   const now = current();
   if (now.chain.length || now.wide) emit({ chain: [], wide: false });
 }
+
+/**
+ * The setting changed: hidden, a tray in Mix (or the Visuals' drawer) falls
+ * back to Now playing; shown again, the remembered mode comes back.
+ */
+function onMixTabSetting(): void {
+  if (!loaded) return;
+  if (!mixTabShown()) {
+    if (state.mode !== 'now' || state.drawer) emit({ mode: 'now', drawer: false, chain: [] });
+  } else {
+    const mode = readMode();
+    if (mode !== state.mode) emit({ mode });
+  }
+}
+subscribeMixTab(onMixTabSetting);
 
 export function subscribeMix(listener: () => void): () => void {
   listeners.add(listener);

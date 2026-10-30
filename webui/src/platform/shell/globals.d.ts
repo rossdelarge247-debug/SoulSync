@@ -956,6 +956,8 @@ declare global {
     /** The page shell's module states (api/modules.py initial_modules); the
      *  shell keeps it current after every change. */
     SOULSYNC_MODULES?: unknown;
+    /** Settings → Library → DJ's "Show the Mix tab" as the page shell rendered it (api/dj.py) */
+    SOULSYNC_MIX_TAB?: unknown;
     /** true when the module is known to be turned off. */
     moduleIsOff?: (name: string) => boolean;
     /** a 409 module_disabled body: mark the module off and show its notice. */

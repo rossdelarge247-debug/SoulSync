@@ -56,6 +56,8 @@ export const REASONS = {
   /** Up next moved on under a keyboard pick-up: the place it named isn't the same now */
   queueMoved: 'Up next changed while it was lifted · try again',
   noSet: 'Make a working set first · New set in the Mix tab',
+  /** the same while the Mix tab is hidden (Settings → Library → DJ): a set's own toggle */
+  noSetHidden: 'Make a working set first · "Make this my working set" on a set',
 } as const;
 
 /** A locked row's own words (32b state 5): the line skips it. */

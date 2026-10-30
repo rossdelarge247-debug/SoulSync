@@ -14,6 +14,7 @@
  */
 import { askForAdded } from '@/features/dj/analysis.api';
 import { addedAnalysisWords } from '@/features/dj/analysis.format';
+import { mixTabShown } from '@/features/mix/mix-visibility';
 import { addToWorkingSet, startWorkingSet } from '@/features/mix/mix.api';
 import { workingSetName } from '@/features/mix/mix.format';
 import { readDraft, writeDraft } from '@/features/sets/draft-store';
@@ -60,7 +61,8 @@ export function sendToContext(): SendToContext {
 
 /** A set a drop can't change (32b): a famous mix, as 32b draws it; why, or null. */
 export function setRefusal(set: Pick<SetRef, 'kind'> | null | undefined): string | null {
-  if (!set) return REASONS.noSet;
+  // the Mix tab's New set isn't there while the tab is hidden
+  if (!set) return mixTabShown() ? REASONS.noSet : REASONS.noSetHidden;
   return set.kind === 'famous' ? REASONS.famous : null;
 }
 

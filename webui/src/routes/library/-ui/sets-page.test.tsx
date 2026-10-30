@@ -7,9 +7,15 @@ import { refreshPrefs } from '@/features/automix/prefs';
 import { saveTransitionToDraft } from '@/features/automix/set-play';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { resetMixForTests } from '@/features/mix/mix-store';
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { readDraft, resetDraftsForTests, writeDraft } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 /**
  * Library → Sets (Sets 1: 22a's planner without the AI, 22c–22e's set,

@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { openDjSettings } from '@/features/dj/dj-settings-link';
+import { mixTabShown, resetMixTabForTests } from '@/features/mix/mix-visibility';
 
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 const source = readFileSync(resolve(process.cwd(), 'static/settings.js'), 'utf8');
@@ -169,4 +170,53 @@ it('UX-28: the page has one <main> landmark, round the routed content', () => {
   const mains = doc.querySelectorAll('main');
   expect(mains).toHaveLength(1);
   expect(mains[0].querySelector('#webui-react-root')).not.toBeNull();
+});
+
+describe('Settings → Library → DJ: Show the Mix tab (off while Ross rethinks mixing)', () => {
+  afterEach(() => resetMixTabForTests());
+
+  it('is a switch in the DJ section, off until the settings load', () => {
+    load('/settings');
+    const box = body().querySelector<HTMLInputElement>('#dj-mix-tab-group #dj-show-mix-tab')!;
+    expect(box).not.toBeNull();
+    expect(box.type).toBe('checkbox');
+    expect(box.checked).toBe(false);
+    expect(box.closest('label')?.textContent?.trim()).toBe('Show the Mix tab');
+    expect(body().querySelector('#dj-mix-tab-group')!.textContent).toContain('Sets, Up next,');
+  });
+
+  it("is read from and saved to the server's library settings (library.dj_show_mix_tab)", () => {
+    // only an explicit true ticks it: a missing key (an older config) is off
+    expect(source).toContain(
+      'if (_djMixTabEl) _djMixTabEl.checked = settings.library?.dj_show_mix_tab === true;',
+    );
+    expect(source).toContain("dj_show_mix_tab: _cfgBool('dj-show-mix-tab')");
+    expect(source).toContain(
+      'if (result.success) _applyMixTabSetting(settings.library?.dj_show_mix_tab);',
+    );
+  });
+
+  it("once saved, this page's player follows at once", () => {
+    const fn = source.slice(
+      source.indexOf('function _applyMixTabSetting('),
+      source.indexOf('async function saveSettings('),
+    );
+    const apply = new Function('window', `${fn}; return _applyMixTabSetting;`)(window) as (
+      shown: unknown,
+    ) => void;
+    resetMixTabForTests();
+    apply(true);
+    expect(mixTabShown()).toBe(true);
+    expect((window as unknown as Record<string, unknown>).SOULSYNC_MIX_TAB).toBe(true);
+    apply(undefined);
+    expect(mixTabShown()).toBe(true);
+    apply(false);
+    expect(mixTabShown()).toBe(false);
+  });
+
+  it("the page shell carries the server's value, as the module switches do", () => {
+    expect(html).toContain(
+      'window.SOULSYNC_MIX_TAB = {{ initial_mix_tab | default(false) | tojson }};',
+    );
+  });
 });

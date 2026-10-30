@@ -3,7 +3,7 @@
  * per browser (Design's 296), and "Mixes well with…" following a track
  * (33a, HANDOFF 329).
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   DJ_MODE_READY,
@@ -15,6 +15,12 @@ import {
   setTrayMode,
   setVibe,
 } from './mix-store';
+import { resetMixTabForTests } from './mix-visibility';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 afterEach(() => resetMixForTests());
 
