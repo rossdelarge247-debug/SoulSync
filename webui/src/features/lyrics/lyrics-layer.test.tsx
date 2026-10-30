@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RawLyrics } from './lyrics.logic';
 
 import { LyricsLayer, LyricsRecord, outputDelay, seekTo } from './lyrics-layer';
-import { phoneTurn, syncChrome } from './lyrics-mount';
+import { phoneTurn, syncChrome, turnStep } from './lyrics-mount';
 import { LyricsStore } from './lyrics-store';
 import { parseLrc } from './lyrics.logic';
 
@@ -225,5 +225,27 @@ describe('review round 1', () => {
     // no sheet, or Lyrics off: a turn does nothing
     expect(phoneTurn(false, true, { ...c, sheet: false })).toBeNull();
     expect(phoneTurn(false, true, { ...c, lyrics: false })).toBeNull();
+  });
+});
+
+describe('re-review N5', () => {
+  it('Visuals the person reopened by hand stay open when the phone turns back', () => {
+    const base = { sheet: true, lyrics: true };
+    let st = { was: false, opened: false, wasOpen: false };
+    const look = (landscape: boolean, open: boolean) => {
+      const r = turnStep(st, { ...base, landscape, open });
+      st = r.next;
+      return r.act;
+    };
+    expect(look(true, false)).toBe('open'); // the turn opens them
+    expect(look(true, true)).toBeNull();
+    expect(look(true, false)).toBeNull(); // closed by hand
+    expect(look(true, true)).toBeNull(); // reopened by hand
+    expect(look(false, true)).toBeNull(); // turned back: left open
+    // and a turn's own Visuals still close on the turn back
+    st = { was: false, opened: false, wasOpen: false };
+    expect(look(true, false)).toBe('open');
+    expect(look(true, true)).toBeNull();
+    expect(look(false, true)).toBe('close');
   });
 });
