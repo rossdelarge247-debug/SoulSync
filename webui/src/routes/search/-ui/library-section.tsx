@@ -22,6 +22,7 @@ import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { Grip } from '@/features/dnd/grip';
 import { onGripDown, onRowTouch } from '@/features/dnd/items';
+import { useMixTabShown } from '@/features/mix/mix-visibility';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { StarButton, useStar } from '@/features/stars/star-button';
 import { AppLink } from '@/routes/activity/-ui/app-link';
@@ -120,6 +121,8 @@ function SearchTrackRow({
   phone: boolean;
   playing: boolean;
 }) {
+  // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
+  useMixTabShown();
   const ref = useRef<HTMLDivElement>(null);
   const [sheet, setSheet] = useState(false);
   const id = String(track.id);

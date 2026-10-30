@@ -180,6 +180,8 @@
         // Settings → Library → DJ's "Show the Mix tab" (library.dj_show_mix_tab,
         // off by default; api/dj.py): src/features/mix/mix-visibility.ts reads it
         window.SOULSYNC_MIX_TAB = {{ initial_mix_tab | default(false) | tojson }};
+        // html[data-mix-tab] while it shows: CSS keys the Mix tab's own rows on it
+        if (window.SOULSYNC_MIX_TAB === true) document.documentElement.setAttribute('data-mix-tab', '');
     </script>
     <script>
         // Module switches (core/modules.py): the on/off state each module had
@@ -13126,11 +13128,16 @@
                 <div><dt>Play or pause; stop, while a station plays</dt><dd><kbd>Space</kbd></dd></div>
                 <div><dt>Back or forward 5 seconds</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div>
                 <div><dt>Volume</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd></div>
-                <div><dt>The tray to Mix and back (Visuals: the Mix drawer); mute where there's no Mix tab</dt><dd><kbd>M</kbd></dd></div>
+                <!-- data-mix-only rows show only with the Mix tab (Settings → Library → DJ's
+                     "Show the Mix tab"; html[data-mix-tab], src/features/mix/mix-visibility.ts);
+                     data-mix-off-only rows only without it (static/player.css) -->
+                <div data-mix-only><dt>The tray to Mix and back (Visuals: the Mix drawer); mute where there's no Mix tab</dt><dd><kbd>M</kbd></dd></div>
+                <div data-mix-off-only><dt>Mute</dt><dd><kbd>M</kbd></dd></div>
                 <div><dt>Mute</dt><dd><kbd>Shift M</kbd></dd></div>
-                <div><dt>Play the top match next; the next track where there's no Mix tab</dt><dd><kbd>N</kbd></dd></div>
+                <div data-mix-only><dt>Play the top match next; the next track where there's no Mix tab</dt><dd><kbd>N</kbd></dd></div>
+                <div data-mix-off-only><dt>Next track</dt><dd><kbd>N</kbd></dd></div>
                 <div><dt>Next or previous track</dt><dd><kbd>Shift N</kbd> <kbd>P</kbd></dd></div>
-                <div><dt>Add the playing track to the working set</dt><dd><kbd>A</kbd></dd></div>
+                <div data-mix-only><dt>Add the playing track to the working set</dt><dd><kbd>A</kbd></dd></div>
                 <div><dt>Star or unstar the playing track (the focused row's, on a list)</dt><dd><kbd>S</kbd></dd></div>
                 <div><dt>Mix now, into the next track on the next phrase (Auto mix on)</dt><dd><kbd>X</kbd></dd></div>
                 <div class="ss-player-shortcuts-gap"><dt>A–B loop</dt><dd><kbd>L</kbd></dd></div>

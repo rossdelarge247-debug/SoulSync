@@ -27,13 +27,14 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { playTrackNext } from '@/features/dj/dj-actions';
+import { DJ_QUERY_KEY } from '@/features/dj/dj.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import { useMixModel, type MixModel } from './mix-model';
 import { forgetRetiredKeys, getMixState, setDrawer, setTrayMode, useMixState } from './mix-store';
 import { useMixSubject, type MixSubject } from './mix-subject';
 import { MixDrawer, MixSheet, MixTray, ModesSwitch, PreviewTray, RecordKeyLine } from './mix-tab';
-import { mixTabShown, useMixTabShown } from './mix-visibility';
+import { MIX_TAB_CHANGED_EVENT, mixTabShown, useMixTabShown } from './mix-visibility';
 import { mixQueryOptions } from './mix.api';
 
 export const PHONE_QUERY = '(max-width: 768px)';
@@ -241,6 +242,14 @@ export function MixTabHost() {
     // hidden, the key line is all that's shown: no matches asked for
     askMatches: tabShown,
   });
+
+  // Settings saved the setting: read the DJ status again (its settings are stale)
+  useEffect(() => {
+    const again = () =>
+      void queryClient.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'status'] });
+    window.addEventListener(MIX_TAB_CHANGED_EVENT, again);
+    return () => window.removeEventListener(MIX_TAB_CHANGED_EVENT, again);
+  }, [queryClient]);
 
   // the shell's markup is there from the start; look again once in case
   useEffect(() => {

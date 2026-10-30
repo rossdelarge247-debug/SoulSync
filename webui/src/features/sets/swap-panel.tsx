@@ -137,12 +137,12 @@ function SwapList({
   const a = data.after;
   const between =
     b && a
-      ? `Between ${b.title} (${shortKey(b)}) and ${a.title} (${shortKey(a)}). These fit both, in Mixes well with's order.`
+      ? `Between ${b.title} (${shortKey(b)}) and ${a.title} (${shortKey(a)}). These fit both, best first.`
       : b
-        ? `After ${b.title} (${shortKey(b)}). These follow it, in Mixes well with's order.`
+        ? `After ${b.title} (${shortKey(b)}). These follow it, best first.`
         : a
-          ? `Before ${a.title} (${shortKey(a)}). These lead into it, in Mixes well with's order.`
-          : "These mix well with it, in Mixes well with's order.";
+          ? `Before ${a.title} (${shortKey(a)}). These lead into it, best first.`
+          : 'These mix well with it, best first.';
   return (
     <>
       {phone ? null : <p className={styles.swapBetween}>{between}</p>}

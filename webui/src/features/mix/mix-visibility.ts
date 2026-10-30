@@ -26,20 +26,47 @@ function fromShell(): boolean {
   return typeof window !== 'undefined' && window.SOULSYNC_MIX_TAB === true;
 }
 
+/** `html[data-mix-tab]` while it shows: CSS hides the tab's own rows otherwise (the `?` list). */
+export const MIX_TAB_ATTRIBUTE = 'data-mix-tab';
+
+function mark(on: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.toggleAttribute(MIX_TAB_ATTRIBUTE, on);
+}
+
 let shown = fromShell();
+mark(shown);
 const listeners = new Set<() => void>();
+/**
+ * Bumped by every change that didn't come from a DJ status read (Settings'
+ * save), so a status read that started before one can't undo it.
+ */
+let localChanges = 0;
 
 /** Whether the Mix tab and its ways in show now. */
 export function mixTabShown(): boolean {
   return shown;
 }
 
-/** The server's answer (the page shell, the DJ status, Settings' save). */
-export function noteMixTabSetting(next: unknown): void {
-  if (typeof next !== 'boolean' || next === shown) return;
+/** Where a DJ status read starts: pass it to `noteMixTabSetting` with the answer. */
+export function mixTabReadMark(): number {
+  return localChanges;
+}
+
+/**
+ * The server's answer. From a DJ status read, pass `startedAt`
+ * (`mixTabReadMark()` before the request): an answer from before Settings'
+ * latest save is ignored. Without it (Settings' save) it's a local change.
+ */
+export function noteMixTabSetting(next: unknown, startedAt?: number): void {
+  if (typeof next !== 'boolean') return;
+  if (startedAt === undefined) localChanges += 1;
+  else if (startedAt !== localChanges) return;
+  if (next === shown) return;
   shown = next;
   if (typeof window !== 'undefined') window.SOULSYNC_MIX_TAB = next;
-  for (const l of [...listeners]) l();
+  mark(next);
+  for (const l of listeners) l();
 }
 
 export function subscribeMixTab(listener: () => void): () => void {
@@ -64,5 +91,7 @@ export function resetMixTabForTests(next?: unknown): void {
     else window.SOULSYNC_MIX_TAB = next;
   }
   shown = fromShell();
-  for (const l of [...listeners]) l();
+  localChanges = 0;
+  mark(shown);
+  for (const l of listeners) l();
 }

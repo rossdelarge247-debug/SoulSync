@@ -186,10 +186,17 @@ describe('Settings → Library → DJ: Show the Mix tab (off while Ross rethinks
   });
 
   it("is read from and saved to the server's library settings (library.dj_show_mix_tab)", () => {
-    // only an explicit true ticks it: a missing key (an older config) is off
-    expect(source).toContain(
-      'if (_djMixTabEl) _djMixTabEl.checked = settings.library?.dj_show_mix_tab === true;',
-    );
+    // strict, as the server reads it: a missing key (an older config), "false" or 1 is off
+    const at = source.indexOf('if (_djMixTabEl) {');
+    const line = source.slice(at, source.indexOf('\n', at));
+    const checked = (v: unknown) => {
+      const el = { checked: false };
+      // eslint-disable-next-line typescript-eslint/no-implied-eval
+      new Function('_djMixTabEl', 'settings', line)(el, { library: { dj_show_mix_tab: v } });
+      return el.checked;
+    };
+    expect([true, 'true', '1', ' TRUE '].map(checked)).toEqual([true, true, true, true]);
+    expect([false, 'false', '0', 1, 0, undefined, null].map(checked)).toEqual(Array(7).fill(false));
     expect(source).toContain("dj_show_mix_tab: _cfgBool('dj-show-mix-tab')");
     expect(source).toContain(
       'if (result.success) _applyMixTabSetting(settings.library?.dj_show_mix_tab);',
@@ -201,6 +208,7 @@ describe('Settings → Library → DJ: Show the Mix tab (off while Ross rethinks
       source.indexOf('function _applyMixTabSetting('),
       source.indexOf('async function saveSettings('),
     );
+    // eslint-disable-next-line typescript-eslint/no-implied-eval
     const apply = new Function('window', `${fn}; return _applyMixTabSetting;`)(window) as (
       shown: unknown,
     ) => void;

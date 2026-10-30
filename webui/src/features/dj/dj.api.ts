@@ -6,7 +6,7 @@
 import { infiniteQueryOptions, queryOptions, useQuery } from '@tanstack/react-query';
 
 import { apiClient, readJson } from '@/app/api-client';
-import { noteMixTabSetting } from '@/features/mix/mix-visibility';
+import { mixTabReadMark, noteMixTabSetting } from '@/features/mix/mix-visibility';
 
 /**
  * Where a value came from. A BPM can also be the beat grid's measured one
@@ -186,9 +186,11 @@ export function djStatusQueryOptions() {
   return queryOptions({
     queryKey: [...DJ_QUERY_KEY, 'status'] as const,
     queryFn: async () => {
+      const startedAt = mixTabReadMark();
       const status = await readOk(readJson<DjStatus>(apiClient.get('library/dj/status')));
-      // the Mix tab follows the server's setting (another device may have changed it)
-      noteMixTabSetting(status.settings?.show_mix_tab);
+      // the Mix tab follows the server's setting (another device may have
+      // changed it), unless Settings saved it while this read was out
+      noteMixTabSetting(status.settings?.show_mix_tab, startedAt);
       return status;
     },
     refetchInterval: (query) => (query.state.data?.job?.status === 'running' ? 5_000 : 60_000),

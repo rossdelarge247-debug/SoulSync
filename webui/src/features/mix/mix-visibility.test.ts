@@ -5,8 +5,13 @@
  * and on. The tray, the phone sheet, Visuals and the keys are in
  * mix-tab.test.tsx ("hidden: …").
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AnalysisLineEntry } from '@/features/dj/analysis.api';
+
+import { whyWords } from '@/features/dj/analysis.format';
 import { djStatusQueryOptions } from '@/features/dj/dj.api';
 import { trackMenu } from '@/features/dj/track-menu';
 import { REASONS } from '@/features/dnd/dnd-model';
@@ -23,7 +28,9 @@ import {
   setTrayMode,
 } from './mix-store';
 import {
+  MIX_TAB_ATTRIBUTE,
   MIX_TAB_CHANGED_EVENT,
+  mixTabReadMark,
   mixTabShown,
   noteMixTabSetting,
   resetMixTabForTests,
@@ -127,9 +134,11 @@ describe('"Mixes well with…" in the track menus (track-menu.ts)', () => {
 });
 
 describe('opening Mix (open-mix.ts, mix-store.ts)', () => {
-  it('hidden: "Mixes well with…" from a stale menu neither opens the tray nor plays', () => {
+  it('hidden: "Mixes well with…" from a stale menu neither opens the tray nor plays, and says why', () => {
     const expand = vi.fn();
     const play = vi.fn();
+    const toast = vi.fn();
+    w.showToast = toast;
     w.SoulSyncPlayerChrome = { expand, isExpanded: () => false };
     w.SoulSyncPlayer = { state: () => ({ track: { id: '1', title: 'Night Ferry' } }) };
     openMixWith(TRACK, { play });
@@ -139,6 +148,11 @@ describe('opening Mix (open-mix.ts, mix-store.ts)', () => {
     expect(play).not.toHaveBeenCalled();
     expect(getMixState().mode).toBe('now');
     expect(getMixState().chain).toEqual([]);
+    expect(toast).toHaveBeenCalledWith(
+      'The Mix tab is turned off in Settings → Library → DJ.',
+      'info',
+    );
+    delete w.showToast;
   });
 
   it('shown: it opens the tray in Mix following the track', () => {
@@ -185,5 +199,118 @@ describe("Send to… the working set (step 4's dnd) with none", () => {
     expect(REASONS.noSetHidden).not.toContain('Mix tab');
     noteMixTabSetting(true);
     expect(setRefusal(null)).toBe(REASONS.noSet);
+  });
+});
+
+describe('Now playing while hidden keeps the remembered Mix (review L5)', () => {
+  it("setTrayMode('now') doesn't write over the remembered mode", () => {
+    window.localStorage.setItem(MODE_STORAGE_KEY, 'mix');
+    setTrayMode('now');
+    expect(getMixState().mode).toBe('now');
+    expect(window.localStorage.getItem(MODE_STORAGE_KEY)).toBe('mix');
+    noteMixTabSetting(true);
+    expect(getMixState().mode).toBe('mix');
+  });
+});
+
+describe('a DJ status read from before a save (review L2)', () => {
+  it("can't undo Settings' newer value", () => {
+    const startedAt = mixTabReadMark();
+    fromSettings(true);
+    // the read that started before the save comes back with the old value
+    noteMixTabSetting(false, startedAt);
+    expect(mixTabShown()).toBe(true);
+    // a read that starts after it is taken
+    noteMixTabSetting(false, mixTabReadMark());
+    expect(mixTabShown()).toBe(false);
+  });
+
+  it('through the status query too', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    server.use(
+      http.get('/api/library/dj/status', async () => {
+        await gate;
+        return HttpResponse.json({
+          success: true,
+          settings: {
+            analyze: true,
+            write_tags: false,
+            overwrite_tags: false,
+            show_mix_tab: false,
+          },
+          counts: { tracks: 0, analyzed: 0, failed: 0, unreachable: 0, pending: 0 },
+          job: null,
+          held: false,
+          can_start: true,
+          can_stop: true,
+        });
+      }),
+    );
+    const read = createTestQueryClient().fetchQuery(djStatusQueryOptions());
+    fromSettings(true);
+    release();
+    await read;
+    expect(mixTabShown()).toBe(true);
+  });
+});
+
+describe('the ? shortcuts list (review M1)', () => {
+  const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+  const rows = () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const grid = doc.querySelector('#np-v2-shorts-overlay .ss-player-shortcuts-grid')!;
+    const words = (sel: string) =>
+      [...grid.querySelectorAll(sel)].map(
+        (r) => `${r.querySelector('kbd')!.textContent}: ${r.querySelector('dt')!.textContent}`,
+      );
+    return { mixOnly: words('[data-mix-only]'), offOnly: words('[data-mix-off-only]') };
+  };
+
+  it("marks the Mix tab's M, N and A rows, and has plain M and N rows for without it", () => {
+    const { mixOnly, offOnly } = rows();
+    expect(mixOnly.map((r) => r.split(':')[0])).toEqual(['M', 'N', 'A']);
+    expect(offOnly).toEqual(['M: Mute', 'N: Next track']);
+  });
+
+  it('CSS shows one set or the other by html[data-mix-tab]', () => {
+    expect(css).toContain('html:not([data-mix-tab]) [data-mix-only],');
+    expect(css).toContain('html[data-mix-tab] [data-mix-off-only] { display: none !important; }');
+  });
+
+  it('html[data-mix-tab] follows the setting, from first paint', () => {
+    expect(html).toContain(
+      "if (window.SOULSYNC_MIX_TAB === true) document.documentElement.setAttribute('data-mix-tab', '');",
+    );
+    expect(document.documentElement.hasAttribute(MIX_TAB_ATTRIBUTE)).toBe(false);
+    fromSettings(true);
+    expect(document.documentElement.hasAttribute(MIX_TAB_ATTRIBUTE)).toBe(true);
+    fromSettings(false);
+    expect(document.documentElement.hasAttribute(MIX_TAB_ATTRIBUTE)).toBe(false);
+  });
+});
+
+describe('words that named the Mix tab (review L4)', () => {
+  const e = (over: Partial<AnalysisLineEntry>): AnalysisLineEntry => ({
+    track_id: '1',
+    title: 'Static Bloom',
+    artist: 'Saltmarsh',
+    position: 1,
+    source: 'mix',
+    by: 'you',
+    set_name: null,
+    front: true,
+    ...over,
+  });
+
+  it("an ask from the Mix tab says the player while it's hidden", () => {
+    expect(whyWords(e({}))).toBe('the player');
+    expect(whyWords(e({ by: 'Mira K.' }))).toBe("Mira's player");
+    noteMixTabSetting(true);
+    expect(whyWords(e({}))).toBe('the Mix tab');
+    expect(whyWords(e({ by: 'Mira K.' }))).toBe("Mira's Mix tab");
   });
 });

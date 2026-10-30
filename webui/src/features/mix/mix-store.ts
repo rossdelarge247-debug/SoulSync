@@ -138,7 +138,11 @@ export function getMixState(): MixState {
 
 export function setTrayMode(mode: TrayMode): void {
   if (mode === 'dj' && !DJ_MODE_READY) return;
-  if (mode !== 'now' && !mixTabShown()) return;
+  if (!mixTabShown()) {
+    // hidden: only Now playing, and the remembered mode stays for when it's back
+    if (mode === 'now') emit({ mode });
+    return;
+  }
   try {
     window.localStorage.setItem(MODE_STORAGE_KEY, mode);
   } catch {

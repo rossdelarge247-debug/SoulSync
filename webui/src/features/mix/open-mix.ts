@@ -47,8 +47,11 @@ function playerHasSomething(): boolean {
 
 export function openMixWith(seed: ChainStep, opts: { play?: (() => void) | null } = {}): void {
   // the Mix tab is hidden (Settings → Library → DJ): nothing to open, and no
-  // way in should be showing; a stale one does nothing rather than play
-  if (!mixTabShown()) return;
+  // way in should be showing; a stale one says so rather than play
+  if (!mixTabShown()) {
+    window.showToast?.('The Mix tab is turned off in Settings → Library → DJ.', 'info');
+    return;
+  }
   const playing = readPlayingTrack();
   if (playing) {
     if (playing.id === seed.id) {

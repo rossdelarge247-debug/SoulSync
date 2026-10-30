@@ -9,6 +9,7 @@ import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { awayWords } from '@/features/drives/drives.format';
+import { useMixTabShown } from '@/features/mix/mix-visibility';
 import { playInAppPlayer } from '@/features/playback/app-player';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { StarButton, useStar } from '@/features/stars/star-button';
@@ -145,6 +146,8 @@ function MusicRow({
   /** The track's BPM and key (the library's DJ data), when known. */
   dj?: DjInfo;
 }) {
+  // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
+  useMixTabShown();
   const time = clockTime(play.played_at);
   const artist = artistHref(play);
   const album = albumHref(play);
