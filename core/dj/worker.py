@@ -110,6 +110,12 @@ class _Abort(RuntimeError):
     """Something every track would hit (librosa missing): end the sweep."""
 
 
+class _Interrupted(BaseException):
+    """A person's Analyse now came for another track: the one being analysed
+    stops at its next step and goes back in line (raised from the step
+    report, a BaseException so no ``except Exception`` on the way keeps it)."""
+
+
 def _now() -> int:
     return int(time.time())
 
@@ -652,11 +658,18 @@ PRIORITY_LOOK_SECONDS = 0.5
 #: transition (``soon``; review L10): the next two with Auto mix on
 SOON_PER_PROFILE = 2
 #: why a track is in the asked-for line (Brief A, 31b; HANDOFF 325): a
-#: person asked (Analyse these, Analyse now, Analyse mine, Try again), a set
-#: (opened, or a track added to it or to the working set), Up next with Auto
-#: mix on (or a set played as a mix), the Mix tab, the lab, DJ now (Brief E),
-#: or a page that didn't say
-SOURCES = ("asked", "set", "up_next", "mix", "lab", "dj_now", "page")
+#: person asked (Analyse these, Analyse mine, Try again), a set (opened, or a
+#: track added to it or to the working set), Up next with Auto mix on (or a
+#: set played as a mix), the Mix tab, the lab, DJ now (Brief E), a page that
+#: didn't say, or a person's Analyse now on one track (``now``: first in
+#: line, ahead of every other tier, and it starts at once; Ross's report of
+#: 30 October)
+SOURCES = ("asked", "set", "up_next", "mix", "lab", "dj_now", "page", "now")
+#: the tiers a running track can be interrupted from by an Analyse now: a
+#: person's batch ask (2), a page's (3) and the sweep's own order (4); never
+#: another Analyse now (-1), a Move up (0) or Up next's ``soon`` (1)
+INTERRUPTIBLE_FROM = 2
+SWEEP_TIER = 4
 
 
 class DjAnalysisJob:
@@ -710,6 +723,18 @@ class DjAnalysisJob:
         self._pinned: set = set()
         self._soon_by: Dict[int, List[str]] = {}
         self._explicit: set = set()
+        #: a person's Analyse now on one track: ahead of every tier, the
+        #: newest first (Ross's report of 30 October)
+        self._now: set = set()
+        #: the track being analysed: its tier when taken and what put it in
+        #: line, so an Analyse now can put it back where it was
+        self._taken: Optional[Tuple[str, Dict[str, Any]]] = None
+        #: the track an Analyse now is stopping at its next step
+        self._interrupt: Optional[str] = None
+        #: sweep tracks an Analyse now stopped: first of the sweep's order
+        self._sweep_front: List[str] = []
+        #: a place before every other in its tier, for a track put back
+        self._front_seq = 0
         #: each track's place in its tier: ``(tier, seq)``, the seq given when
         #: it entered that tier, so one that moves down a tier goes to the end
         #: of it, never ahead of what was there first (re-review N1)
@@ -782,6 +807,7 @@ class DjAnalysisJob:
         self._pinned.clear()
         self._soon_by.clear()
         self._explicit.clear()
+        self._now.clear()
         self._why.clear()
         self._placed.clear()
         self._again.clear()
@@ -791,6 +817,7 @@ class DjAnalysisJob:
         self._asked_by.pop(track_id, None)
         self._pinned.discard(track_id)
         self._explicit.discard(track_id)
+        self._now.discard(track_id)
         self._why.pop(track_id, None)
         self._placed.pop(track_id, None)
         for held in self._soon_by.values():
@@ -798,6 +825,8 @@ class DjAnalysisJob:
                 held.remove(track_id)
 
     def _tier_of(self, track_id: str) -> int:
+        if track_id in self._now:
+            return -1
         if track_id in self._pinned:
             return 0
         if any(track_id in held for held in self._soon_by.values()):
@@ -813,8 +842,8 @@ class DjAnalysisJob:
     def _resort_locked(self, first: Iterable[str] = ()) -> None:
         """Keep the line in tier order, first come first served within a
         tier: a track that changes tier (up or down) goes to the end of its
-        new one, ``first`` (in its order) before the rest. Move up's tier
-        is newest first. A few hundred tracks at most."""
+        new one, ``first`` (in its order) before the rest. Analyse now's
+        and Move up's tiers are newest first. A few hundred tracks at most."""
         for track_id in list(first) + self._priority:
             if track_id not in self._asked_by:
                 continue
@@ -825,7 +854,7 @@ class DjAnalysisJob:
 
         def key(track_id: str) -> Tuple[int, int]:
             tier, seq = self._placed.get(track_id, (3, 0))
-            return (tier, -seq if tier == 0 else seq)
+            return (tier, -seq if tier <= 0 else seq)
 
         self._priority.sort(key=key)
 
@@ -835,12 +864,14 @@ class DjAnalysisJob:
 
     def _enqueue_locked(self, ids: List[str], profile_id: Optional[int], limit: Optional[int], *,
                         explicit: bool = False, source: Optional[str] = None,
-                        set_id: Optional[int] = None, soon: bool = False) -> Dict[str, Any]:
+                        set_id: Optional[int] = None, soon: bool = False, now: bool = False) -> Dict[str, Any]:
         """Add ``ids`` to the asked-for line (the lock is held). A track
         already in it keeps its place, unless it moves up a tier: a person
-        asks for it themselves (``explicit``), or Up next needs it for its
+        asks for it themselves (``explicit``), Up next needs it for its
         next transition (``soon``: at most ``SOON_PER_PROFILE`` a profile,
-        the newest). One this profile has no room for is ``over``."""
+        the newest), or a person's Analyse now (``now``: first of all, the
+        newest first). One this profile has no room for is ``over``."""
+        explicit = explicit or now
         pid = int(profile_id) if profile_id is not None else 0
         why = (source if source in SOURCES else ("asked" if explicit else "page"), set_id)
         mine = sum(1 for t in self._priority if pid in self._asked_by.get(t, ()))
@@ -854,8 +885,11 @@ class DjAnalysisJob:
         for track_id in ids:
             if running and track_id == current:
                 # being worked out right now: already as good as asked for
-                # (queued again it would run twice; re-review 5)
+                # (queued again it would run twice; re-review 5); an Analyse
+                # now or Up next's need for it means it isn't interrupted
                 already += 1
+                if self._taken and self._taken[0] == track_id and (now or soon):
+                    self._taken[1]["tier"] = min(self._taken[1]["tier"], -1 if now else 1)
                 continue
             if running and track_id in self._seen and track_id not in self._asked_by:
                 # this run took it already and it still needs analysis (put
@@ -901,6 +935,13 @@ class DjAnalysisJob:
             # what Up next needs for its next transition goes first; this
             # profile's earlier "soon" tracks go back to their own tier
             self._soon_by[pid] = [t for t in wanted if t in self._asked_by][-SOON_PER_PROFILE:]
+        if now:
+            # Analyse now: first of all, the newest first, said as Analyse now
+            for track_id in wanted:
+                if track_id in self._asked_by:
+                    self._now.add(track_id)
+                    self._why.setdefault(track_id, {})[pid] = ("now", set_id)
+                    self._stamp_locked(track_id, -1)
         self._resort_locked(self._soon_by.get(pid, []) if soon else wanted)
         return {"added": added, "already": already, "over": over, "yours": mine, "taken": taken}
 
@@ -913,6 +954,9 @@ class DjAnalysisJob:
             if not self._state or self._state.get("status") != "running":
                 return False
             self._enqueue_locked([track_id], profile_id, None, explicit=True, source="asked")
+            if self._taken and self._taken[0] == track_id:
+                # moved up while it's being analysed: an Analyse now waits for it
+                self._taken[1]["tier"] = min(self._taken[1]["tier"], 0)
             if track_id in self._asked_by:
                 self._pinned.add(track_id)
                 # the last one moved goes first
@@ -981,7 +1025,8 @@ class DjAnalysisJob:
 
     def ask(self, database, ids: List[str], profile_id: int, *,
             limit: int = PRIORITY_PER_PROFILE, explicit: bool = True, source: Optional[str] = None,
-            set_id: Optional[int] = None, soon: bool = False, again: Iterable[str] = ()) -> Dict[str, Any]:
+            set_id: Optional[int] = None, soon: bool = False, again: Iterable[str] = (),
+            now: bool = False) -> Dict[str, Any]:
         """Analyse on demand: ``ids`` (tracks that need analysis, already
         checked to be in the caller's library) go in the asked-for line, and a
         sweep starts for them when none runs. ``{added, already, over,
@@ -993,26 +1038,55 @@ class DjAnalysisJob:
         say why each track is there (``SOURCES``). ``again`` (Analyse again,
         among ``ids``): those that are in line have their grid found again
         when they're taken, though it's current; one over the limit isn't
-        touched."""
+        touched. ``now`` (a person's Analyse now): first of all, and a track
+        being analysed from a lower tier (a batch ask, a page's, the sweep's
+        own) stops at its next step and goes back to the front of its own
+        tier; ``now_state`` says ``working`` (it's the one being analysed),
+        ``interrupting``, ``starting`` (nothing else is being analysed) or
+        ``next`` (after ``after``: another Analyse now, a Move up or Up
+        next's ``soon`` track, never interrupted)."""
         clean = list(dict.fromkeys(str(i) for i in ids if i not in (None, "")))
+        now_state: Optional[str] = None
+        after: Optional[str] = None
         with self._lock:
-            if self.held and not explicit:
+            if self.held and not explicit and not now:
                 raise Held("Analysis is stopped: automatic asks wait for a Start.")
             result = self._enqueue_locked(clean, profile_id, limit, explicit=explicit, source=source,
-                                          set_id=set_id, soon=soon)
+                                          set_id=set_id, soon=soon, now=now)
             again_ids = {str(t) for t in again}
             if again_ids:
                 line = set(self._priority)
                 self._again.update(t for t in clean if t in again_ids and t in line)
             running = bool(self._state and self._state.get("status") == "running")
             want_start = bool(self._priority) and not running
+            if now and (result["added"] or result["already"]):
+                now_state, after = self._now_state_locked(clean, running)
         started = False
         if want_start:
             try:
                 started = self.start(database, profile_id, manual=False, priority_only=True) is not None
             except JobRunning:
                 started = False  # another request started it, with this line in it
-        return {**result, "limit": limit, "started": started}
+        out = {**result, "limit": limit, "started": started}
+        if now:
+            out.update(now_state=now_state, after=after)
+        return out
+
+    def _now_state_locked(self, ids: List[str], running: bool) -> Tuple[Optional[str], Optional[str]]:
+        """After an Analyse now went in (the lock is held): stop the track
+        being analysed when it came from a lower tier, or say what it waits
+        for."""
+        current = (self._state or {}).get("current") if running else None
+        if current is not None and str(current) in ids:
+            return "working", None
+        if current is None or not self._taken or self._taken[0] != current:
+            # nothing being analysed (idle, held, resting between tracks, or
+            # a run's end being saved): the line's first is taken next
+            return "starting", None
+        if self._taken[1]["tier"] >= INTERRUPTIBLE_FROM:
+            self._interrupt = str(current)
+            return "interrupting", None
+        return "next", str(current)
 
     def queue_snapshot(self, ids: List[str], profile_id: Optional[int] = None, *,
                        line: bool = False) -> Dict[str, Any]:
@@ -1031,10 +1105,14 @@ class DjAnalysisJob:
             for track_id in ids:
                 if track_id in ahead:
                     places[track_id] = (ahead[track_id] + 1, True, pid in self._asked_by.get(track_id, ()))
+                elif live is not None and track_id in self._sweep_front:
+                    # stopped by an Analyse now: first of the sweep's order
+                    places[track_id] = (in_line + self._sweep_front.index(track_id) + 1, False, False)
                 elif live is not None and track_id not in self._seen:
                     pos = self._sweep_pos.get(track_id)
                     if pos is not None and pos >= self._index:
-                        places[track_id] = (in_line + pos - self._index + 1, False, False)
+                        places[track_id] = (in_line + len(self._sweep_front) + pos - self._index + 1,
+                                            False, False)
             mine = [i for i, t in enumerate(self._priority, start=1) if pid in self._asked_by.get(t, ())] \
                 if pid is not None else []
             out_line = [(t, self._tier_of(t) <= 2, dict(self._why.get(t) or {})) for t in self._priority] \
@@ -1066,12 +1144,32 @@ class DjAnalysisJob:
                 if not peek:
                     self._priority.pop(0)
                     self._seen.add(first)
+                    # what put it in line, so an Analyse now can put it back
+                    self._taken = (first, {"tier": self._tier_of(first),
+                                           "asked_by": set(self._asked_by.get(first, ())),
+                                           "why": dict(self._why.get(first) or {}),
+                                           "explicit": first in self._explicit, "again": first in self._again,
+                                           "in_run": first in self._added_in_run})
+                    self._interrupt = None
                     self._forget_locked(first)
                     # taken: a Cancel after a retry doesn't take it off the
                     # total again (re-review L2)
                     self._added_in_run.discard(first)
                     self._taking_locked(first)
                 return first, True
+            while self._sweep_front:
+                # a sweep track an Analyse now stopped: before the rest of the order
+                first = self._sweep_front[0]
+                if first in self._seen:
+                    self._sweep_front.pop(0)
+                    continue
+                if not peek:
+                    self._sweep_front.pop(0)
+                    self._seen.add(first)
+                    self._taken = (first, {"tier": SWEEP_TIER})
+                    self._interrupt = None
+                    self._taking_locked(first)
+                return first, False
             while self._index < len(ids):
                 track_id = ids[self._index]
                 if track_id in self._seen:
@@ -1080,9 +1178,44 @@ class DjAnalysisJob:
                 if not peek:
                     self._index += 1
                     self._seen.add(track_id)
+                    self._taken = (track_id, {"tier": SWEEP_TIER})
+                    self._interrupt = None
                     self._taking_locked(track_id)
                 return track_id, False
             return None
+
+    def _put_back_locked(self, track_id: str) -> None:
+        """An Analyse now stopped ``track_id``: it goes back to the front of
+        its own tier (a sweep track to the front of the sweep's order), with
+        who asked and why, as if it hadn't been taken (the lock is held)."""
+        taken = self._taken[1] if self._taken and self._taken[0] == track_id else {"tier": SWEEP_TIER}
+        self._taken = None
+        self._interrupt = None
+        self._seen.discard(track_id)
+        if taken["tier"] >= SWEEP_TIER or not taken.get("asked_by"):
+            self._sweep_front.insert(0, track_id)
+            return
+        if track_id not in self._asked_by:
+            self._priority.append(track_id)
+            self._asked_by[track_id] = set(taken["asked_by"])
+            self._why[track_id] = dict(taken.get("why") or {})
+        else:
+            # asked for again while it was analysed: both asks count
+            self._asked_by[track_id].update(taken["asked_by"])
+            for pid, why in (taken.get("why") or {}).items():
+                self._why.setdefault(track_id, {}).setdefault(pid, why)
+        if taken.get("explicit"):
+            self._explicit.add(track_id)
+        if taken.get("again"):
+            self._again.add(track_id)
+        if taken.get("in_run"):
+            self._added_in_run.add(track_id)
+        tier = self._tier_of(track_id)
+        if tier >= INTERRUPTIBLE_FROM:
+            # before everything else in its tier
+            self._front_seq -= 1
+            self._placed[track_id] = (tier, self._front_seq)
+        self._resort_locked()
 
     def _taking_locked(self, track_id: str) -> None:
         """The track just taken is the current one from this moment (the lock
@@ -1162,6 +1295,9 @@ class DjAnalysisJob:
             self._seen = set()
             self._retried = set()
             self._added_in_run = set()
+            self._sweep_front = []
+            self._taken = None
+            self._interrupt = None
             self._stop.clear()
             started = _now()
             with closing(database._get_connection()) as conn:
@@ -1310,6 +1446,58 @@ class DjAnalysisJob:
             if self._state is not None:
                 self._state.update(step=step, step_mode=mode,
                                    steps=list(self._state.get("steps") or []) + [(step, at)])
+            stop_here = self._interrupt is not None and self._interrupt == (self._state or {}).get("current")
+        if stop_here:
+            # an Analyse now came for another track: stop here, between steps
+            raise _Interrupted()
+
+    def _rows_before(self, database, track_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """The track's DJ and grid rows before it's analysed, to put back if
+        an Analyse now stops it."""
+        from core.dj import grid_store, store
+
+        try:
+            return store.get(database, track_id), grid_store.get(database, track_id)
+        except Exception as exc:  # noqa: BLE001 - unreadable: put back as requeued
+            logger.debug("rows before the analysis unreadable for %s: %s", track_id, exc)
+            return None, None
+
+    def _restore_rows(self, database, track_id: str, dj_before: Optional[Dict[str, Any]],
+                      grid_before: Optional[Dict[str, Any]]) -> None:
+        """An Analyse now stopped the track: no ``analyzing`` row is left. The
+        DJ row goes back as it was (or back in the queue), and the grid as it
+        was (Analyse again's grid is kept), or back in the queue."""
+        from core.dj import grid_store, store
+
+        try:
+            dj_now = store.get(database, track_id)
+            if dj_now and dj_now.get("status") == "analyzing":
+                if dj_before and dj_before.get("status") != "analyzing":
+                    store.save(database, track_id, dj_before)
+                else:
+                    store.requeue(database, track_id, "stopped for an Analyse now")
+            grid_now = grid_store.get(database, track_id)
+            if grid_now and grid_now.get("status") == "analyzing":
+                if grid_before and grid_before.get("status") != "analyzing":
+                    grid_store.restore(database, grid_before)
+                else:
+                    grid_store.mark(database, track_id, "stale", "stopped for an Analyse now", version=0)
+        except Exception as exc:  # noqa: BLE001 - the next start's leftover check has it
+            logger.warning("couldn't put track %s back after an Analyse now: %s", track_id, exc)
+
+    def _rest(self, seconds: float) -> bool:
+        """The rest after a track; an Analyse now waiting ends it. True when
+        stopped."""
+        waited = 0.0
+        while waited < seconds:
+            step = min(PRIORITY_LOOK_SECONDS, seconds - waited)
+            if self._stop.wait(step):
+                return True
+            waited += step
+            with self._lock:
+                if self._now:
+                    return False
+        return False
 
     def _run(self, database, ids: List[str]) -> None:
         from core.dj import progress
@@ -1340,6 +1528,7 @@ class DjAnalysisJob:
                 started = time.monotonic()
                 self._update(current=track_id, step=None, step_mode=None, asked_for=asked_for, steps=[],
                              track_started=started)
+                dj_before, grid_before = self._rows_before(database, track_id)
                 self._in_track.set()
                 try:
                     with progress.reporting(self._on_step):
@@ -1349,6 +1538,16 @@ class DjAnalysisJob:
                                                     database, asked_for=a) is None,
                                                 find_grid=find_grid,
                                                 **({"force_grid": True} if forced else {}))
+                except _Interrupted:
+                    # an Analyse now: this track goes back where it was, its
+                    # rows as they were, and the Analyse now is taken next
+                    self._restore_rows(database, track_id, dj_before, grid_before)
+                    with self._lock:
+                        if forced:
+                            self._again.add(track_id)
+                        self._put_back_locked(track_id)
+                    self._update(current=None, step=None, step_mode=None, asked_for=False, steps=[])
+                    continue
                 finally:
                     self._in_track.clear()
                 took = time.monotonic() - started
@@ -1399,7 +1598,7 @@ class DjAnalysisJob:
                 # the track is finished: nothing is "working" through the rest
                 self._update(current=None, step=None, step_mode=None, asked_for=False, steps=[])
                 self._save(database)
-                if self._stop.wait(max(self._sleep_floor, took * self._rest_factor)):
+                if self._rest(max(self._sleep_floor, took * self._rest_factor)):
                     status = "stopped"
                     break
         except _Abort as exc:
