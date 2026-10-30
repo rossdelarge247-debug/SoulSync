@@ -115,8 +115,12 @@ def track_row(db, track_id: str) -> Optional[Dict[str, Any]]:
     conn = db._get_connection()
     try:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
+        # a database without the channels column (its migration hasn't run)
+        # reads them as known-unknown (0), so a request never probes the file
+        # again only to fail to keep the answer
         probed = ", ".join(
-            f"t.{name}" if name in cols else f"NULL AS {name}" for name, _ in TRACK_COLUMNS)
+            f"t.{name}" if name in cols else (f"0 AS {name}" if name == "channels" else f"NULL AS {name}")
+            for name, _ in TRACK_COLUMNS)
         disc = "t.disc_number" if "disc_number" in cols else "NULL AS disc_number"
         owner = "t.owner_profile_id" if "owner_profile_id" in cols else "NULL AS owner_profile_id"
         row = conn.execute(
@@ -192,6 +196,8 @@ def details_for(db, row: Dict[str, Any], path: Optional[str], *,
             # remembered from an earlier probe that read it as ALAC
             key = "alac"
 
+    # the whole file's size over its length, as 30i defines "on disk": tags and
+    # embedded artwork included (a few kbps on a long track, more on a short one)
     on_disk_kbps = None
     if size and duration_s:
         on_disk_kbps = int(round(size * 8 / duration_s / 1000)) or None

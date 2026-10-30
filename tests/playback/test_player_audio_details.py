@@ -220,3 +220,59 @@ def test_a_streamed_file_has_no_bitrate_on_disk(tmp_path):
     conn.close()
     out = D.details_for(db, db.row("t1"), None)
     assert out["on_disk_kbps"] is None and out["channels"] is None
+
+
+def test_without_the_channels_column_a_request_never_probes_again(tmp_path, monkeypatch):
+    """A database whose migration hasn't added `channels` reads it as
+    known-unknown, so every request doesn't open the file only to fail to
+    keep the answer (review L8)."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(path))
+    conn.execute("CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, file_path TEXT, bitrate INTEGER, "
+                 "duration INTEGER, track_number INTEGER, album_id TEXT, artist_id TEXT, "
+                 "bit_depth INTEGER, sample_rate INTEGER, audio_probe_sig TEXT)")
+    conn.execute("CREATE TABLE albums (id TEXT, title TEXT, year INTEGER, thumb_url TEXT, track_count INTEGER)")
+    conn.execute("CREATE TABLE artists (id TEXT, name TEXT)")
+    song = tmp_path / "s.flac"
+    _write_stereo(song)
+    from core.playback.peaks import file_signature
+
+    conn.execute("INSERT INTO tracks (id, title, file_path, bit_depth, sample_rate, audio_probe_sig) "
+                 "VALUES ('t1', 'A', ?, 16, 44100, ?)", (str(song), file_signature(str(song))))
+    conn.commit()
+    conn.close()
+
+    class Db(_Db):
+        def __init__(self, p):
+            self.path = str(p)
+
+        def _current_scope_sql(self, _col):
+            return "1=1", []
+
+    db = Db(path)
+    row = D.track_row(db, "t1")
+    assert row["channels"] == 0
+    monkeypatch.setattr(D, "probe", lambda p: pytest.fail("probed without the column"))
+    out = D.details_for(db, row, str(song))
+    assert out["channels"] is None and out["bit_depth"] == 16
+
+
+def test_an_upgraded_database_gains_the_channels_column_cleanly(tmp_path):
+    """A library made before `tracks.channels` opens with the column and no
+    failed migration step (review L7)."""
+    from database.music_database import MusicDatabase
+
+    path = tmp_path / "music.db"
+    db = MusicDatabase(str(path))
+    conn = sqlite3.connect(str(path))
+    conn.execute("ALTER TABLE tracks DROP COLUMN channels")
+    conn.commit()
+    assert "channels" not in {r[1] for r in conn.execute("PRAGMA table_info(tracks)")}
+    conn.close()
+    db._initialize_database()  # the next start
+    conn = sqlite3.connect(str(path))
+    try:
+        assert "channels" in {r[1] for r in conn.execute("PRAGMA table_info(tracks)")}
+    finally:
+        conn.close()
+    assert db.schema_health()["failed_steps"] == []
