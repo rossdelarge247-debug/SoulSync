@@ -1184,11 +1184,12 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 #np-modal-overlay .np-modal { position: absolute; inset: 0; overflow: hidden; }
 #np-v2-bg,
 .ss-visuals-stage { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
-/* who paints: data-visuals-engine (synchros | milkdrop | classic | still) */
+/* who paints: data-visuals-engine (synchros | milkdrop | classic | data | still | lyrics);
+   Data (30a) draws on Classic's canvas; Lyrics only (27a) turns every visual off */
 .ss-visuals-stage { display: none; }
 #np-modal-overlay[data-visuals-engine='milkdrop'] #ss-visuals-milkdrop,
-#np-modal-overlay[data-visuals-engine='classic'] #ss-visuals-classic { display: block; }
-#np-modal-overlay:is([data-visuals-engine='milkdrop'], [data-visuals-engine='classic'], [data-visuals-engine='still']) #np-v2-bg { display: none !important; }
+#np-modal-overlay:is([data-visuals-engine='classic'], [data-visuals-engine='data']) #ss-visuals-classic { display: block; }
+#np-modal-overlay:is([data-visuals-engine='milkdrop'], [data-visuals-engine='classic'], [data-visuals-engine='data'], [data-visuals-engine='still'], [data-visuals-engine='lyrics']) #np-v2-bg { display: none !important; }
 #np-v2-visuals-header,
 .ss-player-visuals-transport { position: absolute; z-index: 3; transition: opacity 300ms ease; }
 .np-modal.npv2-ui-hidden #np-v2-visuals-header,
@@ -1219,7 +1220,13 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-visuals-hbtn svg { width: 20px; height: 20px; flex: none; }
 .ss-visuals-hbtn:hover { background: var(--ss-hover-wash); }
 .ss-visuals-hbtn:active { opacity: var(--ss-pressed-opacity); }
-.ss-visuals-panel-btn { padding: 0 16px 0 14px; }
+.ss-visuals-panel-btn,
+.ss-visuals-lyrics-btn { padding: 0 16px 0 14px; }
+.ss-visuals-lyrics-btn[hidden] { display: none; }
+.ss-visuals-lyrics-btn[aria-pressed='true'] {
+    border-color: var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+}
 .ss-visuals-panel-btn[aria-pressed='true'] {
     border-color: var(--ss-selected-border);
     background: var(--ss-selected-fill);
@@ -1309,8 +1316,10 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 /* a narrower window: the visual's name gives way first */
 @media (max-width: 1100px) {
     .ss-visuals-name { width: 200px; }
-    .ss-visuals-panel-btn span { display: none; }
-    .ss-visuals-panel-btn { padding: 0; }
+    .ss-visuals-panel-btn span,
+    .ss-visuals-lyrics-btn span { display: none; }
+    .ss-visuals-panel-btn,
+    .ss-visuals-lyrics-btn { padding: 0; }
 }
 
 /* the phone (10e, 10f): close, the track, ‹ ›, the Visuals button; the mini
@@ -2194,4 +2203,32 @@ button.ss-player-radio-heard {
 .np-queue-gap + .np-queue-item { border-top: 0; }
 @media (max-width: 768px) {
     .ss-player-mini .ss-player-automix-mixnow { display: none; }
+}
+
+/* ── lyrics in the record on a phone (27e; src/features/lyrics) ───────────
+   The Lyrics button sits at the record's top right; on, the art moves to a
+   44px thumbnail beside the title and the lyrics take its place. The desktop
+   tray keeps its own lyrics panel (np-lyrics-panel). */
+.ss-player-record-lyrics,
+.ss-player-record-lyrics-slot { display: none; }
+@media (width <= 768px) {
+    .ss-player-record-top { position: relative; }
+    .ss-player-record-lyrics:not([hidden]) {
+        display: inline-flex;
+        position: absolute;
+        top: 0;
+        right: 0;
+        border: 1px solid var(--ss-control-border);
+    }
+    .ss-player-record-lyrics[aria-pressed='true'] {
+        border-color: var(--ss-selected-border);
+        background: var(--ss-selected-fill);
+    }
+    .ss-player-record[data-lyrics-on] .ss-player-record-lyrics-slot { display: block; }
+    .ss-player-record[data-lyrics-on] .ss-player-record-top { flex-direction: row; align-items: center; gap: 12px; padding-right: 56px; }
+    .ss-player-record[data-lyrics-on] .ss-player-record-art { width: 44px; height: 44px; margin: 0; border-radius: var(--ss-radius-tag); }
+    .ss-player-record[data-lyrics-on] .ss-player-record-fallback svg { width: 20px; height: 20px; }
+    .ss-player-record[data-lyrics-on] .ss-player-record-title { font-size: 16px; font-weight: 600; }
+    .ss-player-record[data-lyrics-on] .ss-player-record-text .ss-player-label,
+    .ss-player-record[data-lyrics-on] .ss-player-record-line { display: none; }
 }

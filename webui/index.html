@@ -12654,7 +12654,12 @@
                         <span class="ss-player-record-artist ss-player-record-artist--plain" data-player-artist-plain hidden></span>
                         <p class="ss-player-record-line" data-player-album-line></p>
                     </div>
+                    <!-- 27e: on a phone, Lyrics takes the artwork's place (src/features/lyrics) -->
+                    <button type="button" class="ss-player-btn ss-player-record-lyrics" data-lyrics-toggle aria-pressed="false" aria-label="Lyrics" aria-keyshortcuts="T" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h13"/></svg>
+                    </button>
                 </div>
+                <div class="ss-player-record-lyrics-slot" data-lyrics-record></div>
                 <!-- while auto-mix mixes, both tracks in the record (26d, 26f) -->
                 <div class="ss-player-automix-record" data-automix-slot="record"></div>
                 <dl class="ss-player-readout ss-player-readout--plain">
@@ -13009,6 +13014,11 @@
             <button type="button" class="ss-player-menu-item" id="np-radio-btn" aria-pressed="false" data-player-menu-music>Add similar tracks when the queue ends <span class="ss-player-menu-state" data-player-radio-state>Off</span></button>
             <p class="ss-player-menu-label ss-player-menu-label--rule" data-player-menu-show>Show</p>
             <button type="button" class="ss-player-menu-item" data-player-menu="lyrics">Lyrics <span class="ss-player-menu-state" data-player-lyrics-state></span></button>
+            <!-- 27e: with the lyrics in the record on a phone, their text size and nudge -->
+            <button type="button" class="ss-player-menu-item" data-lyrics-menu="smaller" hidden>Lyrics text smaller <span class="ss-player-menu-state" data-lyrics-size-state>44</span></button>
+            <button type="button" class="ss-player-menu-item" data-lyrics-menu="larger" hidden>Lyrics text larger</button>
+            <button type="button" class="ss-player-menu-item" data-lyrics-menu="earlier" hidden>Lyrics earlier <span class="ss-player-menu-state" data-lyrics-offset-state>0.0 s</span></button>
+            <button type="button" class="ss-player-menu-item" data-lyrics-menu="later" hidden>Lyrics later</button>
             <button type="button" class="ss-player-menu-item" data-player-menu="details">Track details</button>
             <button type="button" class="ss-player-menu-item" data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd class="ss-player-menu-kbd">F</kbd><span class="ss-player-menu-state" data-player-visuals-state hidden>Play something first</span></button>
             <button type="button" class="ss-player-menu-item" id="np-v2-shorts-btn" aria-keyshortcuts="?">Keyboard shortcuts <kbd class="ss-player-menu-kbd">?</kbd></button>
@@ -13060,6 +13070,11 @@
                     </button>
                 </div>
                 <div class="ss-visuals-head-right">
+                    <!-- 27a: Lyrics over the visuals (T), music only; src/features/lyrics -->
+                    <button type="button" class="ss-visuals-hbtn ss-visuals-lyrics-btn" id="np-v2-visuals-lyrics-btn" aria-pressed="false" aria-keyshortcuts="T" title="Lyrics (T)" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h13"/></svg>
+                        <span>Lyrics</span>
+                    </button>
                     <!-- 29b: the Mix tab as a drawer (src/features/mix/mix-host.tsx) -->
                     <button type="button" class="ss-visuals-hbtn ss-visuals-mix-btn" id="np-v2-visuals-mix-btn" aria-pressed="false" aria-expanded="false" aria-controls="ss-mix-drawer" title="Mix (M)" hidden>
                         <span>Mix</span>
@@ -13123,7 +13138,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
             </div>
-            <p>The first group works anywhere outside a text field; the rest while the tray or the visuals are open. In the visuals, V, Shift V, R and Shift S work on the visuals; L is the A–B loop and S the star there too.</p>
+            <p>The first group works anywhere outside a text field; the rest while the tray or the visuals are open. In the visuals, V, Shift V, R and Shift S work on the visuals and T on the lyrics; L is the A–B loop and S the star there too.</p>
             <dl class="ss-player-shortcuts-grid">
                 <div><dt>Play or pause; stop, while a station plays</dt><dd><kbd>Space</kbd></dd></div>
                 <div><dt>Back or forward 5 seconds</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div>
@@ -13147,6 +13162,7 @@
                 <div class="ss-player-shortcuts-gap"><dt>Next or previous visual</dt><dd><kbd>V</kbd> <kbd>Shift V</kbd></dd></div>
                 <div><dt>A random visual</dt><dd><kbd>R</kbd></dd></div>
                 <div><dt>Favourite this MilkDrop preset</dt><dd><kbd>Shift S</kbd></dd></div>
+                <div><dt>Lyrics over the visuals (on a phone, in the record)</dt><dd><kbd>T</kbd></dd></div>
                 <div><dt>Close the panel, then the visuals, then collapse the tray</dt><dd><kbd>Esc</kbd></dd></div>
             </dl>
         </div>
