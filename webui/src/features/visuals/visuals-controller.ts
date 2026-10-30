@@ -9,9 +9,14 @@
  *
  * The overlay tells the legacy engine who paints through
  * `data-visuals-engine` on `#np-modal-overlay`: `synchros` (its canvas),
- * `milkdrop` or `classic` (this one's canvases) or `still`.
+ * `milkdrop`, `classic` or `data` (this one's canvases; Data draws on
+ * Classic's), `still`, or `lyrics` while Lyrics only turns the visual off
+ * (27a; src/features/lyrics).
  */
 
+import { lyricsStore } from '@/features/lyrics/lyrics-store';
+
+import type { DataColour, DataInfo, DataNumbers, DataRow } from './data-viz';
 import type { MilkdropEngine } from './milkdrop-engine';
 import type { FetchLike, FetchedPreset } from './visuals-api';
 import type { AudioTap } from './visuals-audio';
@@ -42,6 +47,21 @@ import {
   scopeRect,
   stepBars,
 } from './classic';
+import { infoKey, loadDataInfo } from './data-source';
+import {
+  allZero,
+  counterWords,
+  countFullScale,
+  DataTexture,
+  drawDataMode,
+  EMPTY_INFO,
+  PHOSPHOR,
+  readout,
+  shownDepth,
+  sliceWords,
+  toInt,
+  WHITE,
+} from './data-viz';
 import {
   fetchFavourites,
   fetchIndex,
@@ -49,7 +69,7 @@ import {
   forgetPreset,
   setFavourite,
 } from './visuals-api';
-import { createAudioTap, TAP_FFT } from './visuals-audio';
+import { createAudioTap, DATA_FFT, TAP_FFT } from './visuals-audio';
 import {
   AUTOCYCLE_KEY,
   loadAutocycle,
@@ -89,6 +109,21 @@ export const FIRST_PRESET = 'Flexi, martin + geiss - dedicated to the sherwin ma
 
 export type IndexStatus = 'idle' | 'loading' | 'ready' | 'error';
 
+/** Data's settings (30a's pill, 30d's switches, 30h's colour), kept per browser. */
+export interface DataPrefs {
+  numbers: DataNumbers;
+  bits: boolean;
+  texture: boolean;
+  colour: DataColour;
+  underBars: boolean;
+  underScope: boolean;
+}
+
+/** How often the texture moves on (it's texture, not for reading: 30a note 2). */
+export const TEXTURE_MS = 100;
+/** Reduced motion: one still block a second (30g). */
+export const SNAPSHOT_MS = 1000;
+
 export interface Credit {
   id: number;
   name: string;
@@ -104,7 +139,12 @@ export interface VisualsSnapshot {
   open: boolean;
   panelOpen: boolean;
   family: Family;
-  engine: 'synchros' | 'milkdrop' | 'classic' | 'still';
+  engine: 'synchros' | 'milkdrop' | 'classic' | 'data' | 'still' | 'lyrics';
+  /** Lyrics only (27a): the lyrics layer turned the visual off */
+  lyricsOnly: boolean;
+  data: DataPrefs;
+  /** Data's readout lines 1 and 2 as words, for a screen reader (the canvas is hidden) */
+  dataSummary: string;
   webgl2: boolean;
   still: 'system' | 'setting' | null;
   phone: boolean;
@@ -172,6 +212,9 @@ export interface ControllerDeps {
 type Listener = () => void;
 
 export function engineModeFor(s: VisualsSnapshot): VisualsSnapshot['engine'] {
+  if (s.lyricsOnly) return 'lyrics';
+  // Data under reduced motion is a still block a second (30g), not the still stage
+  if (s.family === 'data') return 'data';
   if (s.still) return 'still';
   if (s.family === 'milkdrop' && s.webgl2 && !s.engineError) return 'milkdrop';
   if (s.family === 'classic') return 'classic';
@@ -227,6 +270,25 @@ export class VisualsController {
   private reduceQuery: MediaQueryList | null = null;
   private phoneQuery: MediaQueryList | null = null;
   private cleanups: (() => void)[] = [];
+  // Data (30a–30i)
+  private readonly dataL = new Float32Array(DATA_FFT);
+  private readonly dataR = new Float32Array(DATA_FFT);
+  private dataRows: DataRow[] = [];
+  private fullScale = 0;
+  private info: DataInfo = EMPTY_INFO;
+  private infoFor: string | null = null;
+  private texture: DataTexture | null = null;
+  private layerTexture: DataTexture | null = null;
+  private textureAt = 0;
+  private textureStill = false;
+  private snapshotAt = 0;
+  private fps = 60;
+  private infoCheckedAt = 0;
+  private lastSize: { width: number; height: number } | null = null;
+  private accentRgb = '';
+  private accentAt = 0;
+  /** @internal the last frame's cost, for the screenshots' measurement */
+  lastDataMs = 0;
 
   constructor(deps: ControllerDeps) {
     this.deps = deps;
@@ -278,6 +340,16 @@ export class VisualsController {
       theme: 'aurora',
       credit: null,
       header: { name: '', meta: '' },
+      lyricsOnly: lyricsStore(this.win).snapshot().onlyActive,
+      data: {
+        numbers: prefs.dataNumbers,
+        bits: prefs.dataBits,
+        texture: prefs.dataTexture,
+        colour: prefs.dataColour,
+        underBars: prefs.dataUnderBars,
+        underScope: prefs.dataUnderScope,
+      },
+      dataSummary: '',
     };
     this.s.header = this.headerFor(this.s);
     this.s.engine = engineModeFor(this.s);
@@ -335,8 +407,21 @@ export class VisualsController {
     this.canvas2d = nodes.canvas2d;
     const onPlayer = (e: Event) => {
       const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason;
-      if (reason === 'track') this.onTrackChange();
+      if (reason === 'track') {
+        this.resetData();
+        this.onTrackChange();
+      }
     };
+    // Lyrics only (27a) turns the stage off; turned back, the visual returns
+    const lyrics = lyricsStore(this.win);
+    this.cleanups.push(
+      lyrics.subscribe(() => {
+        const only = lyrics.snapshot().onlyActive;
+        if (only === this.s.lyricsOnly) return;
+        this.set({ lyricsOnly: only });
+        this.startEngine();
+      }),
+    );
     this.win.addEventListener('ss:player', onPlayer);
     this.cleanups.push(() => this.win.removeEventListener('ss:player', onPlayer));
     const onStorage = (e: StorageEvent) => {
@@ -563,8 +648,13 @@ export class VisualsController {
       this.pickTheme(ids[(at + dir + ids.length) % ids.length]!, moved);
       return;
     }
-    if (this.s.family === 'classic') {
-      this.setClassicMode(this.s.classicMode === 'bars' ? 'scope' : 'bars', moved);
+    // Classic and Data are one ring for V (30a note 1): Bars, Scope, Data
+    if (this.s.family === 'classic' || this.s.family === 'data') {
+      const ring = ['bars', 'scope', 'data'] as const;
+      const at = this.s.family === 'data' ? 2 : this.s.classicMode === 'bars' ? 0 : 1;
+      const to = ring[(at + dir + ring.length) % ring.length]!;
+      if (to === 'data') this.setFamily('data', moved);
+      else this.setClassicMode(to, moved);
       return;
     }
     if (!this.s.webgl2) return;
@@ -581,7 +671,7 @@ export class VisualsController {
       if (ids.length) this.pickTheme(ids[Math.floor(Math.random() * ids.length)]!, 'random');
       return;
     }
-    if (this.s.family === 'classic') {
+    if (this.s.family === 'classic' || this.s.family === 'data') {
       this.step(1, 'random');
       return;
     }
@@ -771,6 +861,112 @@ export class VisualsController {
     this.set({ scopeDraw: draw });
   }
 
+  // ── Data (30a–30i) ─────────────────────────────────────────────────────────
+
+  setData(patch: Partial<DataPrefs>): void {
+    const data = { ...this.s.data, ...patch };
+    savePrefs({
+      dataNumbers: data.numbers,
+      dataBits: data.bits,
+      dataTexture: data.texture,
+      dataColour: data.colour,
+      dataUnderBars: data.underBars,
+      dataUnderScope: data.underScope,
+    });
+    if (patch.colour) this.textureStill = false;
+    this.set({ data });
+  }
+
+  /** A new track: its own readout, count and texture. */
+  private resetData(): void {
+    this.dataRows = [];
+    this.fullScale = 0;
+    this.infoFor = null;
+    this.textureStill = false;
+  }
+
+  /** Which track the readout is for, looked at twice a second (not every frame). */
+  private ensureInfo(): void {
+    const now = this.now();
+    if (this.infoFor !== null && now - this.infoCheckedAt < 500) return;
+    this.infoCheckedAt = now;
+    const key = infoKey(this.win);
+    if (key === this.infoFor) return;
+    this.infoFor = key;
+    this.info = EMPTY_INFO;
+    void loadDataInfo(this.win, this.f).then((info) => {
+      if (this.infoFor !== key) return;
+      this.info = info;
+      const r = readout(info, this.tap.sampleRate(), { fullScale: 0, silent: false });
+      this.set({ dataSummary: `${r.line1}. ${r.line2}.` });
+    });
+  }
+
+  private dataRgb(): string {
+    const c = this.s.data.colour;
+    if (c === 'phosphor') return PHOSPHOR;
+    if (c === 'white') return WHITE;
+    // the accent, read from the page's style every 2 s, not every frame
+    const now = this.now();
+    if (this.accentRgb && now - this.accentAt < 2000) return this.accentRgb;
+    this.accentAt = now;
+    this.accentRgb = this.readAccent();
+    return this.accentRgb;
+  }
+
+  private readAccent(): string {
+    try {
+      const v = this.win
+        .getComputedStyle(this.win.document.documentElement)
+        .getPropertyValue('--ss-accent-light-rgb')
+        .trim();
+      if (/^\d+\s*,\s*\d+\s*,\s*\d+$/.test(v)) return v;
+    } catch {
+      // the default below
+    }
+    return '194, 169, 250';
+  }
+
+  private makeCanvas = (w: number, h: number): HTMLCanvasElement | OffscreenCanvas | null => {
+    try {
+      if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+      const c = this.win.document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      return c;
+    } catch {
+      return null;
+    }
+  };
+
+  private playerState(): { playing: boolean; time: number } {
+    const p = (
+      this.win as Window & {
+        SoulSyncPlayer?: {
+          state?: () => { playing?: boolean };
+          audio?: () => HTMLMediaElement | null;
+        };
+      }
+    ).SoulSyncPlayer;
+    try {
+      // the element itself: state() builds the whole player snapshot, too much for every frame
+      const el = p?.audio?.() ?? null;
+      if (el) return { playing: !el.paused, time: el.currentTime };
+      return { playing: Boolean(p?.state?.()?.playing), time: 0 };
+    } catch {
+      return { playing: false, time: 0 };
+    }
+  }
+
+  /** The texture's next line: values from across the newest block. */
+  private textureLine(columns: number, depth: 16 | 24, from: Float32Array, shift = 0): number[] {
+    const out: number[] = [];
+    const step = Math.max(1, Math.floor(from.length / Math.max(1, columns)));
+    for (let i = 0; i < columns; i += 1)
+      out.push(toInt(from[(i * step + shift * 13) % from.length] ?? 0, depth));
+    return out;
+  }
+
   // ── the foot ───────────────────────────────────────────────────────────────
 
   setAutocycle(v: Autocycle): void {
@@ -939,6 +1135,8 @@ export class VisualsController {
           s.themes.findIndex((x) => x.id === s.theme),
         ) + 1;
       total = s.themes.length;
+    } else if (s.family === 'data') {
+      name = 'Data';
     } else {
       name = s.classicMode === 'bars' ? 'Bars' : 'Scope';
       position = s.classicMode === 'bars' ? 1 : 2;
@@ -978,6 +1176,8 @@ export class VisualsController {
   }
 
   private headerFor(s: VisualsSnapshot): { name: string; meta: string } {
+    // Lyrics only (27a): no visual plays, so the header says so
+    if (s.lyricsOnly) return { name: 'Lyrics only', meta: 'The visual is off' };
     if (s.family === 'milkdrop') {
       const e = withKept(s.index.presets, s.index.kept).find((p) => p.key === s.presetKey);
       if (!e)
@@ -995,6 +1195,8 @@ export class VisualsController {
         name: s.classicMode === 'bars' ? 'Bars' : 'Scope',
         meta: 'Classic · drawn by SYNCHRO.S',
       };
+    // 30a's header: "Data · SYNCHRO.S · the decoded audio"
+    if (s.family === 'data') return { name: 'Data', meta: 'SYNCHRO.S · the decoded audio' };
     const t = s.themes.find((x) => x.id === s.theme);
     return {
       name: t?.name ?? 'Visuals',
@@ -1018,7 +1220,7 @@ export class VisualsController {
   private startEngine(): void {
     this.syncEngineAttr();
     const mode = this.engineMode();
-    if (!this.s.open || (mode !== 'milkdrop' && mode !== 'classic')) {
+    if (!this.s.open || (mode !== 'milkdrop' && mode !== 'classic' && mode !== 'data')) {
       this.stopLoop();
       return;
     }
@@ -1044,6 +1246,15 @@ export class VisualsController {
     const w = el?.clientWidth || this.win.innerWidth || 1440;
     const h = el?.clientHeight || this.win.innerHeight || 900;
     return { width: w, height: h };
+  }
+
+  /**
+   * The stage's size for a frame: kept from the last resize (the window's,
+   * the panel's, opening), since reading the overlay's size every frame
+   * forced the page's layout each time (Data's measurement, 30 October).
+   */
+  private frameSize(): { width: number; height: number } {
+    return (this.lastSize ??= this.stageSize());
   }
 
   private pixelRatio(): number {
@@ -1074,7 +1285,7 @@ export class VisualsController {
   }
 
   resize(): void {
-    const { width, height } = this.stageSize();
+    const { width, height } = (this.lastSize = this.stageSize());
     const pr = this.pixelRatio();
     try {
       this.engine?.resize(width, height, pr);
@@ -1094,11 +1305,19 @@ export class VisualsController {
   private frame = (t: number): void => {
     this.loopId = 0;
     const mode = this.engineMode();
-    if (!this.s.open || (mode !== 'milkdrop' && mode !== 'classic')) return;
+    if (!this.s.open || (mode !== 'milkdrop' && mode !== 'classic' && mode !== 'data')) return;
     this.loopId = this.raf(this.frame);
+    // a hidden tab draws nothing (the browser slows the frames too); the
+    // counter is worked out from the play position, so it's right on return (257)
     if (this.win.document.hidden) return;
-    const dt = this.lastFrame ? Math.min(0.1, (t - this.lastFrame) / 1000) : 1 / 60;
+    const raw = this.lastFrame ? (t - this.lastFrame) / 1000 : 1 / 60;
+    const dt = Math.min(0.1, raw);
     this.lastFrame = t;
+    if (raw > 0 && raw < 0.5) this.fps = this.fps * 0.95 + (1 / raw) * 0.05;
+    if (mode === 'data') {
+      this.drawData(raw, t);
+      return;
+    }
     if (mode === 'milkdrop') {
       if (!this.engine || !this.engineHasPreset) return;
       this.tap.time(this.timeBuf);
@@ -1141,12 +1360,14 @@ export class VisualsController {
     const c = this.canvas2d;
     const ctx = c?.getContext('2d');
     if (!c || !ctx) return;
-    const { width, height } = this.stageSize();
+    const { width, height } = this.frameSize();
     const scale = c.width / Math.max(1, width);
     const panel = this.s.panelOpen && !this.s.phone ? PANEL_WIDTH + PANEL_INSET * 2 : 0;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    const under = this.s.classicMode === 'bars' ? this.s.data.underBars : this.s.data.underScope;
+    if (under) this.drawDataLayer(ctx, width, height);
     if (this.s.classicMode === 'bars') {
       const rate = this.tap.sampleRate();
       if (!this.bins || this.binsRate !== rate) {
@@ -1168,6 +1389,150 @@ export class VisualsController {
         r,
         this.s.scopeDraw,
       );
+    }
+  }
+
+  /**
+   * "Data underneath" (30d): texture only, 20% of the visual's colour, edge
+   * to edge, under the spectrum or the scope; no readout, no labels.
+   */
+  private drawDataLayer(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    const tex = (this.layerTexture ??= new DataTexture(this.makeCanvas));
+    const rgb = this.dataRgb();
+    const depth = shownDepth(this.info);
+    this.ensureInfo();
+    const fresh = tex.ensure(width, height, rgb, 0.2);
+    const now = this.now();
+    if (fresh || now - this.textureAt >= TEXTURE_MS) {
+      this.textureAt = now;
+      const got = this.tap.floats?.(this.dataL, this.dataR) ?? false;
+      if (fresh) tex.fill((i) => this.textureLine(tex.columns, depth, this.dataL, i), depth);
+      else if (got) tex.push(this.textureLine(tex.columns, depth, this.dataL), depth);
+    }
+    tex.draw(ctx, 0, 0);
+  }
+
+  /** Data as its own visual (30a–30c, 30f, 30g). */
+  private drawData(raw: number, t: number): void {
+    const c = this.canvas2d;
+    const ctx = c?.getContext('2d');
+    if (!c || !ctx) return;
+    const snapshot = Boolean(this.s.still);
+    // reduced motion: one still block a second, no scrolling (30g)
+    if (snapshot && this.snapshotAt && t - this.snapshotAt < SNAPSHOT_MS) return;
+    this.snapshotAt = t;
+    const started = typeof performance !== 'undefined' ? performance.now() : 0;
+    const { width, height } = this.frameSize();
+    const scale = c.width / Math.max(1, width);
+    const panel = this.s.panelOpen && !this.s.phone ? PANEL_WIDTH + PANEL_INSET * 2 : 0;
+    const phone = this.s.phone;
+    // a phone on its side (30c): full screen, one readout line, the chrome over it on a tap
+    const short = width > height && height <= 500;
+    const top = short ? 0 : phone ? 56 : 64;
+    const bottom = short ? 0 : phone ? 64 : 72 + 64;
+    const stage = { x: 0, y: top, w: width - panel, h: height - top - bottom };
+
+    this.ensureInfo();
+    const info = this.info;
+    const depth = shownDepth(info);
+    const mono = info.channels === 1;
+    const rate = this.tap.sampleRate();
+    const { playing, time } = this.playerState();
+    const got = playing ? (this.tap.floats?.(this.dataL, this.dataR) ?? false) : false;
+    if (got) {
+      // the full-scale count: only the samples new since the last frame (256)
+      const fresh = Math.min(DATA_FFT, Math.round(Math.min(raw, 0.5) * rate));
+      this.fullScale += countFullScale(this.dataL, fresh, depth);
+      if (!mono) this.fullScale += countFullScale(this.dataR, fresh, depth);
+      const last = DATA_FFT - 1;
+      if (snapshot) {
+        // one block of consecutive samples, all at full strength
+        const n = 24;
+        this.dataRows = [];
+        for (let i = DATA_FFT - n; i < DATA_FFT; i += 1)
+          this.dataRows.push({
+            l: toInt(this.dataL[i]!, depth),
+            r: mono ? null : toInt(this.dataR[i]!, depth),
+          });
+      } else {
+        this.dataRows.push({
+          l: toInt(this.dataL[last]!, depth),
+          r: mono ? null : toInt(this.dataR[last]!, depth),
+        });
+        if (this.dataRows.length > 32) this.dataRows.splice(0, this.dataRows.length - 32);
+      }
+    }
+
+    const rgb = this.dataRgb();
+    let tex: DataTexture | null = null;
+    if (this.s.data.texture) {
+      tex = this.texture ??= new DataTexture(this.makeCanvas);
+      const fresh = tex.ensure(Math.ceil(stage.w), Math.ceil(stage.h), rgb, 0.14, true);
+      const now = this.now();
+      if (fresh || (snapshot && !this.textureStill)) {
+        // a new size, or reduced motion's texture: drawn once per track
+        tex.fill((i) => this.textureLine(tex!.columns, depth, this.dataL, i), depth);
+        this.textureStill = true;
+      } else if (!snapshot && got && now - this.textureAt >= TEXTURE_MS) {
+        this.textureAt = now;
+        tex.push(this.textureLine(tex.columns, depth, this.dataL), depth);
+      }
+    }
+
+    const fileRate = info.fileRate || rate;
+    let samples = time * fileRate;
+    if (snapshot) samples = Math.floor(samples / fileRate) * fileRate;
+    const stream = Boolean(info.station);
+    // Drawn into an offscreen buffer, then copied: on a canvas in the page each
+    // change of font made the browser recompute the page's styles first,
+    // which cost more than the whole drawing (the measurement, 30 October).
+    const fb = this.frameBuffer(c.width, c.height);
+    const dc = (fb?.getContext('2d') as CanvasRenderingContext2D | null) ?? ctx;
+    dc.setTransform(1, 0, 0, 1, 0, 0);
+    dc.clearRect(0, 0, c.width, c.height);
+    dc.setTransform(scale, 0, 0, scale, 0, 0);
+    drawDataMode(
+      dc,
+      stage,
+      this.dataRows,
+      {
+        numbers: this.s.data.numbers,
+        bits: this.s.data.bits,
+        texture: this.s.data.texture,
+        rgb,
+        depth,
+        mono,
+        snapshot,
+        phone,
+        short,
+        readout: readout(info, rate, {
+          fullScale: this.fullScale,
+          silent: allZero(this.dataRows),
+        }),
+        counter: counterWords(samples, info.channels, stream),
+        tag: !playing ? 'Paused' : snapshot ? 'Snapshot · every 1 s' : null,
+        slice: snapshot ? null : sliceWords(rate, this.fps),
+      },
+      tex,
+    );
+    if (dc !== ctx && fb) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawImage(fb as CanvasImageSource, 0, 0);
+    }
+    if (started) this.lastDataMs = performance.now() - started;
+  }
+
+  private fb: OffscreenCanvas | null = null;
+
+  private frameBuffer(w: number, h: number): OffscreenCanvas | null {
+    if (typeof OffscreenCanvas === 'undefined') return null;
+    try {
+      if (!this.fb || this.fb.width !== w || this.fb.height !== h)
+        this.fb = new OffscreenCanvas(w, h);
+      return this.fb;
+    } catch {
+      return null;
     }
   }
 

@@ -16,6 +16,7 @@ import { Button, LabelledSwitch, Select } from '@/components/form';
 import type { VisualsSnapshot } from './visuals-controller';
 import type { OverlayKey } from './visuals.logic';
 
+import { DataPill } from './data-controls';
 import { useVisuals, useVisualsController, VisualsContext } from './use-visuals';
 import { fetchSettings, saveOwnFolder, type VisualsSettings } from './visuals-api';
 import { VisualsController } from './visuals-controller';
@@ -91,6 +92,7 @@ function OverlayPieces() {
         <FailureCard />
         <VisualsCredit />
       </div>
+      <DataPill />
       <VisualsPanel />
     </>
   );

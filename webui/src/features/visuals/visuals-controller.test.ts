@@ -621,3 +621,99 @@ describe('the curated list and Every preset (101)', () => {
     h.c.dispose();
   });
 });
+
+describe('Data (30a–30i) and Lyrics only (27a)', () => {
+  it('Data is a family of its own, drawn on Classic’s canvas, with 30a’s header', () => {
+    const h = harness();
+    h.c.setOpen(true);
+    h.c.setFamily('data');
+    expect(h.overlay.dataset.visualsEngine).toBe('data');
+    expect(h.c.snapshot().header).toEqual({
+      name: 'Data',
+      meta: 'SYNCHRO.S · the decoded audio',
+    });
+    expect(localStorage.getItem('soulsync-visuals-family')).toBe('data');
+    h.c.dispose();
+  });
+
+  it('V rings Bars, Scope, Data (30a note 1), and Shift+V goes back', () => {
+    const h = harness();
+    h.c.setOpen(true);
+    h.c.setFamily('classic');
+    h.c.key('next');
+    expect(h.c.snapshot().classicMode).toBe('scope');
+    h.c.key('next');
+    expect(h.c.snapshot().family).toBe('data');
+    h.c.key('next');
+    expect(h.c.snapshot().family).toBe('classic');
+    expect(h.c.snapshot().classicMode).toBe('bars');
+    h.c.key('previous');
+    expect(h.c.snapshot().family).toBe('data');
+    h.c.dispose();
+  });
+
+  it('under reduced motion Data still draws (a block a second, 30g); other visuals go still', () => {
+    const h = harness({ reduce: true });
+    h.c.setOpen(true);
+    expect(h.c.snapshot().still).toBe('setting');
+    expect(h.overlay.dataset.visualsEngine).toBe('still');
+    h.c.setFamily('data');
+    expect(h.overlay.dataset.visualsEngine).toBe('data');
+    h.c.dispose();
+  });
+
+  it('Data’s settings are kept per browser; Data underneath is off by default, per visual', () => {
+    const h = harness();
+    expect(h.c.snapshot().data).toEqual({
+      numbers: 'hex',
+      bits: true,
+      texture: true,
+      colour: 'accent',
+      underBars: false,
+      underScope: false,
+    });
+    h.c.setData({ numbers: 'dec', colour: 'phosphor', underScope: true, bits: false });
+    h.c.dispose();
+    const again = harness();
+    expect(again.c.snapshot().data).toMatchObject({
+      numbers: 'dec',
+      colour: 'phosphor',
+      underScope: true,
+      underBars: false,
+      bits: false,
+    });
+    again.c.dispose();
+  });
+
+  it('Lyrics only turns the stage off and says so in the header; off again, the visual returns', async () => {
+    const { lyricsStore, resetLyricsStore } = await import('@/features/lyrics/lyrics-store');
+    resetLyricsStore();
+    (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+      state: () => ({ track: { id: 't1', title: 'Night Ferry' }, kind: 'library' }),
+      lyricsData: () => null,
+    };
+    const store = lyricsStore(window);
+    store.refresh();
+    const h = harness();
+    h.c.setOpen(true);
+    h.c.setFamily('classic');
+    store.setOn(true);
+    store.setOnly(true);
+    expect(h.c.snapshot().lyricsOnly).toBe(true);
+    expect(h.overlay.dataset.visualsEngine).toBe('lyrics');
+    expect(h.c.snapshot().header.name).toBe('Lyrics only');
+    store.setOnly(false);
+    expect(h.overlay.dataset.visualsEngine).toBe('classic');
+    // a station: lyrics stay as today, so Lyrics only doesn't apply
+    store.setOnly(true);
+    (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+      state: () => ({ track: { id: 'r' }, kind: 'radio' }),
+      lyricsData: () => null,
+    };
+    store.refresh();
+    expect(h.overlay.dataset.visualsEngine).toBe('classic');
+    h.c.dispose();
+    resetLyricsStore();
+    delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+  });
+});
