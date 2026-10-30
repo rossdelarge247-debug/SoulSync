@@ -140,8 +140,18 @@ def settings_state() -> Dict[str, bool]:
 
 def show_mix_tab() -> bool:
     """Settings → Library → DJ's "Show the Mix tab": off unless an admin turned
-    it on (an unreadable config keeps it hidden)."""
-    return _setting(SETTING_SHOW_MIX_TAB, False)
+    it on. Strict: only ``True``, or the strings "true" / "1" a hand-edited
+    config might hold; anything else ("false", "0", 1, an unreadable config)
+    keeps it hidden."""
+    try:
+        from core.settings import config_manager
+
+        value = config_manager.get(SETTING_SHOW_MIX_TAB, False)
+    except Exception:  # noqa: BLE001 - no config: hidden
+        return False
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().lower() in ("true", "1")
 
 
 # ── what makes it wait ───────────────────────────────────────────────────────

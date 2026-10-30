@@ -4145,7 +4145,8 @@ async function loadSettingsData() {
         const _djOverEl = document.getElementById('dj-overwrite-tags');
         if (_djOverEl) _djOverEl.checked = settings.library?.dj_overwrite_tags === true;
         const _djMixTabEl = document.getElementById('dj-show-mix-tab');
-        if (_djMixTabEl) _djMixTabEl.checked = settings.library?.dj_show_mix_tab === true;
+        // strict, as core/dj/worker.py show_mix_tab: true, or a hand-edited "true" / "1"
+        if (_djMixTabEl) { const v = settings.library?.dj_show_mix_tab; _djMixTabEl.checked = v === true || (typeof v === 'string' && ['true', '1'].includes(v.trim().toLowerCase())); }
 
         // Populate Content Filter settings
         document.getElementById('allow-explicit').checked = settings.content_filter?.allow_explicit !== false;

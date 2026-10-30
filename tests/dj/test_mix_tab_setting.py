@@ -38,7 +38,12 @@ def test_the_default_config_has_it_off():
     assert defaults["library"]["dj_show_mix_tab"] is False
 
 
-@pytest.mark.parametrize("stored, shown", [(None, False), (False, False), (True, True), (0, False), (1, True)])
+@pytest.mark.parametrize("stored, shown", [
+    (None, False), (False, False), (True, True), (0, False),
+    # strict: a hand-edited config's strings, and nothing truthy but True
+    ("false", False), ("0", False), ("no", False), ("", False), (1, False), ([1], False),
+    ("true", True), ("1", True), (" TRUE ", True),
+])
 def test_the_setting_reads_off_unless_turned_on(config, stored, shown):
     if stored is not None:
         config.data["library.dj_show_mix_tab"] = stored
