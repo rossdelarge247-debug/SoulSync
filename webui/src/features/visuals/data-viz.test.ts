@@ -21,6 +21,9 @@ import {
   sliceWords,
   toInt,
   volumeGain,
+  freshSamples,
+  fullScaleTolerance,
+  looksMono,
   type DataInfo,
 } from './data-viz';
 
@@ -192,5 +195,32 @@ describe('the readout (30i)', () => {
     expect(rowsThatFit(40, false, false)).toBe(4);
     expect(rowsThatFit(900, true, false)).toBe(12);
     expect(rowsThatFit(900, true, true)).toBe(24);
+  });
+});
+
+describe('review round 1', () => {
+  it('counts the samples since the last read, not the frame’s interval (L2)', () => {
+    expect(freshSamples(1000, 0, 44100, 4096)).toBe(0);
+    expect(freshSamples(1050, 1000, 44100, 4096)).toBe(2205);
+    // a second's gap is more than the tap holds
+    expect(freshSamples(2000, 1000, 44100, 4096)).toBe(4096);
+    expect(freshSamples(1000, 1000, 44100, 4096)).toBe(0);
+  });
+
+  it('full scale has a small tolerance once the volume is divided out (L3)', () => {
+    expect(fullScaleTolerance(1, 24)).toBe(0);
+    expect(fullScaleTolerance(1 / 0.7, 24)).toBe(4);
+    expect(isFullScale(8388604, 24, 4)).toBe(true);
+    expect(isFullScale(8388604, 24)).toBe(false);
+    expect(isFullScale(-8388605, 24, 4)).toBe(true);
+    // a 24-bit clip that float rounding lands a step short still counts
+    const buf = new Float32Array([(8388606 / 8388608) * 0.7]);
+    expect(countFullScale(buf, 1, 24, 1 / 0.7)).toBe(1);
+  });
+
+  it('a stream with an exactly silent right channel is mono (L5)', () => {
+    expect(looksMono(new Float32Array([0.1, -0.2]), new Float32Array([0, 0]))).toBe(true);
+    expect(looksMono(new Float32Array([0, 0]), new Float32Array([0, 0]))).toBe(false);
+    expect(looksMono(new Float32Array([0.1, 0.2]), new Float32Array([0, 0.0001]))).toBe(false);
   });
 });

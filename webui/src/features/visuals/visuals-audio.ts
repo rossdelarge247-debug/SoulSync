@@ -33,6 +33,8 @@ export interface AudioTap {
    * context's rate). False when nothing can be read; out stays as it was.
    */
   floats?(left: Float32Array<ArrayBuffer>, right: Float32Array<ArrayBuffer>): boolean;
+  /** Data and its layer aren't drawn: unhook the splitter (floats() hooks it again). */
+  releaseFloats?(): void;
 }
 
 export function createAudioTap(win: Window = window): AudioTap {
@@ -42,7 +44,13 @@ export function createAudioTap(win: Window = window): AudioTap {
   const scratch = new Uint8Array(TAP_FFT);
   // Data's: a splitter off the same analyser into one analyser per channel
   // (an analyser alone mixes down to mono). Made the first time Data asks.
-  let pair: { source: AnalyserNode; left: AnalyserNode; right: AnalyserNode } | null = null;
+  let pair: {
+    source: AnalyserNode;
+    split: ChannelSplitterNode;
+    left: AnalyserNode;
+    right: AnalyserNode;
+    hooked: boolean;
+  } | null = null;
 
   const player = () => (win as Window & { SoulSyncPlayer?: PlayerHooks }).SoulSyncPlayer;
 
@@ -85,6 +93,15 @@ export function createAudioTap(win: Window = window): AudioTap {
       return out;
     },
     sampleRate: () => rate,
+    releaseFloats() {
+      if (!pair || !pair.hooked) return;
+      try {
+        pair.source.disconnect(pair.split);
+      } catch {
+        // already apart
+      }
+      pair.hooked = false;
+    },
     floats(left, right) {
       const shared = player()?.analyser?.() ?? null;
       if (!shared) return false;
@@ -99,8 +116,16 @@ export function createAudioTap(win: Window = window): AudioTap {
           shared.connect(split);
           split.connect(l, 0);
           split.connect(r, 1);
-          pair = { source: shared, left: l, right: r };
+          pair = { source: shared, split, left: l, right: r, hooked: true };
           rate = ctx.sampleRate || rate;
+        } catch {
+          return false;
+        }
+      }
+      if (!pair.hooked) {
+        try {
+          shared.connect(pair.split);
+          pair.hooked = true;
         } catch {
           return false;
         }

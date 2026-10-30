@@ -717,3 +717,42 @@ describe('Data (30a–30i) and Lyrics only (27a)', () => {
     delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
   });
 });
+
+describe('Data during auto-mix (review M3)', () => {
+  it('while auto-mix owns playback the fading element’s volume isn’t divided out, nor called Muted', () => {
+    const h = harness();
+    const el = { paused: false, currentTime: 12, volume: 0.1, muted: false };
+    const w = window as unknown as { SoulSyncPlayer?: unknown; SoulSyncAutomix?: unknown };
+    w.SoulSyncPlayer = { audio: () => el, state: () => ({ playing: true }) };
+    expect(h.c.debugPlayerState()).toMatchObject({ gain: 10, mixing: false, muted: false });
+    w.SoulSyncAutomix = { ownsAdvance: () => true };
+    expect(h.c.debugPlayerState()).toMatchObject({ gain: 1, mixing: true, muted: false });
+    el.muted = true;
+    expect(h.c.debugPlayerState()).toMatchObject({ gain: 1, muted: false });
+    w.SoulSyncAutomix = { ownsAdvance: () => false };
+    expect(h.c.debugPlayerState()).toMatchObject({ gain: 1, muted: true });
+    delete w.SoulSyncAutomix;
+    delete w.SoulSyncPlayer;
+    h.c.dispose();
+  });
+});
+
+describe('the splitter is hooked only while Data is drawn (review L6)', () => {
+  it('releases the per-channel taps when Data and its layer leave the stage', () => {
+    const h = harness();
+    const release = vi.fn();
+    (h.c as unknown as { tap: { releaseFloats?: () => void } }).tap.releaseFloats = release;
+    h.c.setOpen(true);
+    h.c.setFamily('data');
+    release.mockClear();
+    h.c.setFamily('classic');
+    expect(release).toHaveBeenCalled();
+    release.mockClear();
+    h.c.setData({ underBars: true });
+    h.c.setQuality('half');
+    expect(release).not.toHaveBeenCalled();
+    h.c.setOpen(false);
+    expect(release).toHaveBeenCalled();
+    h.c.dispose();
+  });
+});

@@ -63,9 +63,31 @@ export function decSigned(n: number): string {
 }
 
 /** At full scale (0x7FFF or −0x8000 at 16-bit), shown in amber (30f). */
-export function isFullScale(n: number, bits: 16 | 24): boolean {
+export function isFullScale(n: number, bits: 16 | 24, tol = 0): boolean {
   const scale = bits === 24 ? 8388608 : 32768;
-  return n >= scale - 1 || n <= -scale;
+  return n >= scale - 1 - tol || n <= -scale + tol;
+}
+
+/**
+ * How far from the ends still counts as full scale once the volume has been
+ * divided out: float rounding can land a 24-bit clip a step or two short.
+ */
+export function fullScaleTolerance(gain: number, bits: 16 | 24): number {
+  if (gain === 1) return 0;
+  return bits === 24 ? 4 : 1;
+}
+
+/**
+ * A stream that doesn't say its channels (`channels: null`) but whose right
+ * channel is exactly silent while the left isn't: a mono source on the left.
+ */
+export function looksMono(left: ArrayLike<number>, right: ArrayLike<number>): boolean {
+  let leftSound = false;
+  for (let i = 0; i < right.length; i += 1) {
+    if (right[i] !== 0) return false;
+    if (!leftSound && left[i] !== 0) leftSound = true;
+  }
+  return leftSound;
 }
 
 /**
@@ -90,9 +112,10 @@ export function countFullScale(
   gain = 1,
 ): number {
   const n = Math.max(0, Math.min(buf.length, Math.floor(count)));
+  const tol = fullScaleTolerance(gain, bits);
   let hits = 0;
   for (let i = buf.length - n; i < buf.length; i += 1) {
-    if (isFullScale(toInt((buf[i] ?? 0) * gain, bits), bits)) hits += 1;
+    if (isFullScale(toInt((buf[i] ?? 0) * gain, bits), bits, tol)) hits += 1;
   }
   return hits;
 }
@@ -106,6 +129,15 @@ export function countFullScale(
 export function volumeGain(volume: number, muted: boolean): number {
   if (muted || !Number.isFinite(volume) || volume <= 0.001) return 1;
   return 1 / Math.min(1, volume);
+}
+
+/**
+ * The samples new since the last read (256): the time since that read (not
+ * the frame's), at the context's rate, at most what the tap holds.
+ */
+export function freshSamples(now: number, readAt: number, rate: number, held: number): number {
+  if (!readAt || now <= readAt) return 0;
+  return Math.min(held, Math.round(((now - readAt) / 1000) * rate));
 }
 
 /** Every value exactly zero: digital silence (30f), not a quiet room. */
@@ -264,6 +296,8 @@ export interface DataDrawOptions {
   counter: string;
   /** "Snapshot · every 1 s" or "Paused" */
   tag: string | null;
+  /** full scale's tolerance (fullScaleTolerance) */
+  fullTol?: number;
   slice: string | null;
 }
 
@@ -461,7 +495,7 @@ function drawColumn(
     // the newest row accent-light, older rows fading to 30% (30a); a snapshot is all full
     const alpha = o.snapshot ? 1 : newest ? 1 : 0.3 + 0.55 * (i / Math.max(1, count - 1));
     const y = top + i * ROW_H + ROW_H / 2;
-    const full = isFullScale(n, o.depth);
+    const full = isFullScale(n, o.depth, o.fullTol ?? 0);
     let x = rect.x;
     if (tags) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.62)';

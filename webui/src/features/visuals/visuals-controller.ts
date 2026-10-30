@@ -53,6 +53,9 @@ import {
   counterWords,
   countFullScale,
   DataTexture,
+  freshSamples,
+  fullScaleTolerance,
+  looksMono,
   drawDataMode,
   EMPTY_INFO,
   PHOSPHOR,
@@ -285,6 +288,8 @@ export class VisualsController {
   private snapshotAt = 0;
   private fps = 60;
   private infoCheckedAt = 0;
+  private dataReadAt = 0;
+  private monoReads = 0;
   /** the element's volume undone (volumeGain) */
   private gain = 1;
   private lastSize: { width: number; height: number } | null = null;
@@ -390,6 +395,7 @@ export class VisualsController {
     next.engine = engineModeFor(next);
     this.s = next;
     this.syncEngineAttr();
+    if (!this.dataInUse(next)) this.tap.releaseFloats?.();
     for (const fn of this.listeners) fn();
     this.win.dispatchEvent(new CustomEvent('ss:visuals'));
   }
@@ -880,11 +886,21 @@ export class VisualsController {
     this.set({ data });
   }
 
+  /** Data or its layer is on the stage (the splitter is hooked only then, L6). */
+  private dataInUse(s: VisualsSnapshot): boolean {
+    if (!s.open) return false;
+    if (s.engine === 'data') return true;
+    if (s.engine !== 'classic') return false;
+    return s.classicMode === 'bars' ? s.data.underBars : s.data.underScope;
+  }
+
   /** A new track: its own readout, count and texture. */
   private resetData(): void {
     this.dataRows = [];
     this.fullScale = 0;
     this.infoFor = null;
+    this.monoReads = 0;
+    this.dataReadAt = 0;
     this.textureStill = false;
   }
 
@@ -942,7 +958,13 @@ export class VisualsController {
     }
   };
 
-  private playerState(): { playing: boolean; time: number; gain: number; muted: boolean } {
+  private playerState(): {
+    playing: boolean;
+    time: number;
+    gain: number;
+    muted: boolean;
+    mixing: boolean;
+  } {
     const p = (
       this.win as Window & {
         SoulSyncPlayer?: {
@@ -954,18 +976,38 @@ export class VisualsController {
     try {
       // the element itself: state() builds the whole player snapshot, too much for every frame
       const el = p?.audio?.() ?? null;
+      // while auto-mix's decks play the mix, the element only keeps time (fading,
+      // then muted): its volume says nothing about what the analyser hears
+      const mixing = this.automixOwns();
       if (el) {
-        const muted = el.muted || el.volume <= 0.001;
+        const muted = !mixing && (el.muted || el.volume <= 0.001);
         return {
           playing: !el.paused,
           time: el.currentTime,
-          gain: volumeGain(el.volume, el.muted),
+          gain: mixing ? 1 : volumeGain(el.volume, el.muted),
           muted,
+          mixing,
         };
       }
-      return { playing: Boolean(p?.state?.()?.playing), time: 0, gain: 1, muted: false };
+      return {
+        playing: Boolean(p?.state?.()?.playing),
+        time: 0,
+        gain: 1,
+        muted: false,
+        mixing,
+      };
     } catch {
-      return { playing: false, time: 0, gain: 1, muted: false };
+      return { playing: false, time: 0, gain: 1, muted: false, mixing: false };
+    }
+  }
+
+  private automixOwns(): boolean {
+    try {
+      const a = (this.win as Window & { SoulSyncAutomix?: { ownsAdvance?: () => boolean } })
+        .SoulSyncAutomix;
+      return Boolean(a?.ownsAdvance?.());
+    } catch {
+      return false;
     }
   }
 
@@ -1416,6 +1458,7 @@ export class VisualsController {
     const now = this.now();
     if (fresh || now - this.textureAt >= TEXTURE_MS) {
       this.textureAt = now;
+      this.gain = this.playerState().gain;
       const got = this.tap.floats?.(this.dataL, this.dataR) ?? false;
       if (fresh) tex.fill((i) => this.textureLine(tex.columns, depth, this.dataL, i), depth);
       else if (got) tex.push(this.textureLine(tex.columns, depth, this.dataL), depth);
@@ -1446,16 +1489,27 @@ export class VisualsController {
     this.ensureInfo();
     const info = this.info;
     const depth = shownDepth(info);
-    const mono = info.channels === 1;
     const rate = this.tap.sampleRate();
-    const { playing, time, gain, muted } = this.playerState();
+    const { playing, time, gain, muted, mixing } = this.playerState();
     this.gain = gain;
     const got = playing ? (this.tap.floats?.(this.dataL, this.dataR) ?? false) : false;
-    if (got) {
-      // the full-scale count: only the samples new since the last frame (256)
-      const fresh = Math.min(DATA_FFT, Math.round(Math.min(raw, 0.5) * rate));
+    // a stream that doesn't say its channels, with the right exactly silent
+    // and the left not, for a second of reads: mono
+    if (got && info.channels === null) {
+      this.monoReads = looksMono(this.dataL, this.dataR) ? this.monoReads + 1 : 0;
+    }
+    const mono = info.channels === 1 || (info.channels === null && this.monoReads >= 8);
+    const readAt = this.dataReadAt;
+    if (got) this.dataReadAt = t;
+    if (got && !snapshot && !mixing && readAt) {
+      // the full-scale count: only the samples new since the last read (256);
+      // not under reduced motion (a block a second can't see the rest) nor
+      // while auto-mix's decks play a mix
+      const fresh = freshSamples(t, readAt, rate, DATA_FFT);
       this.fullScale += countFullScale(this.dataL, fresh, depth, gain);
       if (!mono) this.fullScale += countFullScale(this.dataR, fresh, depth, gain);
+    }
+    if (got) {
       const last = DATA_FFT - 1;
       if (snapshot) {
         // one block of consecutive samples, all at full strength
@@ -1517,7 +1571,8 @@ export class VisualsController {
         snapshot,
         phone,
         short,
-        readout: readout(info, rate, {
+        fullTol: fullScaleTolerance(gain, depth),
+        readout: readout(mono && info.channels === null ? { ...info, channels: 1 } : info, rate, {
           fullScale: this.fullScale,
           silent: allZero(this.dataRows),
         }),
@@ -1567,6 +1622,11 @@ export class VisualsController {
       engineKey: this.engineKey,
       hintsShown: this.hintsShown,
     };
+  }
+
+  /** @internal what Data reads from the player each frame (tests) */
+  debugPlayerState(): ReturnType<VisualsController['playerState']> {
+    return this.playerState();
   }
 
   /** @internal feed the guard a frame (tests) */
