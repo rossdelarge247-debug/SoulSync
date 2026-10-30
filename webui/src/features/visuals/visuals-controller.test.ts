@@ -756,3 +756,112 @@ describe('the splitter is hooked only while Data is drawn (review L6)', () => {
     h.c.dispose();
   });
 });
+
+describe('re-review N1, N2, N4', () => {
+  /** a 2D context that draws nothing, so Data's frame runs under jsdom */
+  function fakeCanvas(): () => void {
+    const ctx = new Proxy(
+      {},
+      {
+        get: (_t, k) =>
+          k === 'measureText'
+            ? () => ({ width: 10 })
+            : k === 'createRadialGradient'
+              ? () => ({ addColorStop: () => undefined })
+              : () => undefined,
+        set: () => true,
+      },
+    );
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(() => ctx as never);
+    return () => spy.mockRestore();
+  }
+
+  function dataHarness(fill: (l: Float32Array, r: Float32Array) => void) {
+    const h = harness();
+    const tap = (h.c as unknown as { tap: Record<string, unknown> }).tap;
+    tap.floats = (l: Float32Array, r: Float32Array) => {
+      fill(l, r);
+      return true;
+    };
+    tap.releaseFloats = () => undefined;
+    const el = { paused: false, currentTime: 10, volume: 1, muted: false };
+    (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+      audio: () => el,
+      state: () => ({ playing: true, volume: 70, muted: false, track: null }),
+    };
+    h.c.setOpen(true);
+    h.c.setFamily('data');
+    const frame = (t: number) => (h.c as unknown as { frame: (t: number) => void }).frame(t);
+    const priv = () =>
+      h.c as unknown as { fullScale: number; dataRows: { l: number; r: number | null }[] };
+    return { h, el, frame, priv };
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+    delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
+  });
+
+  it('N1: during a mix the decks’ gain is the player’s volume, and a muted mix says Muted', () => {
+    const h = harness();
+    const el = { paused: false, currentTime: 1, volume: 0.05, muted: true };
+    let st = { playing: true, volume: 70, muted: false };
+    (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+      audio: () => el,
+      state: () => st,
+    };
+    (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
+      ownsAdvance: () => true,
+    };
+    const a = h.c.debugPlayerState();
+    expect(a.gain).toBeCloseTo(1 / 0.7);
+    expect(a).toMatchObject({ mixing: true, muted: false });
+    st = { playing: true, volume: 70, muted: true };
+    expect(h.c.debugPlayerState()).toMatchObject({ mixing: true, muted: true, gain: 1 });
+    h.c.dispose();
+  });
+
+  it('N2: a frame without a read leaves no baseline, so the next read doesn’t count a gap', () => {
+    const restore = fakeCanvas();
+    const { h, el, frame, priv } = dataHarness((l, r) => {
+      l.fill(1);
+      r.fill(1);
+    });
+    frame(1000); // baseline only
+    expect(priv().fullScale).toBe(0);
+    frame(1016); // 0.016 s at 48 kHz: 768 new samples a channel
+    expect(priv().fullScale).toBe(768 * 2);
+    el.paused = true;
+    frame(1032); // no read
+    el.paused = false;
+    frame(9000); // a baseline again, not 4,096 a channel
+    expect(priv().fullScale).toBe(768 * 2);
+    h.c.setFamily('classic'); // Data leaves the stage
+    h.c.setFamily('data');
+    frame(9016);
+    expect(priv().fullScale).toBe(768 * 2);
+    h.c.dispose();
+    restore();
+  });
+
+  it('N4: an unnamed stream turns mono after about a second of silent right, and stays mono for the track', () => {
+    const restore = fakeCanvas();
+    let right = 0;
+    const { h, frame, priv } = dataHarness((l, r) => {
+      l.fill(0.25);
+      r.fill(right);
+    });
+    for (let i = 0; i < 59; i++) frame(1000 + i * 16);
+    expect(priv().dataRows.at(-1)!.r).toBe(0);
+    frame(2000);
+    frame(2016);
+    expect(priv().dataRows.at(-1)!.r).toBeNull();
+    right = 0.5; // the right comes in after a hard-left intro: still mono for this track
+    frame(2032);
+    expect(priv().dataRows.at(-1)!.r).toBeNull();
+    h.c.dispose();
+    restore();
+  });
+});

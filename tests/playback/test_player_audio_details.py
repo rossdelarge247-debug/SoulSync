@@ -276,3 +276,37 @@ def test_an_upgraded_database_gains_the_channels_column_cleanly(tmp_path):
     finally:
         conn.close()
     assert db.schema_health()["failed_steps"] == []
+
+
+def test_without_the_channels_column_a_never_probed_track_keeps_its_signature(tmp_path, monkeypatch):
+    """Before the channels migration, the first probe still keeps the facts
+    and the signature it can, so the next request is a row read (re-review N3)."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(path))
+    conn.execute("CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, file_path TEXT, bitrate INTEGER, "
+                 "duration INTEGER, track_number INTEGER, album_id TEXT, artist_id TEXT, "
+                 "bit_depth INTEGER, sample_rate INTEGER, audio_probe_sig TEXT)")
+    conn.execute("CREATE TABLE albums (id TEXT, title TEXT, year INTEGER, thumb_url TEXT, track_count INTEGER)")
+    conn.execute("CREATE TABLE artists (id TEXT, name TEXT)")
+    song = tmp_path / "s.flac"
+    _write_stereo(song)
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(song),))
+    conn.commit()
+    conn.close()
+
+    class Db(_Db):
+        def __init__(self, p):
+            self.path = str(p)
+
+        def _current_scope_sql(self, _col):
+            return "1=1", []
+
+    db = Db(path)
+    first = D.details_for(db, D.track_row(db, "t1"), str(song))
+    assert (first["bit_depth"], first["sample_rate"], first["channels"]) == (16, 44100, 2)
+    stored = db.row("t1")
+    assert stored["audio_probe_sig"] and stored["bit_depth"] == 16
+    monkeypatch.setattr(D, "probe", lambda p: pytest.fail("probed again"))
+    again = D.details_for(db, D.track_row(db, "t1"), str(song))
+    assert again["bit_depth"] == 16 and again["channels"] is None
+

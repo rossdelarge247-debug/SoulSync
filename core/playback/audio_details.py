@@ -144,15 +144,20 @@ def track_row(db, track_id: str) -> Optional[Dict[str, Any]]:
 
 
 def _remember(db, track_id: str, facts: Dict[str, Any], sig: str) -> None:
+    values = {"bit_depth": facts.get("bit_depth"), "sample_rate": facts.get("sample_rate"),
+              "channels": facts.get("channels") or 0, "audio_probe_sig": sig}
     conn = db._get_connection()
     try:
-        conn.execute(
-            "UPDATE tracks SET bit_depth = ?, sample_rate = ?, channels = ?, audio_probe_sig = ? "
-            "WHERE id = ?",
-            (facts.get("bit_depth"), facts.get("sample_rate"), facts.get("channels") or 0, sig,
-             str(track_id)),
-        )
-        conn.commit()
+        # only the columns this database has: before the channels migration
+        # runs, the signature is still kept, so the file isn't read every time
+        have = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
+        names = [name for name in values if name in have]
+        if names:
+            conn.execute(
+                f"UPDATE tracks SET {', '.join(f'{n} = ?' for n in names)} WHERE id = ?",
+                [*(values[n] for n in names), str(track_id)],
+            )
+            conn.commit()
     except Exception as exc:  # noqa: BLE001 - the readout works without the memo
         logger.debug("couldn't keep audio facts for track %s: %s", track_id, exc)
     finally:

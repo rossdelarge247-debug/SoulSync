@@ -188,6 +188,13 @@ Built on `feat/lyrics-data` from `feat/hide-mix-tab` (7461b500, about to merge i
 - **L9:** "on disk" is the whole file over its length, tags and artwork included, as 30i defines it. Said so in CONTRACTS.
 - **L10:** the lyric line is announced only while focus is on the lines, and a line seeks to where its words show (the output delay added).
 
+**Re-review follow-up (`fix/lyrics-data-lows`, five Lows):**
+- **N1:** while auto-mix's decks play a mix, Data takes the gain from the player's own volume and mute, which the decks play at, so a clip still reads 0x7FFF at 70% and a muted mix says Muted. Full-scale counting stays paused during the mix.
+- **N2:** any frame without a read (paused, Data off the stage, the Visuals closed) drops the baseline, so the first read after a gap never counts the gap.
+- **N3:** before the channels migration runs, the probe still keeps the bit depth, sample rate and signature it can, so a track is read from the file once, not on every request.
+- **N4:** an unnamed stream turns Mono after about a second of reads (60) with a silent right channel, and stays Mono for the track, so a hard-left intro doesn't flip the layout.
+- **N5:** Visuals the person closed and reopened by hand stay open when the phone turns back; only Visuals the turn opened close (`turnStep`).
+
 **Checks:** ruff clean. pytest: the new `tests/stats/test_lyrics_fetch_instrumental.py` and the audio details tests (`tests/playback/test_player_audio_details.py`), with the player's routes, the lyrics sidecars, the web server's import, `tests/webui` (127 passed) and `-m gauntlet` (599 passed). Nothing on `.github/gauntlet-paths.txt` was touched. Frontend: `tsc --noEmit`, `npm run check` (0 errors), `npm run build`; vitest for lyrics (`lyrics.logic`, `lyrics-store`, `lyrics-layer`), Data (`data-viz`, `data-source`, the controller's Data and Lyrics only), the keys (`media-player-mix-keys`, T) and the player's fetch (`media-player-lyrics`), then the full suite once (712 files, 12,420 tests: two failed, the `?` note's words in `media-player-v2.test.ts` and an undefined token in the lyrics pill's CSS; both fixed and passing). Screenshots at 1440, 390 and 844 × 390 of 27a–27g's and 30a–30g's equivalents (local).
 
 ### 2026-10-30: Dev, Mix tab hidden while Ross rethinks mixing of 30 October

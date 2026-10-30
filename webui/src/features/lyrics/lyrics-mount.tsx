@@ -80,6 +80,34 @@ export function phoneTurn(
   return null;
 }
 
+export interface TurnState {
+  /** landscape at the last look */
+  was: boolean;
+  /** the Visuals are open because a turn opened them */
+  opened: boolean;
+  /** the Visuals were open at the last look */
+  wasOpen: boolean;
+}
+
+/**
+ * One look at the phone's turn (27f), with what the turn opened kept across
+ * looks. When the Visuals close (by hand, or anything else), the turn no
+ * longer owns them, so Visuals reopened by hand stay open on the turn back.
+ */
+export function turnStep(
+  st: TurnState,
+  c: { landscape: boolean; sheet: boolean; lyrics: boolean; open: boolean },
+): { act: 'open' | 'close' | null; next: TurnState } {
+  const opened = st.opened && !(st.wasOpen && !c.open);
+  const act = phoneTurn(st.was, c.landscape, { ...c, opened });
+  const next: TurnState = {
+    was: c.landscape,
+    opened: act === 'open' ? true : act === 'close' || !c.landscape ? false : opened,
+    wasOpen: c.open,
+  };
+  return { act, next };
+}
+
 /** The legacy markup the store drives: buttons, the overlay's marks, the "…" rows. */
 export function syncChrome(doc: Document, s: LyricsSnapshot, phone: boolean): void {
   const head = doc.getElementById('np-v2-visuals-lyrics-btn');
@@ -137,26 +165,20 @@ function Root({
   // 27f: turning the phone opens the Visuals full screen, lyrics over them;
   // turning it back closes what the turn opened. Only the turn itself acts:
   // closing the Visuals while on its side leaves them closed until the next turn.
-  const wasLandscape = useRef(landscape);
-  const turnOpened = useRef(false);
+  const turn = useRef<TurnState>({ was: landscape, opened: false, wasOpen: open });
   useEffect(() => {
     const v2 = (
       window as Window & { npV2?: { openVisuals?: () => void; closeVisuals?: () => void } }
     ).npV2;
-    const act = phoneTurn(wasLandscape.current, landscape, {
+    const { act, next } = turnStep(turn.current, {
+      landscape,
       sheet,
       lyrics: s.on && s.available,
       open,
-      opened: turnOpened.current,
     });
-    wasLandscape.current = landscape;
-    if (act === 'open') {
-      turnOpened.current = true;
-      v2?.openVisuals?.();
-    } else if (act === 'close') {
-      turnOpened.current = false;
-      v2?.closeVisuals?.();
-    } else if (!landscape) turnOpened.current = false;
+    turn.current = next;
+    if (act === 'open') v2?.openVisuals?.();
+    else if (act === 'close') v2?.closeVisuals?.();
   }, [landscape, sheet, s.on, s.available, open]);
 
   return (
