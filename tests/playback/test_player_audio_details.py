@@ -140,3 +140,83 @@ def test_a_file_that_isnt_here_says_where_it_streams_from(tmp_path):
     assert out["format"] == "FLAC"
     assert out["bitrate_kbps"] == 900
     assert out["bit_depth"] is None and out["on_disk"] is False
+
+
+def _write_stereo(path, sr=44100, subtype="PCM_16", seconds=1.0):
+    t = np.arange(int(seconds * sr)) / sr
+    tone = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    sf.write(str(path), np.stack([tone, -tone], axis=1), sr, subtype=subtype)
+
+
+def test_probe_reads_the_channels(tmp_path):
+    mono, stereo = tmp_path / "m.flac", tmp_path / "s.flac"
+    _write(mono, sr=44100, subtype="PCM_16")
+    _write_stereo(stereo)
+    assert D.probe(str(mono))["channels"] == 1
+    assert D.probe(str(stereo))["channels"] == 2
+    junk = tmp_path / "x.flac"
+    junk.write_bytes(b"\x00" * 100)
+    assert D.probe(str(junk))["channels"] is None
+
+
+def test_details_say_the_channels_and_the_bitrate_on_disk(tmp_path):
+    """The Data readout (30i): channels from the file, kept with the other
+    facts; on disk is the file's size over its length."""
+    import os
+
+    db = _Db(tmp_path / "m.db")
+    song = tmp_path / "s.flac"
+    _write_stereo(song, seconds=2.0)
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(song),))
+    conn.commit()
+    conn.close()
+    out = D.details_for(db, db.row("t1"), str(song))
+    assert out["channels"] == 2
+    assert db.row("t1")["channels"] == 2
+    expected = round(os.path.getsize(song) * 8 / out["duration_s"] / 1000)
+    assert out["on_disk_kbps"] == expected
+
+
+def test_a_row_kept_before_the_channels_is_read_once_more(tmp_path, monkeypatch):
+    db = _Db(tmp_path / "m.db")
+    song = tmp_path / "s.flac"
+    _write_stereo(song)
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(song),))
+    conn.commit()
+    conn.close()
+    D.details_for(db, db.row("t1"), str(song))
+    # as an older build left it: the facts kept, the channels not
+    conn = db._get_connection()
+    conn.execute("UPDATE tracks SET channels = NULL WHERE id = 't1'")
+    conn.commit()
+    conn.close()
+    assert D.details_for(db, db.row("t1"), str(song))["channels"] == 2
+    # kept now: the next ask is a row read
+    monkeypatch.setattr(D, "probe", lambda path: pytest.fail("probed again"))
+    assert D.details_for(db, db.row("t1"), str(song))["channels"] == 2
+
+
+def test_unknown_channels_are_kept_as_known_unknown(tmp_path, monkeypatch):
+    db = _Db(tmp_path / "m.db")
+    junk = tmp_path / "x.flac"
+    junk.write_bytes(b"\x00" * 100)
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(junk),))
+    conn.commit()
+    conn.close()
+    assert D.details_for(db, db.row("t1"), str(junk))["channels"] is None
+    assert db.row("t1")["channels"] == 0
+    monkeypatch.setattr(D, "probe", lambda path: pytest.fail("probed again"))
+    assert D.details_for(db, db.row("t1"), str(junk))["channels"] is None
+
+
+def test_a_streamed_file_has_no_bitrate_on_disk(tmp_path):
+    db = _Db(tmp_path / "m.db")
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path, bitrate) VALUES ('t1', 'A', '/x/a.flac', 900)")
+    conn.commit()
+    conn.close()
+    out = D.details_for(db, db.row("t1"), None)
+    assert out["on_disk_kbps"] is None and out["channels"] is None
