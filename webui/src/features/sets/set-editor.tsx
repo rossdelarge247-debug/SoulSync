@@ -72,6 +72,7 @@ import { djItem, onGripDown, onRowTouch } from '@/features/dnd/items';
 import { useRowGrid } from '@/features/dnd/row-grid';
 import { playingRowIndex } from '@/features/mix/mix-model';
 import { useQueueFrom } from '@/features/mix/mix-subject';
+import { useMixTabShown } from '@/features/mix/mix-visibility';
 import { StarButton } from '@/features/stars/star-button';
 import { useProfile } from '@/platform/shell/route-controllers';
 import { appURL } from '@/platform/url-base';
@@ -563,6 +564,8 @@ function Row({
   nextId: string | null;
   setName: string;
 }) {
+  // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
+  useMixTabShown();
   const rowRef = useRef<HTMLLIElement>(null);
   const track = row.track;
   // 28e: a file gone missing keeps its place, its star and its values

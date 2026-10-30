@@ -58,6 +58,7 @@ import { djItem, onGripDown, onRowTouch } from '@/features/dnd/items';
 import { useRowGrid } from '@/features/dnd/row-grid';
 import { openSendToTray } from '@/features/dnd/send-to-ui';
 import { awayWords } from '@/features/drives/drives.format';
+import { useMixTabShown } from '@/features/mix/mix-visibility';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
@@ -215,6 +216,8 @@ function TrackRow({
    *  described by the reason ("Music HD isn't connected", element `id`). */
   away?: { id: string; words: string };
 }) {
+  // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
+  useMixTabShown();
   const dj = track.dj;
   const artist = artistHref(track);
   const album =

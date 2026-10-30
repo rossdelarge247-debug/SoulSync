@@ -10,6 +10,7 @@ import { useDjInfo } from '@/features/dj/dj.api';
 import { trackMenu } from '@/features/dj/track-menu';
 import { Grip } from '@/features/dnd/grip';
 import { onGripDown, onRowTouch } from '@/features/dnd/items';
+import { useMixTabShown } from '@/features/mix/mix-visibility';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { StarButton } from '@/features/stars/star-button';
 import { getShellBridge } from '@/platform/shell/bridge';
@@ -258,6 +259,8 @@ function LibraryTrackRow({
   artistName: string;
   dj: Parameters<typeof DjMeta>[0]['dj'];
 }) {
+  // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
+  useMixTabShown();
   const id = text(track.id);
   const rowRef = useRef<HTMLLIElement>(null);
   // Brief B (32g): an album's or an artist's own track lifts (its file is here)

@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 
 import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog';
 import { Button } from '@/components/form';
+import { mixTabShown, useMixTabShown } from '@/features/mix/mix-visibility';
 import { chooseWorkingSet, useWorkingSet } from '@/features/mix/mix.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
@@ -49,7 +50,9 @@ export async function chooseWorking(id: number | null, name: string): Promise<bo
     window.showToast?.(
       id === null
         ? `${name} isn't your working set any more.`
-        : `${name} is your working set: the Mix tab adds to it.`,
+        : mixTabShown()
+          ? `${name} is your working set: the Mix tab adds to it.`
+          : `${name} is your working set.`,
       'success',
     );
     return true;
@@ -82,6 +85,7 @@ export function WorkingSetToggle({
 }) {
   const qc = useQueryClient();
   const working = useIsWorking(setId);
+  const tabShown = useMixTabShown();
   const [busy, setBusy] = useState(false);
   const toggle = async () => {
     setBusy(true);
@@ -96,7 +100,13 @@ export function WorkingSetToggle({
       aria-pressed={working}
       disabled={busy}
       data-working-toggle=""
-      title={working ? 'Your working set: the Mix tab adds to it. Press to have none' : undefined}
+      title={
+        working
+          ? tabShown
+            ? 'Your working set: the Mix tab adds to it. Press to have none'
+            : 'Your working set. Press to have none'
+          : undefined
+      }
       onClick={() => void toggle()}
     >
       {working ? (

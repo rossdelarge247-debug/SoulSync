@@ -5,8 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { resetDriveStatus } from '@/features/drives/drive-status';
 import { resetMixForTests } from '@/features/mix/mix-store';
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 /**
  * Library → Tracks' Double BPM / Halve BPM (HANDOFF "Dev, drum and bass BPM

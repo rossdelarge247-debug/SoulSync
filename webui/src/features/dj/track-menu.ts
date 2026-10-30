@@ -1,6 +1,7 @@
 import type { DragItem } from '@/features/dnd/dnd-model';
 
 import { openSendToTray, sendToEntries } from '@/features/dnd/send-to-ui';
+import { mixTabShown } from '@/features/mix/mix-visibility';
 import { openMixWith } from '@/features/mix/open-mix';
 /**
  * One "…" for every track in the DJ area (24a): Play next, Add to Up next
@@ -13,7 +14,9 @@ import { openMixWith } from '@/features/mix/open-mix';
  * with… · Add to set… ("Sunday Set is working" at its end) · Send to… · Add
  * to playlist…, with Brief D's glyphs beside Star and Play next.
  * "Mixes well with…" opens the tray in Mix following the track (33a; the
- * docked Mixes panel is retired, HANDOFF 329).
+ * docked Mixes panel is retired, HANDOFF 329). It isn't there while the Mix
+ * tab is hidden (Settings → Library → DJ's "Show the Mix tab", off by
+ * default: mix-visibility.ts), wherever the menu is built.
  * Tracks, Listening history, the Artist page, Search, Mixes well with and a
  * set's rows all build their menu here, so the order stays one. Tracks
  * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344), led by
@@ -112,7 +115,7 @@ export function trackMenu(
     });
   if (opts.addToUpNext && !opts.phone)
     entries.push({ key: 'upnext', label: 'Add to Up next', ...opts.addToUpNext });
-  if (opts.mixes !== false && !track.fileMissing)
+  if (opts.mixes !== false && !track.fileMissing && mixTabShown())
     entries.push({
       key: 'mixes',
       label: 'Mixes well with…',

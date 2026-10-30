@@ -7,8 +7,14 @@ import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api
 import { resetPlayTrackNowForTests } from '@/features/dj/row-play';
 import { resetDriveStatus } from '@/features/drives/drive-status';
 import { getMixState, resetMixForTests } from '@/features/mix/mix-store';
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 const addToPlaylist = vi.hoisted(() => vi.fn());
 vi.mock('@/features/playlists/add-to-playlist', async (importOriginal) => ({

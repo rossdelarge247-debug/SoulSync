@@ -15,6 +15,12 @@ import { createTestQueryClient } from '@/test/query-client';
 
 import { MixTabHost } from './mix-host';
 import { MODE_STORAGE_KEY, getMixState, resetMixForTests, setTrayMode } from './mix-store';
+import { resetMixTabForTests } from './mix-visibility';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 vi.mock('@/platform/shell/route-controllers', () => ({
   useProfile: () => ({ profileId: 1 }),
@@ -1032,4 +1038,119 @@ it('keeps nothing when the player has no track', async () => {
   expect(document.querySelector('[data-player-modes="music"]')!.childElementCount).toBe(0);
   expect(document.querySelector('[data-mix-col]')).toBeNull();
   player();
+});
+
+describe('hidden: Settings → Library → DJ\'s "Show the Mix tab" off (the default)', () => {
+  const settle = () => act(async () => {});
+  const modes = (where: string) =>
+    document.querySelector<HTMLElement>(`[data-player-modes="${where}"]`)!;
+  const setting = (shown: boolean) =>
+    act(() => {
+      window.dispatchEvent(new CustomEvent('soulsync:mix-tab-changed', { detail: { shown } }));
+    });
+
+  beforeEach(() => {
+    resetMixTabForTests(false);
+    resetMixForTests();
+  });
+
+  it('shows no switch and no Mix mode in the tray; the record keeps its key line', async () => {
+    mount();
+    await settle();
+    expect(modes('music').childElementCount).toBe(0);
+    expect(modes('sheet').childElementCount).toBe(0);
+    expect(document.documentElement.hasAttribute('data-mix-available')).toBe(false);
+    expect(root().dataset.trayMode).toBeUndefined();
+    expect(mixSlot().hidden).toBe(true);
+    expect(document.querySelector('[data-mix-col]')).toBeNull();
+    // the Mix tab's rows aren't there to lift, nor its set card to drop on (step 4)
+    expect(document.querySelector('[data-dnd-row="mix"]')).toBeNull();
+    // the analysis stays: the record's key line ("8A · 124 BPM", Ready to mix)
+    await waitFor(() =>
+      expect(document.querySelector('[data-player-keyline]')!.childElementCount).toBeGreaterThan(0),
+    );
+    expect(world.asked).toEqual([]);
+  });
+
+  it('a remembered Mix opens on Now playing, and the browser keeps it for later', async () => {
+    window.localStorage.setItem(MODE_STORAGE_KEY, 'mix');
+    resetMixForTests();
+    window.localStorage.setItem(MODE_STORAGE_KEY, 'mix');
+    mount();
+    await settle();
+    expect(getMixState().mode).toBe('now');
+    expect(root().dataset.trayMode).toBeUndefined();
+    expect(window.localStorage.getItem(MODE_STORAGE_KEY)).toBe('mix');
+    // nothing switches to Mix while it's hidden
+    act(() => setTrayMode('mix'));
+    expect(getMixState().mode).toBe('now');
+  });
+
+  it('a tray in Mix falls back to Now playing when the setting goes off, and Mix is back with it on', async () => {
+    setting(true);
+    await openMix();
+    setting(false);
+    await waitFor(() => expect(root().dataset.trayMode).toBeUndefined());
+    expect(getMixState().mode).toBe('now');
+    expect(modes('music').childElementCount).toBe(0);
+    expect(document.querySelector('[data-mix-col]')).toBeNull();
+    setting(true);
+    expect(await within(modes('music')).findByRole('tab', { name: 'Mix' })).toBeInTheDocument();
+  });
+
+  it("the keys aren't the Mix tab's: M mutes and N skips, as the player's own", async () => {
+    const expand = vi.fn();
+    (window as unknown as Record<string, unknown>).SoulSyncPlayerChrome = {
+      expand,
+      isExpanded: () => false,
+      openSheet: vi.fn(),
+    };
+    try {
+      mount();
+      await settle();
+      act(() => {
+        expect(window.SoulSyncMix!.key('M')).toBe(false);
+        expect(window.SoulSyncMix!.key('N')).toBe(false);
+        expect(window.SoulSyncMix!.key('A')).toBe(false);
+      });
+      expect(window.SoulSyncMix!.available()).toBe(false);
+      expect(getMixState().mode).toBe('now');
+      expect(expand).not.toHaveBeenCalled();
+      expect(playNext).not.toHaveBeenCalled();
+    } finally {
+      delete (window as unknown as Record<string, unknown>).SoulSyncPlayerChrome;
+    }
+  });
+
+  it("Visuals' Mix button stays hidden, and the drawer with it", async () => {
+    mount();
+    const overlay = document.getElementById('np-modal-overlay')!;
+    act(() => overlay.classList.remove('hidden'));
+    await settle();
+    const button = document.getElementById('np-v2-visuals-mix-btn')!;
+    expect(button.hidden).toBe(true);
+    fireEvent.click(button);
+    await settle();
+    expect(screen.queryByRole('region', { name: 'Mix' })).toBeNull();
+    expect(window.SoulSyncMix!.drawerOpen()).toBe(false);
+  });
+
+  it("the phone's sheet has no Mix · Set tab row", async () => {
+    const mm = vi.fn((q: string) => ({
+      matches: q.includes('max-width: 768px'),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    vi.stubGlobal('matchMedia', mm);
+    try {
+      mount();
+      await settle();
+      expect(modes('sheet').childElementCount).toBe(0);
+      expect(within(modes('sheet')).queryByRole('tab', { name: 'Mix' })).toBeNull();
+      expect(within(modes('sheet')).queryByRole('tab', { name: 'Set' })).toBeNull();
+      expect(document.querySelector('[data-mix-sheet]')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

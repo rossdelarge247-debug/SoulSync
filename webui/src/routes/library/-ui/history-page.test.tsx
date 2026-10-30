@@ -4,11 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { resetDriveStatus } from '@/features/drives/drive-status';
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { starStore } from '@/features/stars/stars-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
 import { HISTORY_RANGE_KEY, type MusicPlay } from '../-library.history';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 /**
  * Library → Listening history (13a, 13b) through the real router: Kind and

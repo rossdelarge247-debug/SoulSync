@@ -4,6 +4,7 @@ import { Suspense, lazy, useEffect } from 'react';
 import { openDriveMove } from '@/features/drives/move-flow';
 import labStyles from '@/features/engine/harness/automix-lab.module.css';
 import { labAllowed } from '@/features/engine/harness/lab-gate';
+import { useMixTabShown } from '@/features/mix/mix-visibility';
 import { ModuleOffPage, useModuleStates } from '@/features/modules/module-gate';
 import { moduleForPath } from '@/features/modules/modules.helpers';
 import { LegacyRouteController, useProfile } from '@/platform/shell/route-controllers';
@@ -40,12 +41,18 @@ const AutomixLab = lazy(() => import('@/features/engine/harness/automix-lab'));
  */
 function AutomixLabGate({ pathname }: { pathname: string }) {
   const profile = useProfile();
+  // the Mix tab is named only while it shows (Settings → Library → DJ)
+  const mixTab = useMixTabShown();
   // UX-31: anyone else opening the link is told so, not shown an empty page
   if (!profile?.isAdmin)
     return (
       <div className={labStyles.adminsOnly} data-lab-admins-only="">
         <h1>Auto-mix lab</h1>
-        <p>This page is for admins. Up next, a set&apos;s page and the Mix tab do the mixing.</p>
+        <p>
+          {mixTab
+            ? 'This page is for admins. Up next, a set’s page and the Mix tab do the mixing.'
+            : 'This page is for admins. Up next and a set’s page do the mixing.'}
+        </p>
       </div>
     );
   if (!labAllowed(Boolean(profile?.isAdmin), import.meta.env.DEV, window.location.search)) {

@@ -4144,6 +4144,9 @@ async function loadSettingsData() {
         if (_djTagsEl) _djTagsEl.checked = settings.library?.dj_write_tags === true;
         const _djOverEl = document.getElementById('dj-overwrite-tags');
         if (_djOverEl) _djOverEl.checked = settings.library?.dj_overwrite_tags === true;
+        const _djMixTabEl = document.getElementById('dj-show-mix-tab');
+        // strict, as core/dj/worker.py show_mix_tab: true, or a hand-edited "true" / "1"
+        if (_djMixTabEl) { const v = settings.library?.dj_show_mix_tab; _djMixTabEl.checked = v === true || (typeof v === 'string' && ['true', '1'].includes(v.trim().toLowerCase())); }
 
         // Populate Content Filter settings
         document.getElementById('allow-explicit').checked = settings.content_filter?.allow_explicit !== false;
@@ -6938,6 +6941,16 @@ function _cfgBool(id) {
     return el ? !!el.checked : undefined;
 }
 
+// Settings → Library → DJ's "Show the Mix tab" (library.dj_show_mix_tab):
+// once saved, this page's player follows at once (src/features/mix/
+// mix-visibility.ts listens for the event); other devices read it from the
+// page shell (window.SOULSYNC_MIX_TAB) and the DJ status.
+function _applyMixTabSetting(shown) {
+    if (typeof shown !== 'boolean') return;
+    window.SOULSYNC_MIX_TAB = shown;
+    window.dispatchEvent(new CustomEvent('soulsync:mix-tab-changed', { detail: { shown } }));
+}
+
 async function saveSettings(quiet = false) {
     // #879: refuse to save if the settings never loaded successfully — the form
     // is showing defaults, not the user's real config, so saving would wipe it.
@@ -7333,7 +7346,8 @@ async function saveSettings(quiet = false) {
             write_artist_nfo: _cfgBool('write-artist-nfo'),
             dj_analysis: _cfgBool('dj-analysis'),
             dj_write_tags: _cfgBool('dj-write-tags'),
-            dj_overwrite_tags: _cfgBool('dj-overwrite-tags')
+            dj_overwrite_tags: _cfgBool('dj-overwrite-tags'),
+            dj_show_mix_tab: _cfgBool('dj-show-mix-tab')
         },
         podcasts: {
             download_path: _cfgStr('podcasts-path', { fallback: './podcasts' }),
@@ -7575,6 +7589,7 @@ async function saveSettings(quiet = false) {
             console.error('Error saving hemisphere setting:', error);
         }
 
+        if (result.success) _applyMixTabSetting(settings.library?.dj_show_mix_tab);
         if (result.success && qualityProfileSaved && lookbackSaved) {
             showToast(quiet ? 'Settings auto-saved' : 'Settings saved successfully', 'success');
             _forceServiceStatusRefresh();

@@ -10,6 +10,8 @@
  * analysed now, amber waits, is stopped or can't be beat-matched, red
  * failed. "Ready to mix" means a beat grid at this version, never less.
  */
+import { mixTabShown } from '@/features/mix/mix-visibility';
+
 import type {
   AnalyseAnswer,
   AnalysisBeat,
@@ -493,6 +495,8 @@ export function whyWords(e: AnalysisLineEntry): string {
     case 'up_next':
       return you || !first ? 'Up next' : `${first}'s Up next`;
     case 'mix':
+      // asked from the Mix tab: named only while it shows (Settings → Library → DJ)
+      if (!mixTabShown()) return you || !first ? 'the player' : `${first}'s player`;
       return you || !first ? 'the Mix tab' : `${first}'s Mix tab`;
     case 'lab':
       return you || !first ? 'the lab' : `${first}'s lab`;

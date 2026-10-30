@@ -204,10 +204,17 @@ export function useMixModel(
   {
     shown = true,
     watch = shown,
+    askMatches = true,
   }: {
     shown?: boolean;
     /** watch the analysis (the record's "Ready to mix", 36a) without asking for any */
     watch?: boolean;
+    /**
+     * ask for Mixes well with (and the AI's state for Vibe): not while the
+     * Mix tab is hidden (Settings → Library → DJ), when only the record's
+     * key line uses the model
+     */
+    askMatches?: boolean;
   } = {},
 ) {
   const qc = useQueryClient();
@@ -319,13 +326,17 @@ export function useMixModel(
   useEffect(() => setWaiting(false), [seed?.id]);
   const mix = useQuery({
     ...mixQueryOptions(seed?.id ?? '', mixQ),
-    enabled: Boolean(seed),
+    enabled: Boolean(seed) && askMatches,
     retry: false,
     refetchInterval: (q) =>
       waiting && (q.state.data as MixAnswer | undefined)?.reason === 'not_analyzed' ? 4_000 : false,
   });
 
-  const ai = useQuery({ ...aiStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
+  const ai = useQuery({
+    ...aiStatusQueryOptions(),
+    retry: false,
+    enabled: Boolean(subject) && askMatches,
+  });
   const aiReason = ai.data && !ai.data.can_use ? ai.data.reason : null;
   const vibeWanted = state.vibe && Boolean(seed) && !aiReason;
   // gauntlet review L4: Vibe is remembered per browser (Design's 296), but it

@@ -1,8 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 
 import { bpmTitle } from './dj.format';
 import { allShared, tempoWords } from './tempo';
 import { trackMenu } from './track-menu';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 describe('the words for Double BPM / Halve BPM', () => {
   it('says what changed, and why any track wasn’t', () => {

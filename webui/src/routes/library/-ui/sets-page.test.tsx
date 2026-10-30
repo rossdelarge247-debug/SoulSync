@@ -1,15 +1,21 @@
 import { createMemoryHistory } from '@tanstack/react-router';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { refreshPrefs } from '@/features/automix/prefs';
 import { saveTransitionToDraft } from '@/features/automix/set-play';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { resetMixForTests } from '@/features/mix/mix-store';
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { readDraft, resetDraftsForTests, writeDraft } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
+
+// the Mix tab and its ways in are shown here (Settings → Library → DJ's
+// "Show the Mix tab"); mix-visibility.test.tsx covers them hidden
+beforeEach(() => resetMixTabForTests(true));
+afterEach(() => resetMixTabForTests());
 
 /**
  * Library → Sets (Sets 1: 22a's planner without the AI, 22c–22e's set,
@@ -1419,5 +1425,107 @@ describe("Brief B on a set's page (32a–32d, 32f)", () => {
       locked: { index: 1, words: 'Foghorn Study is locked in its place · drops land after it' },
     });
     resetDndForTests();
+  });
+});
+
+describe('with the Mix tab hidden (Settings → Library → DJ, the default): Sets keep working', () => {
+  const toasts: string[] = [];
+  beforeEach(() => {
+    resetMixTabForTests(false);
+    toasts.length = 0;
+    window.showToast = vi.fn((m: string) => {
+      toasts.push(m);
+    }) as never;
+  });
+  afterEach(() => {
+    delete (window as unknown as { playTrackList?: unknown }).playTrackList;
+  });
+
+  it('Play as a mix queues the set', async () => {
+    const play = vi.fn(async () => ({ status: 'played' }));
+    (window as unknown as { playTrackList: unknown }).playTrackList = play;
+    for (const id of ['1', '2', '3']) LIBRARY[id].file_path = `/m/${id}.flac` as never;
+    onTestFinished(() => {
+      for (const id of ['1', '2', '3']) LIBRARY[id].file_path = null;
+    });
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() => expect(document.querySelectorAll('[data-step]').length).toBe(2));
+    const button = await screen.findByRole('button', { name: 'Play as a mix' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    const [queue, label] = play.mock.calls[0] as unknown as [{ id: string }[], string];
+    expect(label).toBe('Sunday Set · as a mix');
+    expect(queue.map((t) => t.id)).toEqual(['1', '2', '3']);
+    expect(toasts).toEqual([]);
+  });
+
+  it('the working-set toggle works, and its toast leaves the Mix tab out', async () => {
+    renderPage();
+    const row = (await screen.findByText('Sunday Set')).closest('li')!;
+    fireEvent.click(await within(row).findByRole('button', { name: 'Make this my working set' }));
+    await waitFor(() =>
+      expect(calls('/api/sets/working', 'PUT').map((c) => c.body)).toEqual([{ set_id: 7 }]),
+    );
+    expect(await within(row).findByRole('button', { name: 'Working set' })).toHaveAttribute(
+      'title',
+      'Your working set. Press to have none',
+    );
+    expect(toasts).toContain('Sunday Set is your working set.');
+  });
+
+  it('a drop onto a set is accepted', async () => {
+    const { getTarget, resetDndForTests } = await import('@/features/dnd/dnd-engine');
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() => expect(document.querySelectorAll('[data-step]').length).toBe(2));
+    const target = getTarget('set-list:set:7')!;
+    const drag = {
+      items: [{ id: '6', title: 'Kelp Garden', key: '7A', bpm: 120, queue: { id: '6' } }],
+      source: { kind: 'tracks' as const, listId: 'tracks', indexes: [0] },
+      via: 'mouse' as const,
+    };
+    let done: Awaited<ReturnType<typeof target.drop>> = null;
+    await act(async () => {
+      done = await target.drop(drag, 1);
+    });
+    expect(done!.words).toBe('Added Kelp Garden to Sunday Set · #2');
+    expect(await screen.findByText('Kelp Garden')).toBeTruthy();
+    resetDndForTests();
+  });
+
+  it('a set row\'s "…" has no Mixes well with…, and the rest of 24a\'s order', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(await screen.findByRole('button', { name: 'More for Foghorn Study' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual([
+      'Play next',
+      'Add to set…',
+      'Send to…',
+      'Add to playlist…',
+      'Move up',
+      'Move down',
+      'Move…',
+      'Remove from set',
+    ]);
+  });
+
+  it('the "…" follows the setting while the page is open (review L3)', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const open = async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'More for Foghorn Study' }));
+      return (await screen.findAllByRole('menuitem')).map((m) => m.textContent);
+    };
+    expect(await open()).not.toContain('Mixes well with…');
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryAllByRole('menuitem')).toEqual([]));
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('soulsync:mix-tab-changed', { detail: { shown: true } }),
+      );
+    });
+    expect(await open()).toContain('Mixes well with…');
   });
 });

@@ -15,18 +15,26 @@
  * already leaves inputs, dialogs and menus alone (S's guard): it calls
  * `window.SoulSyncMix.key('A' | 'N' | 'M')`, true when the Mix tab acted.
  * X is reserved for Mix now (auto-mix, 26c) and isn't bound yet.
+ *
+ * While the Mix tab is hidden (Settings → Library → DJ's "Show the Mix tab",
+ * off by default: mix-visibility.ts) none of that shows: no switch (Now
+ * playing would be alone in it), no Mix mode or phone Mix · Set, no Visuals
+ * Mix button or drawer, and the keys aren't the Mix tab's (M mutes, N skips).
+ * The record's key line ("Ready to mix", the analysis) stays.
  */
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { playTrackNext } from '@/features/dj/dj-actions';
+import { DJ_QUERY_KEY } from '@/features/dj/dj.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import { useMixModel, type MixModel } from './mix-model';
 import { forgetRetiredKeys, getMixState, setDrawer, setTrayMode, useMixState } from './mix-store';
 import { useMixSubject, type MixSubject } from './mix-subject';
 import { MixDrawer, MixSheet, MixTray, ModesSwitch, PreviewTray, RecordKeyLine } from './mix-tab';
+import { MIX_TAB_CHANGED_EVENT, mixTabShown, useMixTabShown } from './mix-visibility';
 import { mixQueryOptions } from './mix.api';
 
 export const PHONE_QUERY = '(max-width: 768px)';
@@ -160,7 +168,7 @@ function keyAction(
   phone: boolean,
   fetchTop: (id: string) => Promise<void>,
 ): boolean {
-  if (!isAvailable(subject)) return false;
+  if (!mixTabShown() || !isAvailable(subject)) return false;
   const k = key.toUpperCase();
   // the keys work for a library track (or a station's that's yours) only: a
   // preview's tab only says why there's nothing, so M stays the player's
@@ -219,16 +227,29 @@ export function MixTabHost() {
   const [slots, setSlots] = useState<Slots>(() => findSlots());
   const visualsOpen = useVisualsOpen(slots.overlay);
   const trayOpen = useTrayOpen();
-  const available = isAvailable(subject);
+  const tabShown = useMixTabShown();
+  const hasSubject = isAvailable(subject);
+  // a Mix tab for this track: there's one to show, and the setting shows it
+  const available = hasSubject && tabShown;
   const mixShown = available && state.mode === 'mix';
-  const drawerShown = visualsOpen && state.drawer && Boolean(trackSubject);
+  const drawerShown = tabShown && visualsOpen && state.drawer && Boolean(trackSubject);
   // the model is always there (the keys use it), but it asks for analysis
   // and watches progress only while someone can see the tab
   const model = useMixModel(trackSubject, profileId ?? null, {
     shown: (mixShown && trayOpen) || drawerShown,
     // the record's key line says "Ready to mix" in Now playing too (36a)
     watch: trayOpen,
+    // hidden, the key line is all that's shown: no matches asked for
+    askMatches: tabShown,
   });
+
+  // Settings saved the setting: read the DJ status again (its settings are stale)
+  useEffect(() => {
+    const again = () =>
+      void queryClient.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'status'] });
+    window.addEventListener(MIX_TAB_CHANGED_EVENT, again);
+    return () => window.removeEventListener(MIX_TAB_CHANGED_EVENT, again);
+  }, [queryClient]);
 
   // the shell's markup is there from the start; look again once in case
   useEffect(() => {
@@ -272,7 +293,7 @@ export function MixTabHost() {
   useEffect(() => {
     const button = slots.visualsButton;
     if (!button) return;
-    button.hidden = !trackSubject;
+    button.hidden = !trackSubject || !tabShown;
     button.setAttribute('aria-pressed', drawerShown ? 'true' : 'false');
     button.setAttribute('aria-expanded', drawerShown ? 'true' : 'false');
     const toggle = () => toggleDrawer();
@@ -284,7 +305,7 @@ export function MixTabHost() {
       button.removeEventListener('click', toggle);
       panel?.removeEventListener('click', closeMine);
     };
-  }, [slots.visualsButton, slots.visualsPanelButton, trackSubject, drawerShown]);
+  }, [slots.visualsButton, slots.visualsPanelButton, trackSubject, drawerShown, tabShown]);
 
   // the drawer closes with the visuals
   useEffect(() => {
@@ -311,8 +332,8 @@ export function MixTabHost() {
         const l = latest.current;
         return keyAction(key, l.subject, l.model, l.visualsOpen, l.phone, fetchTop);
       },
-      available: () => isAvailable(latest.current.subject),
-      drawerOpen: () => getMixState().drawer && latest.current.visualsOpen,
+      available: () => mixTabShown() && isAvailable(latest.current.subject),
+      drawerOpen: () => mixTabShown() && getMixState().drawer && latest.current.visualsOpen,
       closeDrawer: () => setDrawer(false),
     };
     return () => {
@@ -320,8 +341,12 @@ export function MixTabHost() {
     };
   }, [queryClient]);
 
-  if (!available) return null;
+  if (!hasSubject) return null;
   const preview = subject.kind === 'preview' ? subject.title : null;
+  if (!tabShown)
+    return slots.keyLine && trackSubject && !trackSubject.radio
+      ? createPortal(<RecordKeyLine model={model} />, slots.keyLine)
+      : null;
   return (
     <>
       {slots.modesMusic && !trackSubject?.radio && !phone

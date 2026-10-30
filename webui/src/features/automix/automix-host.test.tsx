@@ -13,6 +13,7 @@ import {
   analysisStore,
   resetAnalysisRequests,
 } from '@/features/dj/analysis.api';
+import { mixTabShown, resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -864,5 +865,33 @@ describe("UX-9: a mix that couldn't start says so", () => {
       'title',
       "Couldn't start the mix: the tracks didn't load in time. Try again (X)",
     );
+  });
+});
+
+describe('with the Mix tab hidden (Settings → Library → DJ, the default)', () => {
+  it('Between tracks still chooses Off or Auto mix, and Up next gets its chips with Auto mix', async () => {
+    resetMixTabForTests();
+    expect(mixTabShown()).toBe(false);
+    localStorage.setItem('soulsync-between-tracks', 'off');
+    refreshPrefs();
+    mount();
+    const card = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        '#ss-between-tracks-library [data-between-tracks]',
+      );
+      if (!el) throw new Error('not yet');
+      return el;
+    });
+    const cards = within(
+      within(card).getByRole('radiogroup', { name: 'Between tracks' }),
+    ).getAllByRole('radio');
+    expect(cards[0]).toHaveAttribute('aria-checked', 'true');
+    expect(document.querySelector('[data-automix-gap]')).toBeNull();
+    fireEvent.click(cards[1]);
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
+    expect(readPrefs().between).toBe('dj');
+    await waitFor(() => expect(document.querySelector('[data-automix-gap]')).not.toBeNull());
+    localStorage.removeItem('soulsync-between-tracks');
+    refreshPrefs();
   });
 });

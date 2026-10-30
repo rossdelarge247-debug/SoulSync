@@ -96,6 +96,9 @@ TOO_LONG = "too long to analyse"
 SETTING_ANALYZE = "library.dj_analysis"
 SETTING_WRITE_TAGS = "library.dj_write_tags"
 SETTING_OVERWRITE_TAGS = "library.dj_overwrite_tags"
+#: Settings → Library → DJ's "Show the Mix tab" (off by default): not the
+#: sweep's, but served with its settings so the web UI reads one place
+SETTING_SHOW_MIX_TAB = "library.dj_show_mix_tab"
 
 
 class JobRunning(RuntimeError):
@@ -132,7 +135,23 @@ def _setting(key: str, default: bool) -> bool:
 
 def settings_state() -> Dict[str, bool]:
     return {"analyze": _setting(SETTING_ANALYZE, True), "write_tags": _setting(SETTING_WRITE_TAGS, False),
-            "overwrite_tags": _setting(SETTING_OVERWRITE_TAGS, False)}
+            "overwrite_tags": _setting(SETTING_OVERWRITE_TAGS, False), "show_mix_tab": show_mix_tab()}
+
+
+def show_mix_tab() -> bool:
+    """Settings → Library → DJ's "Show the Mix tab": off unless an admin turned
+    it on. Strict: only ``True``, or the strings "true" / "1" a hand-edited
+    config might hold; anything else ("false", "0", 1, an unreadable config)
+    keeps it hidden."""
+    try:
+        from core.settings import config_manager
+
+        value = config_manager.get(SETTING_SHOW_MIX_TAB, False)
+    except Exception:  # noqa: BLE001 - no config: hidden
+        return False
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().lower() in ("true", "1")
 
 
 # ── what makes it wait ───────────────────────────────────────────────────────
