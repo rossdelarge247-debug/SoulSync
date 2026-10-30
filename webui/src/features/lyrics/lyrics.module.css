@@ -322,7 +322,10 @@
   border-radius: 8px;
   background: none;
   color: var(--ss-text);
-  font: 500 14px/1 var(--ss-shell-font, inherit);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
 }
