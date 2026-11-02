@@ -5,8 +5,7 @@ import type { DragItem } from '@/features/dnd/dnd-model';
 
 import { Button } from '@/components/form';
 import { EmptyState, LoadingState, Notice, SkeletonList } from '@/components/primitives';
-import { DjMeta } from '@/features/dj/dj-meta';
-import { useDjInfo } from '@/features/dj/dj.api';
+import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
 import { trackMenu } from '@/features/dj/track-menu';
 import { Grip } from '@/features/dnd/grip';
 import { onGripDown, onRowTouch } from '@/features/dnd/items';
@@ -257,7 +256,9 @@ function LibraryTrackRow({
   addToQueue: () => void;
   addToPlaylist: () => void;
   artistName: string;
-  dj: Parameters<typeof DjMeta>[0]['dj'];
+  /** The track's BPM and key, for its drag only: the ghost and a set's step
+   *  (the row itself doesn't show them; Ross, 2 November). */
+  dj: DjInfo | undefined;
 }) {
   // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
   useMixTabShown();
@@ -314,13 +315,7 @@ function LibraryTrackRow({
         <span className={styles.rowTitle}>{title}</span>
         <span className={`${styles.rowMeta} ${styles.rowMetaPhone}`}>
           {[durationText(track.duration), qualityText(track)].filter(Boolean).join(' · ')}
-          <DjMeta dj={dj} lead />
         </span>
-        {dj ? (
-          <span className={`${styles.rowMeta} ${styles.rowMetaWide}`}>
-            <DjMeta dj={dj} />
-          </span>
-        ) : null}
       </span>
       <span className={styles.rowAside}>{durationText(track.duration)}</span>
       <span className={styles.rowAside}>{qualityText(track)}</span>
@@ -380,7 +375,8 @@ function LibraryTracks({
 
   const play = (track: EnhancedTrack, album: EnhancedAlbum) =>
     getShellBridge()?.playLibraryTrack(track as never, text(album.title), artistName);
-  // BPM and key under each title (the library's DJ data), and "Mixes well with…"
+  // the rows' BPM and key (the library's DJ data), for a drag's ghost and a
+  // set's step; the rows don't show them
   const djInfo = useDjInfo(groups.flatMap((g) => g.tracks.map((t) => text(t.id))));
 
   return (
