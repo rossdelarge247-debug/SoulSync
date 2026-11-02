@@ -15,8 +15,7 @@ import type { QualityRule } from '@/features/quality/quality.model';
 
 import { Button } from '@/components/form';
 import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/primitives';
-import { DjMeta } from '@/features/dj/dj-meta';
-import { useDjInfo } from '@/features/dj/dj.api';
+import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
@@ -117,7 +116,9 @@ function SearchTrackRow({
   track: LibraryTrack;
   row: Row;
   verdict: QualityVerdict | null;
-  dj: Parameters<typeof DjMeta>[0]['dj'];
+  /** The track's BPM and key, for its drag only: the ghost and a set's step
+   *  (the row itself doesn't show them; Ross, 2 November). */
+  dj: DjInfo | undefined;
   phone: boolean;
   playing: boolean;
 }) {
@@ -199,14 +200,8 @@ function SearchTrackRow({
       <Art url={track.album_thumb_url} />
       <div className={styles.rowText}>
         <span className={styles.rowTitle}>{track.title}</span>
-        <span className={`${styles.rowMeta} ${styles.wideOnly}`}>
-          {trackMeta(track, verdict)}
-          <DjMeta dj={dj} lead />
-        </span>
-        <span className={`${styles.rowMeta} ${styles.phoneOnly}`}>
-          {shortMeta(row, verdict)}
-          <DjMeta dj={dj} lead />
-        </span>
+        <span className={`${styles.rowMeta} ${styles.wideOnly}`}>{trackMeta(track, verdict)}</span>
+        <span className={`${styles.rowMeta} ${styles.phoneOnly}`}>{shortMeta(row, verdict)}</span>
       </div>
       <span className={styles.tagCell}>
         <QualityTag verdict={verdict} />
@@ -292,7 +287,8 @@ export function LibrarySection({
   const limit = type === 'everything' ? rowLimit(type, phone, 2) : more ? rows.length : TYPED_ROWS;
   const shown = rows.slice(0, limit);
   const albumIds = shown.filter((r) => r.kind === 'album').map((r) => r.item.id);
-  // BPM and key on the track rows (the library's DJ data)
+  // the track rows' BPM and key (the library's DJ data), for a drag's ghost
+  // and a set's step; the rows don't show them
   const djInfo = useDjInfo(shown.filter((r) => r.kind === 'track').map((r) => String(r.item.id)));
   const albumTracks = useQueries({
     queries: albumIds.map((id) => ({ ...albumTracksQueryOptions(id), enabled: Boolean(bar) })),
