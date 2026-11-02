@@ -2,9 +2,10 @@
  * Library → Tracks (boards 17a at 1440 and 17c at 390; HANDOFF 150–153):
  * Listening history's header, list and footer (history.module.css), the
  * analysis line, a toolbar (BPM From–To, Key with its chip, "And keys that
- * mix", Sort), the count line, then rows `48px 1fr 64px 64px 96px 92px` at
- * 64px with the key chip and energy as a number with a ten-step bar. Text
- * 14px or larger at 62% white or brighter; the numbers are tabular.
+ * mix", Sort), the count line, then rows `48px 1fr 64px 64px 92px` at 64px
+ * with the key chip. Energy and each row's analysis marker are gone (Ross,
+ * 2 November). Text 14px or larger at 62% white or brighter; the numbers are
+ * tabular.
  */
 
 /* 17a's main column sets its parts 16px apart */
@@ -38,13 +39,9 @@
 
 /* ── the analysis line (153) ─────────────────────────────────────────── */
 
-/* the page's analysis line (Brief A, 31c) and each row's marker */
+/* the page's analysis line (Brief A, 31c) */
 .analysisLine {
   max-width: 720px;
-}
-
-.rowMarker {
-  margin-top: 4px;
 }
 
 /* Stop / Start now: accent-light words, a 44px target */
@@ -224,7 +221,7 @@
 .row {
   display: grid;
   /* Brief B (32b): the grip's reserved 24px column first */
-  grid-template-columns: 24px 48px minmax(0, 1fr) 64px 64px 96px 92px 32px 44px;
+  grid-template-columns: 24px 48px minmax(0, 1fr) 64px 64px 92px 32px 44px;
   gap: 12px;
   align-items: center;
 }
@@ -295,8 +292,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.keyCell,
-.energyCell {
+.keyCell {
   display: flex;
   align-items: center;
   min-width: 0;

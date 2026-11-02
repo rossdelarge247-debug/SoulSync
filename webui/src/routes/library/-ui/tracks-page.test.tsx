@@ -1,5 +1,5 @@
 import { createMemoryHistory } from '@tanstack/react-router';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
@@ -254,7 +254,7 @@ const browseParams = () =>
     .searchParams;
 
 describe('Library → Tracks', () => {
-  it('lists tracks with BPM, key and energy, sorted by BPM', async () => {
+  it('lists tracks with BPM and key, sorted by BPM: no Energy, no marker under a track', async () => {
     renderPage();
     await screen.findByText('Static Bloom');
     expect(screen.getByRole('heading', { level: 1, name: 'Tracks' })).toBeTruthy();
@@ -263,24 +263,35 @@ describe('Library → Tracks', () => {
     expect(within(row).getByText('8A').getAttribute('title')).toBe(
       'A minor (Am), worked out by SYNCHRO.S',
     );
-    expect(within(row).getByText('7')).toBeTruthy();
+    // no Energy (Ross, 2 November): not its number, its bar or its column
+    expect(within(row).queryByText('7')).toBeNull();
+    expect(row.querySelector('[data-lit]')).toBeNull();
+    const head = document.querySelector('[class*="head"][aria-hidden="true"]')!;
+    expect(head.textContent).toBe('TrackBPMKey');
     const unknown = screen.getByText('Not yet').closest('li')!;
-    expect(within(unknown).getAllByText('–')).toHaveLength(3);
+    expect(within(unknown).getAllByText('–')).toHaveLength(2);
     expect(browseParams().get('sort')).toBe('bpm');
     expect(screen.getByText('4 of 4 tracks')).toBeTruthy();
-    // a track left out says why
+    // no chip under any track ("Not analysed", "No BPM", "Couldn't be read")
+    expect(document.querySelector('[data-analysis-marker]')).toBeNull();
+    // a track left out says why on its BPM's dash, not in the row
     const long = screen.getByText('Two-hour mix').closest('li')!;
-    expect(within(long).getByText(/Too long to analyse/)).toBeTruthy();
+    expect(within(long).queryByText(/Too long to analyse/)).toBeNull();
+    expect(within(long).getByTitle('Too long to analyse')).toBeTruthy();
   });
 
   it("sends the URL's BPM range and key", async () => {
+    // an old link sorted by energy reads as BPM: there's no Energy sort now
     renderPage('/library?view=tracks&bpm=120-128&key=8A:mix&sort=energy');
     await screen.findByText('Static Bloom');
     const params = browseParams();
     expect(params.get('bpm_min')).toBe('120');
     expect(params.get('bpm_max')).toBe('128');
     expect(params.get('key')).toBe('8A:mix');
-    expect(params.get('sort')).toBe('energy');
+    expect(params.get('sort')).toBe('bpm');
+    expect(
+      [...(screen.getByLabelText('Sort') as HTMLSelectElement).options].map((o) => o.textContent),
+    ).toEqual(['BPM', 'Key', 'Title', 'Artist', 'Recently added']);
     expect((screen.getByLabelText('Lowest BPM') as HTMLInputElement).value).toBe('120');
     expect((screen.getByLabelText('Key') as HTMLSelectElement).value).toBe('8A');
     expect(
@@ -321,7 +332,7 @@ describe('Library → Tracks', () => {
     expect(within(line as HTMLElement).queryByRole('button')).toBeNull();
   });
 
-  it('[review M2] a whole-library sweep polls the page slowly; its own rows working, fast', async () => {
+  it('[review M2] a whole-library sweep polls the page slowly, its own rows too (no markers since 2 November)', async () => {
     progressSweep = {
       running: true,
       held: false,
@@ -340,10 +351,16 @@ describe('Library → Tracks', () => {
     renderPage();
     await screen.findByText(/Analysing Elsewhere/);
     await waitFor(() => expect(analysisStore.delay).toBe(20_000));
-    // one of the page's rows is being analysed: the page follows it fast
+    // one of the page's rows is being analysed: no row says so, so the page
+    // doesn't watch its rows or poll fast for them
     progressTracks = { '1': { state: 'working', step: 'read', percent: 5 } };
     analysisStore.pollSoon();
-    await waitFor(() => expect(analysisStore.delay).toBe(1_500));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    await waitFor(() => expect(analysisStore.delay).toBe(20_000));
+    expect(analysisStore.delay).not.toBe(1_500);
+    expect(screen.queryByText(/Analysing · read/)).toBeNull();
   });
 
   it('idle: Analyse all (an admin’s) starts a sweep over what isn’t ready', async () => {
@@ -516,13 +533,13 @@ describe('Library → Tracks', () => {
     }
   });
 
-  it('draws keys as chips in their hue and energy as a ten-step bar (17a)', async () => {
+  it('draws keys as chips in their hue (17a), with no energy bar', async () => {
     renderPage();
     const row = (await screen.findByText('Static Bloom')).closest('li')!;
     const key = within(row).getByText('8A');
     expect(key.getAttribute('data-key-hue')).toBe('0');
     expect(key.className).toMatch(/keyChip/);
-    expect(row.querySelectorAll('[data-lit="true"]')).toHaveLength(7);
+    expect(row.querySelectorAll('[data-lit]')).toHaveLength(0);
     const next = screen.getByText('Night Ferry').closest('li')!;
     expect(within(next).getByText('9A').getAttribute('data-key-hue')).toBe('30');
   });
@@ -679,21 +696,21 @@ describe('Library → Tracks', () => {
       duration_ms: 276000,
     });
   });
-  it('analyse on demand: a row in line shows its step, and the selection can Analyse these', async () => {
+  it('analyse on demand: no row says where it is in the analysis, and the selection can Analyse these', async () => {
     progressTracks = {
       '3': { state: 'working', step: 'grid', percent: 60 },
       '2': { state: 'queued', position: 1240, asked_for: false },
     };
     renderPage();
     await screen.findByText('Static Bloom');
-    // the row's marker (31c): the bar and the step while it's analysed
-    const row = (await screen.findByText('Analysing · beat grid (5 of 6)')).closest('li')!;
-    expect(within(row).getByText('Not yet')).toBeTruthy();
-    expect(row.querySelector('[data-analysis-marker] [data-step="5"]')).not.toBeNull();
-    // the sweep's own order isn't shown as a place: the row says what it has (HANDOFF 334)
+    // no row marker (31c's, gone 2 November): not the step, not "Not analysed"
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.queryByText('Analysing · beat grid (5 of 6)')).toBeNull();
+    expect(screen.queryByText('Not analysed')).toBeNull();
+    expect(document.querySelector('[data-analysis-marker]')).toBeNull();
     expect(screen.queryByText(/1,240th/)).toBeNull();
-    const queued = screen.getByText('Night Ferry').closest('li')!;
-    expect(within(queued).getByText('Not analysed')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Select' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Not yet' }));
@@ -733,5 +750,75 @@ describe('Library → Tracks', () => {
       );
     expect(stored).toHaveLength(1);
     expect(stored[0]!.rows.map((r) => r.title)).toEqual(['Night Ferry', 'Static Bloom']);
+  });
+});
+
+describe('Library → Tracks with the mixing features hidden (Settings → Library → DJ, the default)', () => {
+  beforeEach(() => resetMixTabForTests(false));
+
+  it('a track’s "…" has no Add to set…, Send to… or Mixes well with…; the BPM items stay', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Static Bloom' }));
+    const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent ?? '');
+    expect(items.some((t) => t.startsWith('Add to set'))).toBe(false);
+    expect(items.some((t) => t.startsWith('Send to'))).toBe(false);
+    expect(items.some((t) => t.startsWith('Mixes well with'))).toBe(false);
+    expect(items[0]).toBe('Play next');
+    expect(items.some((t) => t.startsWith('Double BPM'))).toBe(true);
+    expect(items.some((t) => t.startsWith('Halve BPM'))).toBe(true);
+  });
+
+  it('the selection’s primary is Export to Traktor…, which opens the export; no set actions', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    expect(within(bar).queryByRole('button', { name: /Add to set/ })).toBeNull();
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent ?? '');
+    expect(items.some((t) => t.startsWith('Send to'))).toBe(false);
+    expect(items.some((t) => t.startsWith('Start a set'))).toBe(false);
+    expect(items.some((t) => t.startsWith('Analyse these'))).toBe(true);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    fireEvent.click(within(bar).getAllByRole('button', { name: /Export to Traktor/ })[0]!);
+    expect(await screen.findByRole('dialog', { name: /Traktor/ })).toBeTruthy();
+  });
+
+  it('the page’s line says "analysed", not "ready to mix"', async () => {
+    statusBody = { ...STATUS, grids: { done: 2, ready: 1, no_beat: 0, pending: 1 } };
+    progressSweep = {
+      running: true,
+      held: false,
+      analyze: true,
+      id: 4,
+      total: 3,
+      done: 1,
+      percent: 33,
+      waiting: null,
+      in_line: 0,
+      yours: 0,
+      left: 1,
+      current: { step: 'key', percent: 35, asked_for: false, track_id: '3', title: 'Canopy' },
+    };
+    renderPage();
+    expect(
+      await screen.findByText('Analysing Canopy · key (3 of 6) · 1 of 3 analysed'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/ready to mix/)).toBeNull();
+  });
+
+  it('turned on while open, the set actions come back', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('soulsync:mix-tab-changed', { detail: { shown: true } }),
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'More for Static Bloom' }));
+    const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent ?? '');
+    expect(items).toContain('Add to set…');
   });
 });

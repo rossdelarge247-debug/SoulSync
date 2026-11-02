@@ -7,13 +7,8 @@ import type { DragItem } from '@/features/dnd/dnd-model';
 import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
-import {
-  AnalysisLine,
-  SweepLine,
-  useAnalysis,
-  useAnalysisSweep,
-} from '@/features/dj/analysis-line';
-import { requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
+import { SweepLine, useAnalysisSweep } from '@/features/dj/analysis-line';
+import { requestAnalysis } from '@/features/dj/analysis.api';
 import {
   analyseTheseHint,
   analyseTheseWords,
@@ -45,7 +40,6 @@ import {
   keyTitle,
   parseBpmRange,
 } from '@/features/dj/dj.format';
-import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
@@ -58,7 +52,7 @@ import { djItem, onGripDown, onRowTouch } from '@/features/dnd/items';
 import { useRowGrid } from '@/features/dnd/row-grid';
 import { openSendToTray } from '@/features/dnd/send-to-ui';
 import { awayWords } from '@/features/drives/drives.format';
-import { useMixTabShown } from '@/features/mix/mix-visibility';
+import { useMixingShown } from '@/features/mix/mix-visibility';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
@@ -82,7 +76,6 @@ import styles from './tracks.module.css';
 const SORT_LABELS: Record<TrackSort, string> = {
   bpm: 'BPM',
   key: 'Key',
-  energy: 'Energy',
   title: 'Title',
   artist: 'Artist',
   recent: 'Recently added',
@@ -106,7 +99,7 @@ function usePhone(): boolean {
   return phone;
 }
 
-/** "too long to analyse" -> "Too long to analyse", for the meta line. */
+/** "too long to analyse" -> "Too long to analyse", for the BPM's title. */
 function sentenceCase(words: string): string {
   return words ? words[0].toUpperCase() + words.slice(1) : words;
 }
@@ -122,7 +115,9 @@ function artistHref(track: DjTrack): string | null {
  * Add to playlist…, Double BPM, Halve BPM (Use the measured BPM after
  * either), Open artist, Open album; on a phone Star comes first (28d). A
  * starred track whose file is gone (the Starred filter) has only what still
- * makes sense.
+ * makes sense. Mixes well with…, Add to set… and Send to… only while the
+ * mixing features show (track-menu.ts); the BPM items stay, since the BPM
+ * goes to Traktor.
  */
 function moreEntries(
   track: DjTrack,
@@ -197,14 +192,11 @@ function TrackRow({
   selecting = false,
   checked = false,
   onToggle,
-  progress = null,
   lift,
 }: {
   track: DjTrack;
   /** Brief B: what a drag from this row lifts (the row, or the selection it's in) */
   lift: () => Lifted | null;
-  /** in line or being worked out (analyse on demand): its bar and step */
-  progress?: AnalysisEntry | null;
   phone: boolean;
   /** selection mode (21a): a checkbox takes the art's place */
   selecting?: boolean;
@@ -216,8 +208,9 @@ function TrackRow({
    *  described by the reason ("Music HD isn't connected", element `id`). */
   away?: { id: string; words: string };
 }) {
-  // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
-  useMixTabShown();
+  // the "…" follows Settings → Library → DJ's "Show the mixing features"
+  // (Mixes well with…, Add to set…, Send to…)
+  const sets = useMixingShown();
   const dj = track.dj;
   const artist = artistHref(track);
   const album =
@@ -230,7 +223,7 @@ function TrackRow({
   const star = useStar(track.id);
   const setTempo = useSetTempo();
   const { isAdmin, profileId } = useProfile();
-  const working = useWorkingSet(phone ? profileId : null);
+  const working = useWorkingSet(phone && sets ? profileId : null);
   const missing = Boolean(track.file_missing);
   const entries = moreEntries(track, {
     artist,
@@ -314,7 +307,7 @@ function TrackRow({
           ) : null}
         </span>
         {phone ? (
-          // 17c: "124 BPM · 8A · E7 · Tidewater", the key's text in its hue
+          // 17c: "124 BPM · 8A · Tidewater", the key's text in its hue
           <span className={hs.meta}>
             {[
               dj?.bpm ? (
@@ -323,12 +316,6 @@ function TrackRow({
                 </span>
               ) : null,
               key,
-              dj?.energy ? (
-                <span key="energy" title={`Energy ${dj.energy} of 10`}>
-                  E{dj.energy}
-                </span>
-              ) : null,
-              dj?.skipped ? sentenceCase(dj.skipped) : null,
               artist ? (
                 <a key="artist" href={artist}>
                   {track.artist_name}
@@ -355,21 +342,21 @@ function TrackRow({
             {track.album_title ? (
               <> · {album ? <a href={album}>{track.album_title}</a> : track.album_title}</>
             ) : null}
-            {dj?.skipped ? <> · {sentenceCase(dj.skipped)}</> : null}
           </span>
         )}
-        {/* the row's marker (31c): two words for any track not ready to mix */}
-        <AnalysisLine size="marker" entry={progress} className={styles.rowMarker} />
+        {/* no analysis marker or energy here (Ross, 2 November): the row is
+            the track, its BPM and its key; why a BPM is missing is the
+            dash's title */}
       </div>
       {phone ? null : (
         <>
-          <span className={styles.bpm} title={dj ? bpmTitle(dj) : undefined}>
+          <span
+            className={styles.bpm}
+            title={dj?.bpm ? bpmTitle(dj) : dj?.skipped ? sentenceCase(dj.skipped) : undefined}
+          >
             {dj?.bpm ? bpmNumber(dj.bpm) : <span className={styles.none}>–</span>}
           </span>
           <span className={styles.keyCell}>{key ?? <span className={styles.none}>–</span>}</span>
-          <span className={styles.energyCell}>
-            <EnergyMeter energy={dj?.energy} />
-          </span>
         </>
       )}
       {phone ? null : (
@@ -564,11 +551,15 @@ const KEY_OPTIONS = [
 
 /**
  * Library → Tracks (/library?view=tracks; boards 17a, 17c): every track you
- * have with its BPM, key (Camelot, in the wheel's colour) and energy (a
- * number and a ten-step bar), filtered by a BPM range and a key, sorted by
- * BPM by default. The URL holds the range (`bpm=120-128`), the key
- * (`key=8A`, `8A:mix` with the keys that mix with it), the sort and the
- * filter text. "Mixes well with…" opens the shell's docked panel.
+ * have with its BPM and key (Camelot, in the wheel's colour), filtered by a
+ * BPM range and a key, sorted by BPM by default. The URL holds the range
+ * (`bpm=120-128`), the key (`key=8A`, `8A:mix` with the keys that mix with
+ * it), the sort and the filter text. Energy and each row's analysis marker
+ * are gone (Ross, 2 November: the list stays calm); the analysis still
+ * fills BPM and key in and goes to Traktor. The set actions (Add to set…,
+ * Send to…, Start a set from these) show only with the mixing features
+ * (Settings → Library → DJ); without them the selection's primary is Export
+ * to Traktor….
  */
 export function TracksPage({
   search,
@@ -584,6 +575,8 @@ export function TracksPage({
   const away = awayDrive ? { id: awayId, words: awayWords(awayDrive) } : undefined;
   const { profileId, isAdmin } = useProfile();
   const phone = usePhone();
+  // Settings → Library → DJ's "Show the mixing features": sets, and the words
+  const mixing = useMixingShown();
   const queryClient = useQueryClient();
   const setTempo = useSetTempo();
   const playingId = usePlayingTrackId();
@@ -638,8 +631,6 @@ export function TracksPage({
   // what the key filter covered, as the server read it ("8A, 7A, 9A or 8B")
   const keys = pages[0]?.keys ?? (key ? [key] : []);
 
-  // analyse on demand: the rows in line or being worked out show their step
-  const progressOf = useAnalysis(tracks.slice(0, 500).map((t) => t.id));
   const analysePicked = () => {
     void requestAnalysis(picked.slice(0, 500), { force: true })
       .then((answer) => {
@@ -672,9 +663,11 @@ export function TracksPage({
   // mix. Read at the slow pace: the poll goes fast only while the page's own
   // rows are being analysed, asked for or near the front (review M2)
   const sweep = useAnalysisSweep(true, { fast: false });
+  // "ready to mix" only means something with the mixing features shown
+  const readyWord = mixing ? 'ready to mix' : 'analysed';
   const readyLine =
     s?.grids && s.counts.tracks
-      ? `${(s.grids.ready ?? s.grids.done).toLocaleString()} of ${s.counts.tracks.toLocaleString()} ready to mix`
+      ? `${(s.grids.ready ?? s.grids.done).toLocaleString()} of ${s.counts.tracks.toLocaleString()} ${readyWord}`
       : null;
   const toDo = s ? s.counts.pending + (s.grids?.pending ?? 0) : 0;
   const idleLine = !s?.counts.tracks
@@ -686,7 +679,7 @@ export function TracksPage({
         : toDo
           ? ['Analysis idle', nextSweepWords(sweep?.next_in)].filter(Boolean).join(' · ')
           : s.job?.recent
-            ? `All ${s.counts.tracks.toLocaleString()} tracks are ready to mix`
+            ? `All ${s.counts.tracks.toLocaleString()} tracks are ${readyWord}`
             : null;
   const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
   // a member's picks all in the shared library: nothing they can set
@@ -769,7 +762,9 @@ export function TracksPage({
   // and, Tracks being only a source, asks where it goes (Send to…)
   useRowGrid(listEl, {
     rowSelector: '[data-track-row]',
-    hint: 'Arrows move between rows; Enter plays; Space sends the track (or the selection) to a set or Up next; the right arrow reaches its buttons.',
+    hint: mixing
+      ? 'Arrows move between rows; Enter plays; Space sends the track (or the selection) to a set or Up next; the right arrow reaches its buttons.'
+      : 'Arrows move between rows; Enter plays; Space sends the track (or the selection) to Up next; the right arrow reaches its buttons.',
     onSpace: (row) => {
       const track = tracks.find((t) => t.id === row.getAttribute('data-track-row'));
       if (!track || track.file_missing || away) return false;
@@ -805,9 +800,7 @@ export function TracksPage({
       <header className={`${hs.header} ${styles.header}`}>
         <div className={`${hs.headText} ${styles.headText}`}>
           <h1 className={hs.heading}>Tracks</h1>
-          <p className={hs.subtitle}>
-            Every track in your library, with its tempo, key and energy.
-          </p>
+          <p className={hs.subtitle}>Every track in your library, with its tempo and key.</p>
         </div>
         <div className={`${hs.headActions} ${styles.filter}`}>
           <FilterField
@@ -931,7 +924,6 @@ export function TracksPage({
               <span>Track</span>
               <span className={styles.headBpm}>BPM</span>
               <span>Key</span>
-              <span>Energy</span>
               <span />
               <span />
               <span />
@@ -953,7 +945,6 @@ export function TracksPage({
                 selecting={selecting}
                 checked={selecting && picked.includes(track.id)}
                 onToggle={() => toggle(track.id)}
-                progress={progressOf[track.id] ?? null}
                 lift={() => liftFrom(track)}
               />
             ))}
@@ -1008,10 +999,14 @@ export function TracksPage({
           label={`${plural(picked.length, 'track')} selected`}
           shortLabel={plural(picked.length, 'track')}
           count={picked.length}
-          primaryLabel="Add to set…"
-          idleLabel="Add to set…"
+          // without the mixing features there's no set to add to: Export to
+          // Traktor… is the primary, and the set actions leave the menu
+          primaryLabel={mixing ? 'Add to set…' : 'Export to Traktor…'}
+          idleLabel={mixing ? 'Add to set…' : 'Export to Traktor…'}
           emptyReason="Tick tracks to select them"
-          secondary={{ label: 'Export to Traktor…', onClick: () => setExporting(true) }}
+          secondary={
+            mixing ? { label: 'Export to Traktor…', onClick: () => setExporting(true) } : null
+          }
           selectAll={
             picked.length < tracks.length
               ? {
@@ -1020,12 +1015,12 @@ export function TracksPage({
                 }
               : null
           }
-          onPrimary={(anchor) => addPickedToMixSet(anchor)}
+          onPrimary={(anchor) => (mixing ? addPickedToMixSet(anchor) : setExporting(true))}
           // 28b: Star all; 232: Add to playlist…, Start a set from these
-          // (Library → Sets' draft), then Clear the selection; Double and
-          // Halve BPM after Add to playlist… (HANDOFF 344)
+          // (Library → Sets' draft; with the mixing features), then Clear
+          // the selection; Double and Halve BPM after Add to playlist… (HANDOFF 344)
           menu={[
-            ...(phone
+            ...(phone && mixing
               ? [
                   {
                     key: 'traktor',
@@ -1041,19 +1036,23 @@ export function TracksPage({
               disabled: !picked.length,
               onSelect: () => void starAll(),
             },
-            // Brief B (32a): "drag them, or '…' → Send to…"
-            {
-              key: 'send',
-              label: 'Send to…',
-              disabled: !picked.length || Boolean(away),
-              reason: away?.words,
-              onSelect: () => {
-                const { items } = selectionItems();
-                if (items.some((t) => t.fileMissing))
-                  window.showToast?.("Can't be sent: their files are missing", 'info');
-                else openSendToTray(items);
-              },
-            },
+            // Brief B (32a): "drag them, or '…' → Send to…" (a set, or Up next)
+            ...(mixing
+              ? [
+                  {
+                    key: 'send',
+                    label: 'Send to…',
+                    disabled: !picked.length || Boolean(away),
+                    reason: away?.words,
+                    onSelect: () => {
+                      const { items } = selectionItems();
+                      if (items.some((t) => t.fileMissing))
+                        window.showToast?.("Can't be sent: their files are missing", 'info');
+                      else openSendToTray(items);
+                    },
+                  },
+                ]
+              : []),
             {
               key: 'playlist',
               label: 'Add to playlist…',
@@ -1079,12 +1078,16 @@ export function TracksPage({
               reason: pickedAllShared ? SHARED_TEMPO_WORDS : undefined,
               onSelect: () => void setTempo(picked, 'halve'),
             },
-            {
-              key: 'set',
-              label: 'Start a set from these',
-              disabled: !picked.length,
-              onSelect: () => startSet(),
-            },
+            ...(mixing
+              ? [
+                  {
+                    key: 'set',
+                    label: 'Start a set from these',
+                    disabled: !picked.length,
+                    onSelect: () => startSet(),
+                  },
+                ]
+              : []),
             {
               key: 'analyse',
               label: 'Analyse these',
