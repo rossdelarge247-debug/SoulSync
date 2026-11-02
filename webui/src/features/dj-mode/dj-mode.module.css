@@ -22,7 +22,7 @@
   container-type: inline-size;
   container-name: djstage;
   color: var(--ss-text);
-  font-family: var(--ss-shell-font);
+  font-family: inherit;
 }
 
 .lanes {
@@ -293,7 +293,10 @@
   border-radius: var(--ss-radius-control);
   background: transparent;
   color: var(--ss-text);
-  font: 500 14px/1 var(--ss-shell-font);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
 }
 .quiet:hover {
@@ -349,7 +352,10 @@
   border-radius: var(--ss-radius-control);
   background: rgb(var(--ss-accent-light-rgb));
   color: #14101f;
-  font: 600 15px/1 var(--ss-shell-font);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
 }
 .browse:focus-visible {
