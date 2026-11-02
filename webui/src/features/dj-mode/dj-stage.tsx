@@ -319,19 +319,32 @@ function usePlayhead(
     line: React.RefObject<HTMLParagraphElement | null>;
   },
   announce: (words: string) => void,
+  onElementDuration: (seconds: number) => void,
 ): void {
   const grid = lane.phase === 'ready' ? lane.grid : null;
   const title = lane.track.title;
   const sayRef = useRef(announce);
   sayRef.current = announce;
+  // the mix-out is said once per track loaded into the lane, not at every crossing (review N4)
+  const saidFor = useRef<string | null>(null);
+  const trackId = lane.track.id;
+  const durRef = useRef(onElementDuration);
+  durRef.current = onElementDuration;
   useEffect(() => {
     let id = 0;
     let second = Number.NaN;
     let mixOut: boolean | null = null;
+    let elDur = Number.NaN;
     const tick = () => {
       const el = playerAudio();
       const t = el?.currentTime ?? 0;
-      const d = duration || (el && Number.isFinite(el.duration) ? el.duration : 0) || 0;
+      const ed = el && Number.isFinite(el.duration) ? el.duration : 0;
+      // the element's length as it loads (review N2): the lane draws its map once it's known
+      if (ed !== elDur) {
+        elDur = ed;
+        durRef.current(ed);
+      }
+      const d = duration || ed || 0;
       refs.wave.current?.style.setProperty(
         '--played',
         d > 0 ? String(Math.min(1, Math.max(0, t / d))) : '0',
@@ -345,22 +358,17 @@ function usePlayhead(
           refs.line.current.textContent = words;
         const now = inMixOut(grid, t);
         // said when it's reached while playing, not when the lane opens past it
-        if (mixOut === false && now) sayRef.current(`${title || 'Deck A'}: mix-out reached`);
+        if (mixOut === false && now && saidFor.current !== trackId) {
+          saidFor.current = trackId;
+          sayRef.current(`${title || 'Deck A'}: mix-out reached`);
+        }
         mixOut = now;
       }
       id = window.requestAnimationFrame(tick);
     };
     tick();
     return () => window.cancelAnimationFrame(id);
-  }, [grid, duration, title, refs]);
-}
-
-/** A's length: the peaks', else the track's, else the player's element (review L7). */
-function laneDuration(lane: LaneState, fromPlayer: boolean): number {
-  if (lane.duration) return lane.duration;
-  if (!fromPlayer) return 0;
-  const d = playerAudio()?.duration;
-  return d && Number.isFinite(d) ? d : 0;
+  }, [grid, duration, title, trackId, refs]);
 }
 
 function LaneA({
@@ -379,8 +387,11 @@ function LaneA({
   const lineEl = useRef<HTMLParagraphElement>(null);
   const refs = useMemo(() => ({ wave, time, line: lineEl }), []);
   const lineId = useId();
-  const duration = laneDuration(lane, true);
-  usePlayhead(lane, duration, refs, (w) => store.announce(w));
+  // A's length: the peaks', else the track's, else the player's element (L7),
+  // kept in state as the element's loads (N2)
+  const [elementDuration, setElementDuration] = useState(0);
+  const duration = lane.duration || elementDuration;
+  usePlayhead(lane, duration, refs, (w) => store.announce(w), setElementDuration);
   const ready = lane.phase === 'ready' && lane.grid && duration > 0;
   return (
     <section

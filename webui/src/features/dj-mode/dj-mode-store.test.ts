@@ -18,6 +18,8 @@ interface Fake {
   said: string[];
   analysed: string[][];
   play(t: Track, kind?: string): void;
+  /** what the next asks answer (a promise per ask; none: nothing to wait for) */
+  answers: (Promise<unknown> | undefined)[];
   phone: { on: boolean };
   away: { on: boolean };
 }
@@ -51,6 +53,7 @@ function fake(extra: { now?: () => number } = {}): Fake {
   const watching: string[] = [];
   const said: string[] = [];
   const analysed: string[][] = [];
+  const answers: (Promise<unknown> | undefined)[] = [];
   const phone = { on: false };
   const away = { on: false };
   let track: Track = FERRY;
@@ -86,7 +89,10 @@ function fake(extra: { now?: () => number } = {}): Fake {
   const store = new DjModeStore({
     win: window,
     fetch: fetchImpl as unknown as (u: string, i?: RequestInit) => Promise<Response>,
-    analyse: (ids) => analysed.push(ids),
+    analyse: (ids) => {
+      analysed.push(ids);
+      return answers.shift();
+    },
     analysis: {
       watch: (ids) => {
         watching.push(...ids);
@@ -121,6 +127,7 @@ function fake(extra: { now?: () => number } = {}): Fake {
     },
     phone,
     away,
+    answers,
   };
 }
 
@@ -339,16 +346,17 @@ describe('analysis on open and on load (37e, 37d; 420)', () => {
     expect(f.said.at(-1)).toBe('Night Ferry has no steady beat: Sync is off, blend by ear');
   });
 
-  it('D off and on again doesn’t ask for the same track twice (review M1)', async () => {
+  it('a track loaded again while DJ mode is on isn’t asked twice (M1); off clears it (N1)', async () => {
     const f = fake();
-    f.grids['2'] = { track_id: '2', analyzed: false, reason: 'not_analyzed' };
+    f.grids['8'] = { track_id: '8', analyzed: false, reason: 'not_analyzed' };
     f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
     await flush();
-    f.store.setOn(false);
-    f.store.setOn(true);
+    f.store.removeB();
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
     await flush();
-    expect(f.analysed).toEqual([['2']]);
-    expect(f.store.snapshot().a?.phase).toBe('analysing');
+    expect(f.analysed).toEqual([['8']]);
+    expect(f.store.snapshot().b?.phase).toBe('analysing');
   });
 
   it('a drive that’s away: Waiting, and the analysis carries on when it’s back', async () => {
@@ -451,14 +459,62 @@ describe('a drag’s drop line (37c)', () => {
   });
 });
 
-describe('a phone on its side (review L9)', () => {
+describe('a phone on its side (review L9, N3)', () => {
+  // a window with these media features; a query matches when every part of it does
+  const win = (features: string[]) =>
+    ({
+      matchMedia: (q: string) => ({
+        matches: q.split(' and ').every((part) => features.includes(part)),
+      }),
+    }) as unknown as Window;
+
   it('isn’t offered DJ mode either', async () => {
     const { isPhone } = await import('./dj-mode-store');
-    const win = (q: string[]) =>
-      ({ matchMedia: (m: string) => ({ matches: q.includes(m) }) }) as unknown as Window;
     expect(isPhone(win([]))).toBe(false);
     expect(isPhone(win(['(max-width: 768px)']))).toBe(true);
-    expect(isPhone(win(['(orientation: landscape) and (max-height: 500px)']))).toBe(true);
+    expect(
+      isPhone(win(['(orientation: landscape)', '(max-height: 500px)', '(pointer: coarse)'])),
+    ).toBe(true);
+  });
+
+  it('a short desktop window (about 500px tall, a mouse) still offers it (N3)', async () => {
+    const { isPhone } = await import('./dj-mode-store');
+    expect(
+      isPhone(win(['(orientation: landscape)', '(max-height: 500px)', '(pointer: fine)'])),
+    ).toBe(false);
+  });
+});
+
+describe('an ask that failed is tried again (review N1)', () => {
+  const notYet = { track_id: '8', analyzed: false, reason: 'not_analyzed' };
+
+  async function loadAgain(f: Fake) {
+    f.store.removeB();
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    await flush();
+  }
+
+  it('a rejected ask, or one turned away (null: 409 held), is asked again on the next load', async () => {
+    const f = fake();
+    f.grids['8'] = notYet;
+    f.store.setOn(true);
+    f.answers.push(Promise.reject(new Error('network')));
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    await flush();
+    expect(f.analysed).toEqual([['8']]);
+    f.answers.push(Promise.resolve(null));
+    await loadAgain(f);
+    expect(f.analysed).toEqual([['8'], ['8']]);
+    // answered: not asked again this session
+    f.answers.push(Promise.resolve({ asked: 1, queued: 1 }));
+    await loadAgain(f);
+    await loadAgain(f);
+    expect(f.analysed).toEqual([['8'], ['8'], ['8']]);
+    // DJ mode off and on: asked again
+    f.store.setOn(false);
+    f.store.setOn(true);
+    await loadAgain(f);
+    expect(f.analysed).toEqual([['8'], ['8'], ['8'], ['8']]);
   });
 });
 

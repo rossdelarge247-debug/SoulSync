@@ -101,7 +101,8 @@ export interface DjModeDeps {
   win?: Window;
   fetch?: FetchLike;
   /** ask for tracks to be analysed now (the on-demand path) */
-  analyse?: (ids: string[]) => void;
+  /** its answer (null: turned away, e.g. 409 held) or a rejection lets the ask be tried again */
+  analyse?: (ids: string[]) => Promise<unknown> | void;
   analysis?: AnalysisLike;
   /** a laptop or desktop, not a phone (417) */
   phone?: () => boolean;
@@ -114,7 +115,10 @@ export interface DjModeDeps {
 
 export const PHONE_QUERY = '(max-width: 768px)';
 /** A phone on its side (lyrics-mount's query): still a phone (417, review L9). */
-export const PHONE_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 500px)';
+// a coarse pointer too, so a short desktop window (Ross's was about 500px
+// under the top bar) isn't taken for a phone (review N3)
+export const PHONE_LANDSCAPE_QUERY =
+  '(orientation: landscape) and (max-height: 500px) and (pointer: coarse)';
 /** How long a drag's "has its beat grid" answer is trusted (review L5). */
 export const READINESS_MS = 60_000;
 
@@ -173,7 +177,7 @@ export class DjModeStore {
   private readonly listeners = new Set<Listener>();
   private readonly win: Window;
   private readonly f: FetchLike;
-  private readonly analyse: (ids: string[]) => void;
+  private readonly analyse: (ids: string[]) => Promise<unknown> | void;
   private readonly analysis: AnalysisLike;
   private readonly phone: () => boolean;
   private readonly libraryAway: () => boolean;
@@ -200,9 +204,7 @@ export class DjModeStore {
       ((ids) => {
         // a person opened DJ mode or loaded B: their ask, said as DJ mode's,
         // and forced, so an automatic ask a moment ago doesn't swallow it (M1)
-        requestAnalysis(ids, { force: true, reason: 'asked', source: 'dj_now' }).catch(() => {
-          /* the lane keeps saying it's in line; the sweep reaches it anyway */
-        });
+        return requestAnalysis(ids, { force: true, reason: 'asked', source: 'dj_now' });
       });
     this.analysis = deps.analysis ?? analysisStore;
     this.phone = deps.phone ?? (() => isPhone(this.win));
@@ -330,6 +332,8 @@ export class DjModeStore {
     this.clearLane('a');
     this.clearLane('b');
     this.readiness.clear();
+    // asked again next time DJ mode opens (review N1)
+    this.asked.clear();
     this.set({ on: false });
     this.say('DJ mode off');
     return true;
@@ -561,7 +565,14 @@ export class DjModeStore {
       this.setLane(deck, { phase: this.waitingFor(id) ? 'waiting' : 'analysing', reason: null });
       if (ask && !this.asked.has(id)) {
         this.asked.add(id);
-        this.analyse([id]);
+        // an ask that failed or was turned away is tried again next time (review N1);
+        // the lane keeps saying it's in line meanwhile, and the sweep reaches it anyway
+        const forget = () => this.asked.delete(id);
+        const answer = this.analyse([id]);
+        if (answer && typeof answer.then === 'function')
+          answer.then((a) => {
+            if (a === null) forget();
+          }, forget);
       }
       this.watch(deck, id);
       return;

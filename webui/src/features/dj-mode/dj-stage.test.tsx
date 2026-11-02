@@ -152,17 +152,33 @@ describe('lane A (37b)', () => {
     audio.currentTime = 121;
   });
 
-  it('says the mix-out once when it’s reached while playing, not every phrase (review M3)', async () => {
+  it('says the mix-out once when it’s reached while playing, not every phrase (M3), once per track (N4)', async () => {
     const said: string[] = [];
     const store = makeStore((w) => said.push(w));
     await on(store);
     said.length = 0;
-    for (const t of [200, 239, 241, 245, 262, 280]) {
+    // crossed, a seek back, crossed again: said the first time only
+    for (const t of [200, 239, 241, 245, 262, 200, 243, 280]) {
       audio.currentTime = t;
       await act(async () => new Promise((r) => setTimeout(r, 40)));
     }
     expect(said).toEqual(['Night Ferry: mix-out reached']);
     audio.currentTime = 121;
+  });
+
+  it('the element’s length arriving later draws the map as soon as it’s known (review N2)', async () => {
+    const store = makeStore(undefined, { peaksFail: true });
+    audio.duration = Number.NaN;
+    try {
+      await on(store);
+      expect(screen.queryByRole('img', { name: /^Beat map/ })).toBeNull();
+      // the metadata loads; nothing in the lane re-renders on its own
+      audio.duration = 286;
+      await act(async () => new Promise((r) => setTimeout(r, 60)));
+      expect(screen.getByRole('img', { name: /^Beat map/ })).toBeInTheDocument();
+    } finally {
+      audio.duration = 286;
+    }
   });
 
   it('peaks that fail and a track with no length: the player’s element gives the length (review L7)', async () => {
