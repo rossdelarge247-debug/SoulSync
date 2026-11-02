@@ -2,7 +2,7 @@
 
 New features Ross wants explored, written up so Design can pick them up. Each entry says what the problem is, what the app can and can't give today, and what Design needs to decide.
 
-**Status:** **Exploring** = still being shaped with Ross · **Ready for Design** = Design can draw it · **Designed** = boards on the canvas, waiting for Ross · **Approved** = Ross approved the boards; Dev builds from them · **Building** = on a branch · **Built** = in `integration` (then it moves to `SCREENS.md`).
+**Status:** **Exploring** = still being shaped with Ross · **Ready for Design** = Design can draw it · **Designed** = boards on the canvas, waiting for Ross · **Approved** = Ross approved the boards; Dev builds from them · **Building** = on a branch · **Built** = in `integration` (then it moves to `SCREENS.md`) · **Paused** = on hold, nothing deleted; the entry says why.
 
 | Feature | Status | Entry |
 | --- | --- | --- |
@@ -12,20 +12,25 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Built (AVS: later spike) | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 | Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
-| DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
-| Famous mixes and AI set suggestions | Sets 1: Built · Sets 2: Ready for Dev | [below](#famous-mixes-and-ai-set-suggestions) |
+| DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built; stage 3, the browser DJ area: Paused: superseded by DJ mode exploration) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
+| Famous mixes and AI set suggestions | Paused: superseded by DJ mode exploration (Sets 1: Built, hidden by default; Sets 2: not started) | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Built (step 1; step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
-| Star tracks and mix sets | Built (Mix tab: Built) | [below](#star-tracks-and-mix-sets) |
+| Star tracks and mix sets | Stars: Built · mix sets and the Mix tab: Paused: superseded by DJ mode exploration (Built, hidden by default) | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
-| Auto-mix: beat-matched transitions in Up next | Built (stages A–C); Between tracks (33e) and 302's rule: Building | [below](#auto-mix-beat-matched-transitions-in-up-next) |
+| Auto-mix: beat-matched transitions in Up next | Paused: superseded by DJ mode exploration (Built, stages A–C; hidden by default) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Built (step 1) | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
 | Privacy: a VPN for Soulseek and torrents, and a privacy check | Building (VPN file, guide and Privacy card on `feat/privacy-vpn`) | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
-| DJ now: a compact DJ mode in the playing panel | Drawn (E1 chosen) | [below](#dj-now-a-compact-dj-mode-in-the-playing-panel) |
+| DJ now: a compact DJ mode in the playing panel | Paused: superseded by DJ mode exploration (was Drawn, E1 chosen; not built) | [below](#dj-now-a-compact-dj-mode-in-the-playing-panel) |
+| DJ mode: a simple two-deck view in the player | Ready for Design (exploring) | [below](#dj-mode-a-simple-two-deck-view-in-the-player) |
 | Analyse on demand, with progress | Built | [below](#analyse-on-demand-with-progress) |
-| A playlist into a set for mixing (Order for mixing) | Ready for Design | [below](#a-playlist-into-a-set-for-mixing-order-for-mixing) |
+| A playlist into a set for mixing (Order for mixing) | Paused: superseded by DJ mode exploration (was Ready for Design) | [below](#a-playlist-into-a-set-for-mixing-order-for-mixing) |
 
-**Mixing is paused pending Ross's rethink (30 October; widened 2 November):** Design is rethinking it as a much simpler "DJ mode". Meanwhile every mixing feature hides behind Settings → Library → DJ's "Show the mixing features" (`library.dj_show_mix_tab`, off by default): the Mix tab, Sets (with Play as a mix, Add to set…, Send to… and the working set), Between tracks / Auto mix (not even loaded while hidden) and the player's analysis line and top bar count (HANDOFF "Dev, Mix tab hidden while Ross rethinks mixing of 30 October" and "Dev, the player calmed: mixing features hidden, Tracks cleaned up of 2 November"). Nothing is deleted: turned on, they're back as built. DJ now (step 5), Beat This! (grid v6, on `feat/grid-beatthis`) and Analyse now first (on `fix/analyse-now-first`) wait for the rethink. The background analysis, BPM and key, Tracks and Export to Traktor carry on; Tracks lost its Energy column and per-track analysis marker for good.
+**Mixing is simplified (Ross, 2 November):** the new way to mix is **DJ mode** (below; HANDOFF "Brief F: DJ mode"), a two-lane view in the player's panel, opt-in, with no sets. The Mix tab, Sets, Between tracks / Auto mix, Play as a mix and the player's "Ready to mix" line go behind one setting, off by default (Dev, built on `feat/player-calm`: HANDOFF "Dev, the player calmed: mixing features hidden, Tracks cleaned up of 2 November"); Tracks loses its chip under each track and its Energy column. Nothing is deleted, and BPM, key and the beat grid stay for Export to Traktor. The entries for the Mix tab, auto-mix, DJ now, sets and Order for mixing are marked "Paused: superseded by DJ mode exploration".
+
+**Built 2 November (`feat/player-calm`), while Design explores DJ mode:** every mixing feature hides behind Settings → Library → DJ's "Show the mixing features" (`library.dj_show_mix_tab`, the Mix tab's own key, off by default): the Mix tab, Sets (with Play as a mix, Add to set…, Send to… and the working set), Between tracks / Auto mix (not even loaded while hidden) and the player's analysis line and top bar count. Nothing is deleted: turned on, they're back as built. DJ now (step 5), Beat This! (grid v6, on `feat/grid-beatthis`) and Analyse now first (on `fix/analyse-now-first`) are paused with the rest ("Paused: superseded by DJ mode exploration"). The background analysis, BPM and key, Tracks and Export to Traktor carry on; Tracks lost its Energy column and per-track analysis marker for good.
+
+**Earlier, mixing paused pending Ross's rethink (30 October):** the Mix tab (hidden behind Settings → Library → DJ's "Show the Mix tab", off by default; HANDOFF "Dev, Mix tab hidden while Ross rethinks mixing of 30 October"), DJ now (step 5), Beat This! (grid v6, on `feat/grid-beatthis`) and Analyse now first (on `fix/analyse-now-first`) wait for it. Sets, Up next, Between tracks (Off / Auto mix), Play as a mix and the background analysis carry on as built.
 
 ---
 
@@ -367,7 +372,7 @@ Ross DJs with **Traktor Pro 3** on a Mac. His music lives in SYNCHRO.S, but noth
    - **(a) Export** (Built, 24 October: "Export to Traktor…" on a playlist's "…", Tracks' selection bar and the Mixes panel's foot; Settings → Library → Traktor Pro 3) playlists, "Mixes well with" sets and recent additions as Traktor `.nml` playlist files, for Traktor's Import Playlist. The paths in the file must be the ones **the Mac sees** (for example `/Volumes/Music/…` or `/Users/ross/Music/…`), not the container's (`/app/Transfer/…`), so the export needs a container-to-Mac path mapping (the drive move's work on host paths may give it).
    - **(b) Read `collection.nml`** (Traktor's own library file) **read-only**, to bring in cue points, beat grids, ratings, play counts and Traktor's own BPM and key.
    - **(c) Maybe two-way sync later,** only while Traktor is closed (it rewrites `collection.nml` on quit and would overwrite a change), with a backup of the file on every write.
-3. **Stage 3 (Design exploration): a DJ area in the browser:** two decks with waveforms, sync, a crossfader, EQ and cues, plus a harmonic "next track" helper, all on Web Audio.
+3. **Stage 3 (Paused: superseded by DJ mode exploration, 2 November; DJ mode below is the simpler version): a DJ area in the browser:** two decks with waveforms, sync, a crossfader, EQ and cues, plus a harmonic "next track" helper, all on Web Audio.
 
 ### Licence
 
@@ -399,6 +404,8 @@ Ross DJs with **Traktor Pro 3** on a Mac. His music lives in SYNCHRO.S, but noth
 ---
 
 ## Famous mixes and AI set suggestions
+
+**Paused: superseded by DJ mode exploration** (Ross, 2 November): sets as a DJ tool are out of the simplified mixing. Sets go behind the off-by-default setting with the Mix tab; Sets 2 isn't started. Nothing is deleted. See "DJ mode: a simple two-deck view in the player" and HANDOFF "Brief F: DJ mode".
 
 **Status:** Sets 1: Building on `feat/sets-1` (`HANDOFF.md`, "Dev, Sets 1 of 24 October"; routes in `CONTRACTS.md`, "Sets") · Sets 2 (the AI's parts) after Dev's answers 240–246 · drawn by Design (`Sets (famous mixes, set suggestions).dc.html` 22a–22i, `Sets states.dc.html` 22j–22s) and approved by Ross 24 October · raised by Ross, 2026-10-24 · direction approved by Ross the same day. It builds on the DJ area (BPM, key and energy from stage 1, the Mixes panel, Export to Traktor from stage 2a) and on Settings → AI (`core/ai`, with its per-profile usage limits). Dev suggests building it into the set planner, Phase D's next step after Export to Traktor, so a famous mix, a suggested set and a hand-built set are the same thing: a tracklist you edit, save as a mix and export.
 
@@ -532,6 +539,8 @@ SYNCHRO.S already has timed lyrics, but they sit in a side panel of the expanded
 ---
 
 ## Star tracks and mix sets
+
+**Paused: superseded by DJ mode exploration** (Ross, 2 November): stars stay as built; mix sets and the Mix tab go behind the off-by-default setting. Nothing is deleted. See "DJ mode: a simple two-deck view in the player" and HANDOFF "Brief F: DJ mode".
 
 **Status:** Stars and mix sets: Building · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day · drawn by Design as `Stars and mix sets.dc.html` (28a–28g) and placed in `DJ area map (six briefs).dc.html` (24a), approved by Ross 2026-10-26 · built on `feat/stars-mix-sets`: `HANDOFF.md`, "Dev, stars and mix sets of 26 October"; the routes are in `CONTRACTS.md`, "Stars" and "Sets". Mix tab: Building · drawn by Design as `Mix tab.dc.html` (29a–29d), approved by Ross 2026-10-26 · built on `feat/mix-tab`: `HANDOFF.md`, "Dev, the Mix tab of 26 October"; the routes are in `CONTRACTS.md`, "The Mix tab". **Step 3 of Design's 27 October order (Brief D and Brief C's tray): Building** on `feat/step3-tray` (`HANDOFF.md`, "Dev, step 3 (Brief D and Brief C's tray) of 28 October"): the row's primary button is Play everywhere, the tray's Mix mode sits beside Up next with the set card, the docked Mixes panel is retired ("Mixes well with…" opens Mix following the track), a set's header and working-set control, Your sets and the sidebar say the working set, the phone's sheet is one tab row. Left for later: DJ now (step 5, Brief E). **Step 4 (Brief B, drag and drop): Building** on `feat/step4-dnd` (`HANDOFF.md`, "Dev, step 4 (Brief B, drag and drop) of 29 October"; `CONTRACTS.md`, "Drag and drop (Brief B)"): every list of tracks drags onto a set's list, a set, the working set's card and Up next (a place, Play next, a transition gap), with the keyboard's Space and arrows, Send to… in the "…" and, on a phone, a long-press, the Send to… tray and the Move mode; no new route.
 
@@ -730,6 +739,8 @@ Actions:
 
 ## Auto-mix: beat-matched transitions in Up next
 
+**Paused: superseded by DJ mode exploration** (Ross, 2 November): Between tracks / Auto mix, Play as a mix and the player's "Ready to mix" line go behind the off-by-default setting. The two-deck engine stays in the code; DJ mode may reuse it by hand. Nothing is deleted. See "DJ mode: a simple two-deck view in the player" and HANDOFF "Brief F: DJ mode".
+
 **Status:** Auto-mix: Built (stages A–C; analysis on demand built from `feat/analyse-now`); **Building** on `feat/step2-names` (step 2 of Design's 27 October order: Between tracks in Settings → Library → DJ and the small control, the glossary, Design's 302 as the planner's one rule; `HANDOFF.md`, "Dev, step 2 (Between tracks, the names, 302's rule) of 28 October") · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as `Auto-mix (Up next, decks).dc.html` (26a–26j) and approved by Ross. Built in three stages: **A**, the server's analysis and the pair planner, on `feat/automix-a` (`HANDOFF.md`, "Dev, auto-mix stage A of 27 October"; routes in `CONTRACTS.md`, "Auto-mix stage A"); **B**, the browser's two-deck engine with time-stretch, on `feat/automix-b` (`HANDOFF.md`, "Dev, auto-mix stage B of 27 October"; `CONTRACTS.md`, "Auto-mix stage B"; heard at `/automix-lab`, admins, `?lab=1`); **C**, auto-mix itself (the chips, Mix now, the setting, the handover view, Smart crossfade, a set played as a mix), on `feat/automix-c` (`HANDOFF.md`, "Dev, auto-mix stage C of 27 October"; `CONTRACTS.md`, "Auto-mix stage C"). Decks (21e, 26j: watching auto-mix drive the decks, taking over, Hand back) comes after. **Built with DJ stage 3's decks**, which use the same engine: two decks with EQ and effects on Web Audio. Auto-mix is that engine driven automatically, so the decks come first and auto-mix sits on top. Mix sets then play as a continuous mix.
 
 ### What Ross wants
@@ -813,6 +824,8 @@ Dev picks the libraries after checking their licences: some beat and structure m
 
 ## DJ now: a compact DJ mode in the playing panel
 
+**Paused: superseded by DJ mode exploration** (Ross, 2 November): DJ mode replaces it, simpler: no sets, no candidates rail, no auto-mix driving it. Nothing is deleted. See "DJ mode: a simple two-deck view in the player" and HANDOFF "Brief F: DJ mode".
+
 **Status:** Drawn, E1 chosen by Ross (27 October; step 3 built the tray's modes with DJ reserved: `DJ_MODE_READY` in `features/mix/mix-store.ts`, key D unbound; step 4 left DJ now's place in drag and drop: `DJ_TARGET_READY` in `features/dnd/dnd-engine.ts`, a target of kind `dj`, `provideDjNowEntry` for Send to…, and the phone's tray says "DJ now · laptop only"): the tray's third mode, Now playing · Mix · DJ (`DJ now (Brief E, options).dc.html`, 35a–35q, 36a–36b; HANDOFF, "Design's Briefs A–E and answers 260–324, and Ross's yes"); built as step 5 of Design's 27 October order · raised by Ross, 2026-10-27 · **laptop and desktop only** (nothing on the phone) · Design's Brief E (`HANDOFF.md`, "UX review of the DJ features, and Briefs A–E"). It replaces the separate Decks plan: full Decks (21e, 26j) is DJ now expanded, built on auto-mix's engine (stage B).
 
 ### The problem
@@ -846,6 +859,61 @@ Brief E in `HANDOFF.md` holds the states to draw.
 - Any others Design proposes.
 
 Whichever wins replaces the docked Mixes panel and the working-set strip, so there are fewer places to mix, not more.
+
+---
+
+## DJ mode: a simple two-deck view in the player
+
+**Status:** Ready for Design (exploring) · raised by Ross, 2026-11-02 · Design's Brief F (`HANDOFF.md`, "Brief F: DJ mode", 2 November; questions 412–426). It supersedes the earlier mixing work as the way to mix in SYNCHRO.S: the Mix tab, Auto-mix and DJ now, and sets as a DJ tool are paused, not deleted (their entries say so). Nothing here is built.
+
+### The problem
+
+The mixing features grew in too many directions: the Mix tab, the working set, Between tracks and Auto mix, Play as a mix, the player's "Ready to mix" line, sets as mixes, and DJ now's tray mode on top. Auto-mix "was getting messy as a concept", and the player, which was rock solid before the Mix panel and set builder arrived, picked up extra lines and states. Ross wants one simple place to mix by hand, and a calm player the rest of the time.
+
+### What Ross wants (2 November)
+
+> I'm wondering if the mixing thing can be massively simplified. The beats data and other meta is good for the Traktor outputs, but the auto mix was getting messy as a concept. Having a rock-solid player experience, which we had before the Mix panel and set builder features, is important to me.
+>
+> I would like to envisage a simplified DJ area, either in a panel like the visualisations, or a simple panel mode. It doesn't include sets or bespoke lists. But one could perhaps, inside the main player panel, toggle DJ mode, and the track visual toggles to two tracks side by side: the track's audio view and beat map. It automatically analyses in real time if the track data is not already known. On the secondary rail, a zero data state with a drag or browse button. One can drag a track from Tracks, or if they click Browse, a modal would allow a view that would enable the quick finding of suitable tracks to add into the swim lane. Once added, extra controls slide up as the panel grows larger, and the EQ, crossfade and effects can be seen. There's a cancel out and return option. I think all this should be explored in Claude Design.
+
+In short:
+1. In the player's panel, a **DJ mode** toggle.
+2. The track visual becomes **two lanes side by side**: the playing track's waveform and beat map, and a second lane.
+3. A track without beat data is **analysed when it's added**.
+4. The second lane starts **empty**: drag a track in from Tracks, or **Browse** for a suitable one in a modal.
+5. Once a second track is in, the panel **grows** and the **EQ, crossfade and effects** slide up.
+6. **Cancel and return** to the normal player at any time.
+
+### Principles
+
+- **The player stays rock solid.** DJ mode is opt-in, and while it's off nothing in normal playback changes: no extra lines, chips or states.
+- **No sets or bespoke lists.** DJ mode is two tracks and the controls between them.
+- **It lives in the player's panel**, as the Visuals do, or as a mode of that panel. Design explores both.
+- **Cancel and return always brings back the normal player exactly as it was:** the playing track carries on from where it is, with the queue, volume, EQ and panel as they were before DJ mode.
+
+### Decided with Ross (2 November)
+
+- The Mix tab, Sets, Between tracks / Auto mix, Play as a mix and the player's "Ready to mix" line go behind **one setting, off by default**. Dev is building it on `feat/player-calm`. Nothing is deleted.
+- Tracks loses the chip under each track ("no BPM yet", "couldn't detect") and the Energy column. Dev is hiding both on the same branch.
+- BPM, key and the beat grid stay, in the data and for **Export to Traktor**.
+
+### What's real (Dev checked)
+
+Briefly here; the full notes are in Brief F (`HANDOFF.md`).
+- **Per track:** BPM, key (Camelot), a beat grid at version 5 (the first beat and period, or each beat's time for a drifting track, with a confidence), downbeats and meter, phrases (8, 16 and 32 bars), sections (intro, main, breakdown, drop, outro, best effort), mix-in and mix-out regions and loudness. Routes under `/api/library/dj/*` (`grid`, `grids`, `plan`, `window`, `browse`, `mixes`, `analyse`, `progress`). The waveform is the player's own 200-bar peaks (`/api/library/tracks/<id>/peaks`).
+- **Analysis runs on demand on the server** (`core/dj/ondemand.py`): an asked-for track jumps the sweep's line. One track takes about **2–7 seconds** for a 3½-minute track on Dev's machine, plus any wait for the track already being analysed. Ross's Mac isn't measured. "Analyses in real time" is realistic as **analyse on demand the moment a track is added**; true live beat tracking in the browser isn't built.
+- **Drag and drop** (`webui/src/features/dnd/`) already lifts tracks from Tracks, Search, album, artist, set and Up next rows, with keyboard and phone paths. A `dj` drop target has its place reserved but is switched off.
+- **The two-deck engine** (`webui/src/features/engine/`, used by `features/automix/`): two decks with time-stretch, a three-band EQ with kills, high-pass and low-pass filters, per-deck volume, a crossfader, an echo, a limiter and a headphone cue bus. Today a plan drives them; nothing lets a person move them by hand, and there are no other effects. It plays windows of up to 3 minutes, not whole tracks.
+- **The Visuals overlay** is the panel that would hold DJ mode, beside Lyrics and Data.
+- **Laptop and desktop only** was decided for DJ now (27 October). Brief F asks whether that still holds.
+
+### What Design needs to draw
+
+Brief F in `HANDOFF.md` lists every state. In short: the toggle; the two lanes; analysing; the empty second lane with "Drag a track here" and Browse; the Browse modal; the panel growing to show EQ, crossfade and effects; Cancel and return; keyboard and accessibility; 1440 and full screen; the playing track ending or changing; and how it sits with Visuals and Lyrics. Plus a consistency review of Tracks and the player now the mixing extras are hidden.
+
+### Questions
+
+412–426 in `HANDOFF.md`, from Brief F.
 
 ---
 
@@ -1012,6 +1080,8 @@ The DJ sweep works through the whole library in its own order, gently, so a trac
 ---
 
 ## A playlist into a set for mixing (Order for mixing)
+
+**Paused: superseded by DJ mode exploration** (Ross, 2 November): it builds sets for mixing, which the simplified mixing leaves out. Nothing is deleted. See "DJ mode: a simple two-deck view in the player" and HANDOFF "Brief F: DJ mode".
 
 **Status:** Ready for Design · raised by Ross, 2026-10-27 · direction and defaults approved by Ross the same day ("hell yeaaah"). Built with Sets 2, after DJ now (step 5 of Design's 27 October order), since it shares Swap and the AI's parts.
 
