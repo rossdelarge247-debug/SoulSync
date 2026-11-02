@@ -96,8 +96,9 @@ TOO_LONG = "too long to analyse"
 SETTING_ANALYZE = "library.dj_analysis"
 SETTING_WRITE_TAGS = "library.dj_write_tags"
 SETTING_OVERWRITE_TAGS = "library.dj_overwrite_tags"
-#: Settings → Library → DJ's "Show the Mix tab" (off by default): not the
-#: sweep's, but served with its settings so the web UI reads one place
+#: Settings → Library → DJ's "Show the mixing features" (the key it had as
+#: "Show the Mix tab"; off by default): not the sweep's, but served with its
+#: settings so the web UI reads one place
 SETTING_SHOW_MIX_TAB = "library.dj_show_mix_tab"
 
 
@@ -139,10 +140,10 @@ def settings_state() -> Dict[str, bool]:
 
 
 def show_mix_tab() -> bool:
-    """Settings → Library → DJ's "Show the Mix tab": off unless an admin turned
-    it on. Strict: only ``True``, or the strings "true" / "1" a hand-edited
-    config might hold; anything else ("false", "0", 1, an unreadable config)
-    keeps it hidden."""
+    """Settings → Library → DJ's "Show the mixing features" (the Mix tab, Sets,
+    Between tracks, Play as a mix): off unless an admin turned it on. Strict:
+    only ``True``, or the strings "true" / "1" a hand-edited config might hold;
+    anything else ("false", "0", 1, an unreadable config) keeps it hidden."""
     try:
         from core.settings import config_manager
 

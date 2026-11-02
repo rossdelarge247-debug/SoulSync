@@ -68,7 +68,7 @@ describe('Settings → Library → DJ', () => {
     expect(head().dataset.stg).toBe('library');
     expect(head().querySelector('h3')?.textContent).toBe('DJ');
     expect(head().querySelector('.settings-section-hint')?.textContent).toBe(
-      'Between tracks, BPM, key and energy, beat grids',
+      'BPM, key and energy, the mixing features',
     );
     expect(head().getAttribute('aria-expanded')).toBe('false');
     expect(body().classList.contains('collapsed')).toBe(true);
@@ -172,7 +172,7 @@ it('UX-28: the page has one <main> landmark, round the routed content', () => {
   expect(mains[0].querySelector('#webui-react-root')).not.toBeNull();
 });
 
-describe('Settings → Library → DJ: Show the Mix tab (off while Ross rethinks mixing)', () => {
+describe('Settings → Library → DJ: Show the mixing features (off while Ross rethinks mixing)', () => {
   afterEach(() => resetMixTabForTests());
 
   it('is a switch in the DJ section, off until the settings load', () => {
@@ -181,8 +181,17 @@ describe('Settings → Library → DJ: Show the Mix tab (off while Ross rethinks
     expect(box).not.toBeNull();
     expect(box.type).toBe('checkbox');
     expect(box.checked).toBe(false);
-    expect(box.closest('label')?.textContent?.trim()).toBe('Show the Mix tab');
-    expect(body().querySelector('#dj-mix-tab-group')!.textContent).toContain('Sets, Up next,');
+    expect(box.closest('label')?.textContent?.trim()).toBe('Show the mixing features');
+    const group = body().querySelector('#dj-mix-tab-group')!;
+    expect(group.querySelector('h3')?.textContent).toBe('Mixing');
+    // one line naming what it hides, and what stays
+    const words = group.querySelector('.help-text')!.textContent!.replace(/\s+/g, ' ');
+    expect(words).toContain('The Mix tab, Sets, Between tracks (Auto mix), Play as a mix');
+    expect(words).toContain('Export to Traktor work either way');
+    // Between tracks' own group hides with them (static/player.css)
+    expect(body().querySelector('#dj-between-tracks-group')!.hasAttribute('data-mix-only')).toBe(
+      true,
+    );
   });
 
   it("is read from and saved to the server's library settings (library.dj_show_mix_tab)", () => {
