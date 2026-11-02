@@ -24,6 +24,7 @@ import { extractFunction } from '@/test/vanilla-extract';
 import type { AutomixView } from './controller';
 
 import { AutomixGate, AutomixHost, liveKey, liveWords } from './automix-host';
+import { AutomixController } from './controller';
 import { BarStatus, HandoverDeck, HandoverRecord, MixNowButton, countWords } from './handover';
 import { readPrefs, refreshPrefs } from './prefs';
 
@@ -978,6 +979,33 @@ describe('with the mixing features hidden (Settings → Library → DJ, the defa
     player.onAudioEnded();
     expect(next).toHaveBeenCalledTimes(1);
     expect(player.owed()).toBe(false);
+  });
+
+  it('[review M1] turned off with the next track owed: the decks fade out, and the next track starts', async () => {
+    const fade = vi.spyOn(AutomixController.prototype, 'otherAudio');
+    resetMixTabForTests(true);
+    mountGate();
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    // the muted outgoing element ended while the decks owned the advance
+    const base = player.state as () => Record<string, unknown>;
+    player.state = () => ({ ...base(), advanceOwed: true });
+    Object.assign(audio, { ended: true });
+    (player.playIndex as ReturnType<typeof vi.fn>).mockClear();
+    act(() => resetMixTabForTests(false));
+    expect(fade).toHaveBeenCalled();
+    expect(player.playIndex).toHaveBeenCalledTimes(1);
+    expect(player.playIndex).toHaveBeenCalledWith(1, {});
+    expect(window.SoulSyncAutomix).toBeUndefined();
+    fade.mockRestore();
+  });
+
+  it('[review M1] turned off with nothing owed: nothing is started', async () => {
+    resetMixTabForTests(true);
+    mountGate();
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    (player.playIndex as ReturnType<typeof vi.fn>).mockClear();
+    act(() => resetMixTabForTests(false));
+    expect(player.playIndex).not.toHaveBeenCalled();
   });
 
   it('shown, auto-mix takes over (the stored Auto mix with it); hidden again, it lets go and Up next loses its gaps', async () => {

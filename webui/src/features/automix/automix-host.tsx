@@ -512,10 +512,25 @@ export function AutomixHost() {
     return () => {
       window.removeEventListener('ss:player', onPlayer);
       window.clearTimeout(late);
+      // the setting went off (or the page is going) mid-mix: the decks fade
+      // out over 40 ms and the element is unmuted at the player's volume, as
+      // for any other audio (no click from a master dropped at once)
+      const owned = ctl.ownsAdvance();
+      ctl.otherAudio();
       delete window.SoulSyncAutomix;
+      // the muted outgoing track may have ended while the decks owned the
+      // advance: the next track is owed, and nobody else will start it now
+      // (media-player.js's own path runs from here on: SoulSyncAutomix is
+      // gone). An element that ended on its own while the player owned the
+      // advance (the sleep timer's end of track) is left as the player left it.
+      const st = port.state();
+      const el = port.audio();
+      const hasNext = st.index >= 0 && st.index + 1 < st.queue.length;
+      if (hasNext && (st.advanceOwed === true || (owned && Boolean(el?.ended))))
+        void port.playIndex(st.index + 1, {});
       ctl.stop();
-      // nothing of a mix stays behind (the setting went off mid-mix): the
-      // player's marks go, and Up next draws again without its gaps
+      // nothing of a mix stays behind: the player's marks go, and Up next
+      // draws again without its gaps
       delete document.getElementById('media-player')?.dataset.automix;
       for (const w of document.querySelectorAll<HTMLElement>('[data-player-wave]')) {
         w.style.removeProperty('--automix-at');
