@@ -37,12 +37,15 @@ import {
   useDropTarget,
   type Drag,
 } from './dnd-engine';
-import { REASONS, ghostWords, textOf } from './dnd-model';
+import { REASONS, ghostWords, textOf, type SourceKind } from './dnd-model';
 import styles from './dnd.module.css';
 import { moveRefusal, player, sendToUpNext, sendToWorkingSet, setSendToContext } from './send-to';
 import { SendToTray, sendToAnotherSet, trayTargets, type TrayTargetView } from './send-to-ui';
 import { setHoldings, setTarget } from './set-targets';
 import { bindUpNext, mixing } from './up-next-dnd';
+
+/** Where a drag's ghost keeps the key and BPM (38g; review M2). */
+const KEY_BPM_SOURCES: ReadonlySet<SourceKind> = new Set(['tracks', 'set', 'mix']);
 
 declare global {
   interface Window {
@@ -427,8 +430,12 @@ export function DndHost() {
   const pointer = drag && drag.via !== 'keyboard';
   const ghostNo = st.over && !st.over.verdict.ok;
   const first = drag?.items[0];
-  // 38g: key · BPM only on a drag from Tracks (DJ mode's lane will join it)
-  const ghost = drag ? ghostWords(drag.items, { keyBpm: drag.source.kind === 'tracks' }) : null;
+  // 38g: key · BPM only on a drag from Tracks (DJ mode's lane will join
+  // it), and from the Mix tab and a set, which show only with the mixing
+  // features and are about key and tempo (review M2)
+  const ghost = drag
+    ? ghostWords(drag.items, { keyBpm: KEY_BPM_SOURCES.has(drag.source.kind) })
+    : null;
   return createPortal(
     <>
       {pointer && ghost ? (

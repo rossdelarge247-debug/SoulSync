@@ -123,6 +123,17 @@ describe('the ghost (32a, 38g)', () => {
     expect(ghost.textContent).toContain('9A 123');
   });
 
+  it('[review M2] from a set or the Mix tab (the mixing features): title · key BPM too', () => {
+    for (const kind of ['set', 'mix'] as const) {
+      mount();
+      lift(kind);
+      const ghost = document.querySelector('[data-dnd-ghost]')!;
+      expect(ghost.textContent).toBe('Static Bloom9A 123');
+      cleanup();
+      resetDndForTests();
+    }
+  });
+
   it('from anywhere else (Search, an album, Up next): title · artist, no key or BPM', () => {
     for (const kind of ['search', 'album', 'upnext'] as const) {
       mount();

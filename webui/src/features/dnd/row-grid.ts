@@ -205,6 +205,12 @@ export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void
       }
       case ' ':
         if (!onRow || !opts.onSpace) return;
+        // a held Space repeats: one press, one action (not the track queued
+        // again with a toast each time; Brief F review, M1)
+        if (event.repeat) {
+          event.preventDefault();
+          return;
+        }
         if (opts.onSpace(row)) event.preventDefault();
         return;
       case 'Enter':
