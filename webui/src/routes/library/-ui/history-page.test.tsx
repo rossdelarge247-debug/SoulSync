@@ -409,6 +409,9 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
       // the meta line drops the album on a phone; the time ends it
       expect(within(bloom).queryByRole('link', { name: 'Lantern' })).toBeNull();
       expect(bloom.textContent).toContain('Saltmarsh · FLAC 24/96 · 4:36 · 14:02');
+      // no BPM or key on the phone's row either (Ross, 2 November)
+      expect(bloom.textContent).not.toMatch(/BPM|8A/);
+      expect(bloom.querySelector('[data-dj-meta]')).toBeNull();
       // no Play button on the phone's row: the row itself plays
       expect(within(bloom).queryByRole('button', { name: /^Play / })).toBeNull();
       fireEvent.click(within(bloom).getByText('Static Bloom'));
@@ -509,13 +512,15 @@ describe('Listening history while the library’s drive is away (123)', () => {
 });
 
 describe('Listening history: the DJ data', () => {
-  it("shows a row's BPM and key and offers Mixes well with…", async () => {
+  it("doesn't show a row's BPM or key (Ross, 2 November), and offers Mixes well with…", async () => {
     renderPage();
     const row = (await screen.findByText('Static Bloom')).closest('li')!;
-    await within(row).findByText('124 BPM');
-    expect(within(row).getByText('8A').getAttribute('title')).toBe(
-      "A minor (Am), from the file's tag",
-    );
+    // the meta line ends at the length, with no stray separator
+    expect(row.textContent).toContain('Saltmarsh · Lantern · FLAC 24/96 · 4:36');
+    expect(row.textContent).not.toMatch(/BPM|8A/);
+    expect(row.querySelector('[data-dj-meta]')).toBeNull();
+    // nothing on the page uses the DJ data, so it isn't asked for
+    expect(calls('/api/library/dj/tracks')).toHaveLength(0);
     fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
     expect(await screen.findByRole('menuitem', { name: 'Mixes well with…' })).toBeTruthy();
   });

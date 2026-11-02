@@ -3,8 +3,6 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
-import { DjMeta } from '@/features/dj/dj-meta';
-import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
@@ -132,7 +130,6 @@ function Art({ url }: { url: string | null | undefined }) {
 function MusicRow({
   play,
   phone,
-  dj,
   away,
   playing = false,
 }: {
@@ -143,8 +140,6 @@ function MusicRow({
   /** While the library's drive is away (123): Play is disabled-neutral and
    *  described by the reason ("Music HD isn't connected", element `id`). */
   away?: { id: string; words: string };
-  /** The track's BPM and key (the library's DJ data), when known. */
-  dj?: DjInfo;
 }) {
   // the "…" follows Settings → Library → DJ's "Show the Mix tab" (Mixes well with…)
   useMixTabShown();
@@ -235,8 +230,8 @@ function MusicRow({
               <span className={play.below_target ? styles.below : undefined}>{play.format}</span>
             </>
           ) : null}
+          {/* no BPM or key here (Ross, 2 November): Tracks has them */}
           {play.length_s ? <> · {lengthWords(play.length_s)}</> : null}
-          {phone ? null : <DjMeta dj={dj} lead />}
         </>
       )}
       {phrase ? <> · {phrase}</> : null}
@@ -466,10 +461,6 @@ export function HistoryPage({
 
   const music = first && kind === 'music' ? (first as MusicHistoryPage) : null;
   const wider = widerRange(range);
-  // BPM and key on the music rows (the library's DJ data), one request per page set
-  const djInfo = useDjInfo(
-    kind === 'music' ? items.map((p) => (p.kind === 'music' ? p.track_id : null)) : [],
-  );
 
   return (
     <div className={styles.page}>
@@ -594,7 +585,6 @@ export function HistoryPage({
                       play={play}
                       phone={phone}
                       playing={Boolean(play.track_id) && String(play.track_id) === playingId}
-                      dj={play.track_id ? djInfo[String(play.track_id)] : undefined}
                       away={away}
                     />
                   ) : (
