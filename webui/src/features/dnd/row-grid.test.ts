@@ -130,6 +130,13 @@ describe("a pick-up with the focus on one of the row's controls (review L-a)", (
     expect(getDnd().kbd?.at).toBe(2);
   });
 
+  it("a held Space doesn't drop the row it just picked up (Brief F re-review)", () => {
+    lift();
+    press(rows()[1], ' ', { repeat: true });
+    expect(getDnd().drag).not.toBeNull();
+    expect(getDnd().kbd?.at).toBe(1);
+  });
+
   it('Escape on a control inside the row puts it back', () => {
     lift();
     const more = document.querySelector<HTMLElement>('[aria-label="More for b"]')!;

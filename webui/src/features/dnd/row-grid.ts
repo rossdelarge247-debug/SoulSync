@@ -148,6 +148,13 @@ export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void
     // a row picked up with Space (32d). Focus on one of its controls (or
     // another row) goes back to the lifted row first, so its keys still work (L-a)
     if (isKeyboardLifted()) {
+      // a held Space repeats: the press that picked the row up mustn't drop it
+      // again straight away (Brief F re-review)
+      if (event.key === ' ' && event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!onRow) {
         const back = list.querySelector<HTMLElement>('[data-dnd-lifted="keyboard"]') ?? row;
         back.focus();

@@ -327,7 +327,8 @@ export function beingWorkedOut(track: DjTrack | null | undefined): boolean {
   const dj = track?.dj;
   if (!track) return false;
   if (!dj) return true;
-  return !dj.analyzed && !dj.skipped && !dj.bpm && !dj.key;
+  // a track the analysis gave up on (failed, its file away) isn't coming
+  return !dj.analyzed && !dj.skipped && !dj.left_out && !dj.bpm && !dj.key;
 }
 
 /* ── icons ─────────────────────────────────────────────────────────────── */
