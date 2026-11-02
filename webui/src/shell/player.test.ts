@@ -365,7 +365,7 @@ describe('what the tray reads from the server', () => {
     expect($('.ss-player-bar [data-player-meta]').textContent).toBe('Orbital · FLAC 24/96');
   });
 
-  it('a copy below the quality target still says so in the record', async () => {
+  it('a copy below the quality target says nothing in the record either (Ross, 2 November)', async () => {
     fetchImpl.mockImplementation(async (url: string) =>
       url.endsWith('/details')
         ? respond(200, { format: 'MP3', bitrate_kbps: 192, quality: { at_target: false } })
@@ -376,9 +376,8 @@ describe('what the tray reads from the server', () => {
     boot(fakeEngine(snapshot()));
     await flush();
     await flush();
-    expect($('[data-player-quality]').hidden).toBe(false);
-    expect($('[data-player-quality]').textContent).toBe('Below your target');
-    expect($('[data-player-quality]').dataset.tone).toBe('warning');
+    expect($('[data-player-quality]').hidden).toBe(true);
+    expect(document.getElementById('media-player')!.textContent).not.toContain('Below your target');
   });
 
   it('Recent reads the listening history when its tab is chosen', async () => {

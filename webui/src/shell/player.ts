@@ -1281,13 +1281,10 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
         tag.dataset.tone = 'info';
         setText(tag, 'Downloading');
         tag.hidden = false;
-      } else if (details?.quality && !details.quality.at_target) {
-        // a copy at the target says nothing (Ross, 2 November): no "At your
-        // target"; a copy below it still says so
-        tag.dataset.tone = 'warning';
-        setText(tag, 'Below your target');
-        tag.hidden = false;
       } else {
+        // no quality-target tag in the player (Ross, 2 November): neither "At
+        // your target" nor "Below your target"; Up next's amber format and
+        // Wanted still say it
         tag.hidden = true;
       }
     }
