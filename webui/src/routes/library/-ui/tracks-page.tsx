@@ -212,6 +212,8 @@ function TrackRow({
   // (Mixes well with…, Add to set…, Send to…)
   const sets = useMixingShown();
   const dj = track.dj;
+  // why the analysis left it out ("Too long to analyse"): the BPM dash's title
+  const skipped = dj?.skipped ? sentenceCase(dj.skipped) : null;
   const artist = artistHref(track);
   const album =
     artist && track.album_id !== null && track.album_id !== ''
@@ -314,6 +316,12 @@ function TrackRow({
                 <span key="bpm" className={styles.tabular}>
                   {bpmNumber(dj.bpm)} BPM
                 </span>
+              ) : skipped ? (
+                // a track the analysis left out: a quiet dash where the BPM
+                // goes, the reason in its title and for a screen reader
+                <span key="bpm" className={styles.none} title={skipped}>
+                  – BPM<span className={styles.srOnly}> ({skipped})</span>
+                </span>
               ) : null,
               key,
               artist ? (
@@ -350,11 +358,14 @@ function TrackRow({
       </div>
       {phone ? null : (
         <>
-          <span
-            className={styles.bpm}
-            title={dj?.bpm ? bpmTitle(dj) : dj?.skipped ? sentenceCase(dj.skipped) : undefined}
-          >
-            {dj?.bpm ? bpmNumber(dj.bpm) : <span className={styles.none}>–</span>}
+          <span className={styles.bpm} title={dj?.bpm ? bpmTitle(dj) : (skipped ?? undefined)}>
+            {dj?.bpm ? (
+              bpmNumber(dj.bpm)
+            ) : (
+              <span className={styles.none}>
+                –{skipped ? <span className={styles.srOnly}> ({skipped})</span> : null}
+              </span>
+            )}
           </span>
           <span className={styles.keyCell}>{key ?? <span className={styles.none}>–</span>}</span>
         </>
@@ -663,11 +674,14 @@ export function TracksPage({
   // mix. Read at the slow pace: the poll goes fast only while the page's own
   // rows are being analysed, asked for or near the front (review M2)
   const sweep = useAnalysisSweep(true, { fast: false });
-  // "ready to mix" only means something with the mixing features shown
+  // "ready to mix" only means something with the mixing features shown;
+  // without them every track with its grid worked out counts as analysed
+  // (a grid that isn't steady enough to mix still went to Traktor)
   const readyWord = mixing ? 'ready to mix' : 'analysed';
+  const readyCount = s?.grids ? (mixing ? (s.grids.ready ?? s.grids.done) : s.grids.done) : 0;
   const readyLine =
     s?.grids && s.counts.tracks
-      ? `${(s.grids.ready ?? s.grids.done).toLocaleString()} of ${s.counts.tracks.toLocaleString()} ${readyWord}`
+      ? `${readyCount.toLocaleString()} of ${s.counts.tracks.toLocaleString()} ${readyWord}`
       : null;
   const toDo = s ? s.counts.pending + (s.grids?.pending ?? 0) : 0;
   const idleLine = !s?.counts.tracks

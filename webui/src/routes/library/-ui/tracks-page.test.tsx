@@ -276,8 +276,10 @@ describe('Library → Tracks', () => {
     expect(document.querySelector('[data-analysis-marker]')).toBeNull();
     // a track left out says why on its BPM's dash, not in the row
     const long = screen.getByText('Two-hour mix').closest('li')!;
-    expect(within(long).queryByText(/Too long to analyse/)).toBeNull();
-    expect(within(long).getByTitle('Too long to analyse')).toBeTruthy();
+    const dash = within(long).getByTitle('Too long to analyse');
+    expect(dash.textContent).toBe('– (Too long to analyse)');
+    // the visible meta line is the artist and album only
+    expect(long.querySelector('[class*="meta"]')!.textContent).toBe('Saltmarsh · Lantern');
   });
 
   it("sends the URL's BPM range and key", async () => {
@@ -803,8 +805,9 @@ describe('Library → Tracks with the mixing features hidden (Settings → Libra
       current: { step: 'key', percent: 35, asked_for: false, track_id: '3', title: 'Canopy' },
     };
     renderPage();
+    // every worked-out grid counts (2), not only the ones ready to mix (1)
     expect(
-      await screen.findByText('Analysing Canopy · key (3 of 6) · 1 of 3 analysed'),
+      await screen.findByText('Analysing Canopy · key (3 of 6) · 2 of 3 analysed'),
     ).toBeTruthy();
     expect(screen.queryByText(/ready to mix/)).toBeNull();
   });
@@ -820,5 +823,40 @@ describe('Library → Tracks with the mixing features hidden (Settings → Libra
     fireEvent.click(screen.getByRole('button', { name: 'More for Static Bloom' }));
     const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent ?? '');
     expect(items).toContain('Add to set…');
+  });
+});
+
+describe('Library → Tracks on a phone (17c)', () => {
+  let original: typeof window.matchMedia;
+  beforeEach(() => {
+    original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('max-width: 640px'),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  });
+  afterEach(() => {
+    window.matchMedia = original;
+  });
+
+  it('a row says "124 BPM · 8A · artist" with no E7; a left-out track has a quiet dash with why (review L2)', async () => {
+    renderPage();
+    const row = (await screen.findByText('Static Bloom')).closest('li')!;
+    const meta = row.querySelector('[class*="meta"]')!.textContent;
+    expect(meta).toBe('124 BPM · 8A · Saltmarsh');
+    expect(meta).not.toContain('E7');
+    expect(row.querySelector('[data-analysis-marker]')).toBeNull();
+    const long = screen.getByText('Two-hour mix').closest('li')!;
+    const dash = within(long).getByTitle('Too long to analyse');
+    expect(dash.textContent).toBe('– BPM (Too long to analyse)');
+    // a track not analysed yet says nothing about it
+    const unknown = screen.getByText('Not yet').closest('li')!;
+    expect(unknown.querySelector('[class*="meta"]')!.textContent).toBe('Saltmarsh');
   });
 });
