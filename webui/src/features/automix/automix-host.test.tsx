@@ -999,6 +999,19 @@ describe('with the mixing features hidden (Settings → Library → DJ, the defa
     fade.mockRestore();
   });
 
+  it('[re-review L1] a stale owed mark while the next track plays doesn\'t skip it', async () => {
+    resetMixTabForTests(true);
+    mountGate();
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    // an ended event during a load left the mark set; the track now plays
+    const base = player.state as () => Record<string, unknown>;
+    player.state = () => ({ ...base(), advanceOwed: true });
+    Object.assign(audio, { ended: false });
+    (player.playIndex as ReturnType<typeof vi.fn>).mockClear();
+    act(() => resetMixTabForTests(false));
+    expect(player.playIndex).not.toHaveBeenCalled();
+  });
+
   it('[review M1] turned off with nothing owed: nothing is started', async () => {
     resetMixTabForTests(true);
     mountGate();

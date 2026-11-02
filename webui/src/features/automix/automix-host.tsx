@@ -521,12 +521,15 @@ export function AutomixHost() {
       // the muted outgoing track may have ended while the decks owned the
       // advance: the next track is owed, and nobody else will start it now
       // (media-player.js's own path runs from here on: SoulSyncAutomix is
-      // gone). An element that ended on its own while the player owned the
-      // advance (the sleep timer's end of track) is left as the player left it.
+      // gone). Only once the element has ended, as the controller's unstick()
+      // asks: a stale owed mark from an ended event during a load must not
+      // skip the track now playing. An element that ended on its own while
+      // the player owned the advance (the sleep timer's end of track) is left
+      // as the player left it.
       const st = port.state();
       const el = port.audio();
       const hasNext = st.index >= 0 && st.index + 1 < st.queue.length;
-      if (hasNext && (st.advanceOwed === true || (owned && Boolean(el?.ended))))
+      if (hasNext && Boolean(el?.ended) && (st.advanceOwed === true || owned))
         void port.playIndex(st.index + 1, {});
       ctl.stop();
       // nothing of a mix stays behind: the player's marks go, and Up next
