@@ -359,8 +359,26 @@ describe('what the tray reads from the server', () => {
     expect($('[data-player-format]').textContent).toBe('FLAC 24/96 · 2,304 kbps');
     expect($('[data-player-path]').textContent).toBe('Library → This device');
     expect($('[data-player-album-line]').textContent).toBe('Brown Album · 1993 · track 3 of 11');
-    expect($('[data-player-quality]').textContent).toBe('At your target');
+    // a copy at the target says nothing (Ross, 2 November): no "At your target"
+    expect($('[data-player-quality]').hidden).toBe(true);
+    expect(document.getElementById('media-player')!.textContent).not.toContain('At your target');
     expect($('.ss-player-bar [data-player-meta]').textContent).toBe('Orbital · FLAC 24/96');
+  });
+
+  it('a copy below the quality target still says so in the record', async () => {
+    fetchImpl.mockImplementation(async (url: string) =>
+      url.endsWith('/details')
+        ? respond(200, { format: 'MP3', bitrate_kbps: 192, quality: { at_target: false } })
+        : url.startsWith('/api/player/recent')
+          ? respond(200, { items: [] })
+          : respond(404, {}),
+    );
+    boot(fakeEngine(snapshot()));
+    await flush();
+    await flush();
+    expect($('[data-player-quality]').hidden).toBe(false);
+    expect($('[data-player-quality]').textContent).toBe('Below your target');
+    expect($('[data-player-quality]').dataset.tone).toBe('warning');
   });
 
   it('Recent reads the listening history when its tab is chosen', async () => {
@@ -694,6 +712,57 @@ describe('the record (HANDOFF 47, board 9d)', () => {
     expect(setEqOn).toHaveBeenLastCalledWith(false);
     expect(value()).toBe('Off');
     delete window.npV2;
+  });
+});
+
+describe('the record’s controls are always in reach (Ross, 2 November)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+  /** the bodies of every `@media (min-width: 769px)` block, joined */
+  const desktop = (() => {
+    const out: string[] = [];
+    const head = '@media (min-width: 769px) {';
+    for (let at = css.indexOf(head); at >= 0; at = css.indexOf(head, at + 1)) {
+      let depth = 0;
+      for (let i = at + head.length - 1; i < css.length; i += 1) {
+        if (css[i] === '{') depth += 1;
+        else if (css[i] === '}' && --depth === 0) {
+          out.push(css.slice(at + head.length, i));
+          break;
+        }
+      }
+    }
+    return out.join('\n');
+  })();
+  /** every declaration block for this exact selector there, joined */
+  const rule = (sel: string) => {
+    const quoted = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?:^|\\n)\\s*${quoted}\\s*\\{([^}]*)\\}`, 'g');
+    return [...desktop.matchAll(re)].map((m) => m[1]).join('\n');
+  };
+
+  it('the control row sits in the record, which scrolls, not in a clipped box', () => {
+    boot(fakeEngine(snapshot({ playlistTrack: { id: '42', title: 'Halcyon' } })));
+    const record = $('#ss-player-tray > .ss-player-record');
+    const row = record.querySelector('.ss-player-record-controls')!;
+    expect(row.parentElement).toBe(record);
+    expect(row.querySelector('[data-player-more]')).not.toBeNull();
+    expect(row.querySelector('[data-player-sleep]')).not.toBeNull();
+    // the record is the scroll container, and no box between it and the row clips
+    expect(rule('.ss-player-record')).toMatch(/overflow-y:\s*auto/);
+    expect(rule('.ss-player-record')).toMatch(/min-height:\s*0/);
+    // the record's foot, the key line with the star and the control row, is pinned
+    const pinned = rule('.ss-player-record-keyline,\n    .ss-player-record-controls');
+    expect(pinned).toMatch(/position:\s*sticky/);
+    expect(rule('.ss-player-record-controls')).toMatch(/bottom:\s*0/);
+    expect(rule('.ss-player-record-keyline')).toMatch(/bottom:\s*54px/);
+    expect(row.previousElementSibling).toBe(record.querySelector('.ss-player-record-keyline'));
+    expect(row.previousElementSibling!.querySelector('[data-player-star="record"]')).not.toBeNull();
+  });
+
+  it('the tray’s row is bounded and the tray never taller than the window', () => {
+    expect(rule('.ss-player-tray')).toMatch(/grid-template-rows:\s*minmax\(0,\s*1fr\)/);
+    expect(rule('.ss-player-tray')).toMatch(/max-height:\s*calc\(100vh - var\(--ss-topbar-h/);
+    expect(desktop).toMatch(/html\[data-player='tray'\] \{ --ss-player-h: min\(360px,/);
   });
 });
 

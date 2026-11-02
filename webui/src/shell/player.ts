@@ -1281,9 +1281,11 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
         tag.dataset.tone = 'info';
         setText(tag, 'Downloading');
         tag.hidden = false;
-      } else if (details?.quality) {
-        tag.dataset.tone = details.quality.at_target ? 'success' : 'warning';
-        setText(tag, details.quality.at_target ? 'At your target' : 'Below your target');
+      } else if (details?.quality && !details.quality.at_target) {
+        // a copy at the target says nothing (Ross, 2 November): no "At your
+        // target"; a copy below it still says so
+        tag.dataset.tone = 'warning';
+        setText(tag, 'Below your target');
         tag.hidden = false;
       } else {
         tag.hidden = true;

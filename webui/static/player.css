@@ -21,6 +21,9 @@ html[data-player='tray'] { --ss-player-h: 360px; }
 html[data-player='tray'][data-mix-available] { --ss-player-h: 500px; }
 
 @media (min-width: 769px) {
+    /* the tray is never taller than the window under the top bar (2 November) */
+    html[data-player='tray'] { --ss-player-h: min(360px, calc(100vh - var(--ss-topbar-h, 64px))); }
+    html[data-player='tray'][data-mix-available] { --ss-player-h: min(500px, calc(100vh - var(--ss-topbar-h, 64px))); }
     html[data-player] .main-container { height: calc(100vh - var(--ss-player-h)); }
     html[data-player] #page-particles-canvas { height: calc(100vh - var(--ss-topbar-h) - var(--ss-player-h)); }
     /* the floating buttons and toasts ride above the player, not over it */
@@ -623,6 +626,54 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 /* the record's control row (HANDOFF 47, 9d): Add to playlist, Sleep timer,
    then "…" at the right end; 44px outlined icon buttons */
 .ss-player-record-controls { display: flex; align-items: center; gap: 8px; }
+
+/* the record never runs past the tray's foot (Ross, 2 November). The tray
+   keeps its height, so its one row is bounded: before, the row grew with the
+   record and pushed the control row, and Up next's foot, off the bottom of
+   the window. Now the record scrolls inside its column, and its foot (the
+   key line with the star, then Add to playlist, Sleep and "…", which holds
+   Visuals and Player settings) stays pinned at the bottom of the column, in
+   view whatever the title's length, the lyrics or auto-mix's two tracks; the
+   lines above it scroll. The key line sits 54px up: the 44px control row and
+   the record's 10px gap, which its shadow fills. The tray is never taller than
+   the window under the top bar. The phone's sheet scrolls as a whole and
+   keeps its own rules. */
+@media (min-width: 769px) {
+    .ss-player-tray {
+        grid-template-rows: minmax(0, 1fr);
+        max-height: calc(100vh - var(--ss-topbar-h, 64px));
+    }
+    .ss-player-record {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        /* a line reached by Tab scrolls clear of the pinned foot */
+        scroll-padding-bottom: 108px;
+    }
+    .ss-player-record > * { flex-shrink: 0; }
+    .ss-player-record-keyline,
+    .ss-player-record-controls {
+        position: sticky;
+        z-index: 1;
+        background: var(--ss-ground-sidebar);
+    }
+    /* lines running under the foot fade into it; with nothing under it the
+       fade only covers the record's 10px gap */
+    .ss-player-record-keyline::before,
+    .ss-player-record-controls::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 100%;
+        height: 10px;
+        background: linear-gradient(to bottom, transparent, var(--ss-ground-sidebar));
+        pointer-events: none;
+    }
+    .ss-player-record-keyline { bottom: 54px; box-shadow: 0 10px 0 var(--ss-ground-sidebar); }
+    .ss-player-record-controls { bottom: 0; }
+}
 .ss-player-btn--outline {
     border: 1px solid var(--ss-control-border);
     color: var(--ss-text-secondary);
