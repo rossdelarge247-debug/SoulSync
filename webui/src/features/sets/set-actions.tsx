@@ -178,7 +178,8 @@ export async function duplicateSet(set: {
 export function WorkingSetNav() {
   const { profileId } = useProfile();
   const qc = useQueryClient();
-  const working = useWorkingSet(profileId);
+  // the Sets row is hidden with the mixing features: nothing to read for it
+  const working = useWorkingSet(useMixTabShown() ? profileId : null);
   useEffect(() => {
     const again = () => void qc.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'working'] });
     window.addEventListener(MIX_SET_CHANGED, again);

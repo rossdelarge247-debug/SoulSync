@@ -5,6 +5,10 @@
  * Another set…); on a phone the sheet's Send to… opens the tray at the foot
  * (the working set · Up next · Other sets · DJ now, laptop only), the same
  * tray a long-press drag drops on.
+ *
+ * While the mixing features are hidden (Settings → Library → DJ; mix-
+ * visibility.ts) only Up next is a target: no working set, other sets or
+ * DJ now (the "…" leaves Send to… out then: track-menu.ts).
  */
 import {
   useEffect,
@@ -13,6 +17,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 
+import { mixingShown } from '@/features/mix/mix-visibility';
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 
 import type { DragItem } from './dnd-model';
@@ -87,6 +92,14 @@ export function sendToEntries(
   items: DragItem[],
   anchor?: () => HTMLElement | null | undefined,
 ): SendToEntry[] {
+  const upNext: SendToEntry = {
+    key: 'send-upnext',
+    label: 'Up next',
+    reason: upNextWords(),
+    disabled: !items.some((t) => t.queue),
+    onSelect: () => void run(() => sendToUpNext(items, 'end')),
+  };
+  if (!mixingShown()) return [upNext];
   const ws = workingWords();
   return [
     {
@@ -96,13 +109,7 @@ export function sendToEntries(
       disabled: Boolean(ws.reason),
       onSelect: () => void run(() => sendToWorkingSet(items)),
     },
-    {
-      key: 'send-upnext',
-      label: 'Up next',
-      reason: upNextWords(),
-      disabled: !items.some((t) => t.queue),
-      onSelect: () => void run(() => sendToUpNext(items, 'end')),
-    },
+    upNext,
     ...(djNowEntry ? [djNowEntry(items)] : []),
     {
       key: 'send-other',
@@ -151,6 +158,14 @@ export interface TrayTargetView {
  * only); on a desktop it isn't named until step 5 provides it.
  */
 export function trayTargets(phone = true): TrayTargetView[] {
+  // while a mix holds the incoming row, Play next waits behind it (M3)
+  const upNext: TrayTargetView = {
+    key: 'upnext',
+    name: 'Up next',
+    sub: mixing() ? 'after the incoming track' : 'play next',
+  };
+  // the mixing features hidden: Up next is the only place to send to
+  if (!mixingShown()) return [upNext];
   const ws = workingWords();
   return [
     {
@@ -159,8 +174,7 @@ export function trayTargets(phone = true): TrayTargetView[] {
       sub: ws.reason ?? `working set · ${ws.sub}`,
       disabled: Boolean(ws.reason),
     },
-    // while a mix holds the incoming row, Play next waits behind it (M3)
-    { key: 'upnext', name: 'Up next', sub: mixing() ? 'after the incoming track' : 'play next' },
+    upNext,
     { key: 'other', name: 'Other sets', sub: 'choose…' },
     ...(phone ? [{ key: 'dj' as const, name: 'DJ now', sub: 'laptop only', disabled: true }] : []),
   ];

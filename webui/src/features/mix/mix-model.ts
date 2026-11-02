@@ -280,7 +280,8 @@ export function useMixModel(
   const otherSet = from && from.id !== (workingSet?.id ?? null) ? from.id : 0;
   const otherView = useQuery({
     ...setQueryOptions(profileId ?? 0, otherSet),
-    enabled: Boolean(otherSet),
+    // only for a playing track (none while the mixing features are hidden)
+    enabled: Boolean(otherSet) && Boolean(subjectId),
     retry: false,
   });
   const playing = useMemo(() => {

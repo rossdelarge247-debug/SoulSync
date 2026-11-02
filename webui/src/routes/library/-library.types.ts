@@ -27,7 +27,8 @@ export const ALBUM_SORTS = ['recent', 'artist', 'title', 'year', 'genre'] as con
 export const GENRE_SORTS = ['albums', 'name'] as const;
 export const ARTIST_SORTS = ['name', 'recent', 'missing'] as const;
 /** Library → Tracks (the DJ data, BACKLOG "DJ area"): BPM first. */
-export const TRACK_SORTS = ['bpm', 'key', 'energy', 'title', 'artist', 'recent'] as const;
+// Tracks lost its Energy column and sort (2 November): ?sort=energy reads as BPM
+export const TRACK_SORTS = ['bpm', 'key', 'title', 'artist', 'recent'] as const;
 export type AlbumSort = (typeof ALBUM_SORTS)[number];
 export type GenreSort = (typeof GENRE_SORTS)[number];
 export type ArtistSort = (typeof ARTIST_SORTS)[number];

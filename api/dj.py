@@ -134,8 +134,8 @@ POST /api/library/dj/bpm
 Every route needs a profile and reads the caller's library scope, like the
 other library routes.
 
-The page shell also gets Settings → Library → DJ's "Show the Mix tab"
-(``library.dj_show_mix_tab``, off by default) when it renders
+The page shell also gets Settings → Library → DJ's "Show the mixing
+features" (``library.dj_show_mix_tab``, off by default) when it renders
 (``initial_mix_tab``, as ``window.SOULSYNC_MIX_TAB``), the way the module
 switches reach it (api/modules.py), so the player's tray knows before its
 first paint whether Mix is there; ``status``'s ``settings.show_mix_tab``

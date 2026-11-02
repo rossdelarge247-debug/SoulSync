@@ -6,6 +6,9 @@
  * tray (during a long-press drag, and from the sheet's Send to…), ⌘Z for
  * the last drop while its toast shows, and Up next's own binding. It also
  * keeps Send to…'s words fresh (the working set, where a track would go).
+ * While the mixing features are hidden (Settings → Library → DJ) no set is
+ * a target: no Your sets in the sidebar, Up next alone in the phone's tray,
+ * and the working set isn't read.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -15,6 +18,7 @@ import { apiClient } from '@/app/api-client';
 import { usePlayingTrack } from '@/features/dj/playing-track';
 import { playingRowIndex, rowNumbers } from '@/features/mix/mix-model';
 import { useQueueFrom } from '@/features/mix/mix-subject';
+import { useMixingShown } from '@/features/mix/mix-visibility';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import {
   fetchHolding,
@@ -242,10 +246,10 @@ function DragTray() {
 
 /* ── Send to…'s words, kept fresh ─────────────────────────────────────── */
 
-function useSendToSync(profileId: number) {
+function useSendToSync(profileId: number | null) {
   const working = useWorkingSet(profileId);
   const set = useQuery({
-    ...setQueryOptions(profileId, working?.id ?? 0),
+    ...setQueryOptions(profileId ?? 0, working?.id ?? 0),
     enabled: Boolean(working),
     staleTime: 60_000,
     retry: false,
@@ -330,8 +334,10 @@ export function DndHost() {
   const phone = useMedia(PHONE);
   const qc = useQueryClient();
   const { profileId, isAdmin } = useProfile();
-  const working = useWorkingSet(profileId);
-  useSendToSync(profileId);
+  // sets are drop targets only while the mixing features show
+  const sets = useMixingShown();
+  const working = useWorkingSet(sets ? profileId : null);
+  useSendToSync(sets ? profileId : null);
 
   // Up next (static/media-player.js) joins the drag
   useEffect(() => bindUpNext(qc), [qc]);
@@ -483,7 +489,7 @@ export function DndHost() {
       ) : null}
       {pointer && drag.via === 'touch' && phone ? <DragTray /> : null}
       {pointer && !phone ? <BarZones /> : null}
-      {pointer && !phone ? (
+      {pointer && !phone && sets ? (
         <SidebarSets profileId={profileId} workingId={working?.id ?? null} />
       ) : null}
       <SendToTray />

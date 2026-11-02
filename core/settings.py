@@ -983,11 +983,12 @@ class ConfigManager:
                 "dj_analysis": True,
                 "dj_write_tags": False,
                 "dj_overwrite_tags": False,
-                # Settings → Library → DJ's "Show the Mix tab": off while Ross
-                # rethinks mixing (HANDOFF "Mix tab hidden"). Off hides the
-                # player tray's Mix mode, the phone sheet's Mix · Set and every
-                # way into them; Sets, Up next, Between tracks and the
-                # analysis stay. Admin-level, like the rest of the section.
+                # Settings → Library → DJ's "Show the mixing features" (the key
+                # it had as "Show the Mix tab"): off while Ross rethinks mixing
+                # (HANDOFF "Mix tab hidden", "the player calmed"). Off hides the
+                # Mix tab, Sets, Between tracks / Auto mix, Play as a mix and the
+                # player's analysis line; the analysis, BPM and key and Export to
+                # Traktor stay. Admin-level, like the rest of the section.
                 "dj_show_mix_tab": False,
             },
             "file_organization": {

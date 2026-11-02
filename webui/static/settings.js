@@ -6941,8 +6941,9 @@ function _cfgBool(id) {
     return el ? !!el.checked : undefined;
 }
 
-// Settings → Library → DJ's "Show the Mix tab" (library.dj_show_mix_tab):
-// once saved, this page's player follows at once (src/features/mix/
+// Settings → Library → DJ's "Show the mixing features" (library.dj_show_mix_tab,
+// the key it had as "Show the Mix tab": the Mix tab, Sets, Between tracks,
+// Play as a mix): once saved, this page follows at once (src/features/mix/
 // mix-visibility.ts listens for the event); other devices read it from the
 // page shell (window.SOULSYNC_MIX_TAB) and the DJ status.
 function _applyMixTabSetting(shown) {

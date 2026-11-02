@@ -2,7 +2,7 @@ import { Outlet, createRootRouteWithContext } from '@tanstack/react-router';
 
 import type { AppRouterContext } from '@/app/router';
 
-import { AutomixHost } from '@/features/automix/automix-host';
+import { AutomixGate } from '@/features/automix/automix-host';
 import { AnalysisCountHost } from '@/features/dj/analysis-line';
 import { DndHost } from '@/features/dnd/dnd-host';
 import { MixTabHost } from '@/features/mix/mix-host';
@@ -39,12 +39,14 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       {/* the player's Mix tab (29a–29c): the tray's second mode, the
           Visuals drawer and the phone's Mix · Set, placed into the shell */}
       <MixTabHost />
-      {/* 33c: the sidebar's Sets row says the working set's name */}
+      {/* 33c: the sidebar's Sets row says the working set's name (while Sets show) */}
       <WorkingSetNav />
       {/* auto-mix (26a–26h): Up next's chips, Mix now, the handover and
-          Player settings → Between tracks, placed into the shell */}
-      <AutomixHost />
-      {/* Brief A (31b): the analysis count in the top bar, with its popover */}
+          Player settings → Between tracks, placed into the shell; only while
+          the mixing features show (Settings → Library → DJ) */}
+      <AutomixGate />
+      {/* Brief A (31b): the analysis count in the top bar, with its popover;
+          only while the mixing features show */}
       <AnalysisCountHost />
       {/* Brief B (32a–32g): drag and drop's ghost, line, trays and Up next's binding */}
       <DndHost />

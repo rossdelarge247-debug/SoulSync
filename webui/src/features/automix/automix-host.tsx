@@ -23,6 +23,14 @@
  * - `[data-automix-slot="record"]` / `="deck"`: the handover in the tray's
  *   record and in the waveform's place (26d; the phone's sheet, 26f).
  *
+ * Only while the mixing features show (Settings → Library → DJ's "Show the
+ * mixing features", off by default; mix-visibility.ts): `AutomixGate`, in
+ * the router's root, doesn't mount the host otherwise, so no controller,
+ * decks, plans or pre-loading run, `window.SoulSyncAutomix` isn't there and
+ * static/media-player.js advances on its own path (X does nothing). Auto
+ * mix stays as stored in this browser (prefs.ts), not used; turned back on,
+ * it's as it was.
+ *
  * `#media-player[data-automix]` (counting, mixing, fallback) tells
  * static/player.css to step the waveform and the record aside, and each
  * `[data-player-wave]` gets a cyan marker where the mix will start
@@ -48,6 +56,7 @@ import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
 import { fetchGrids, fetchWindow } from '@/features/engine/loader';
 import workletUrl from '@/features/engine/worklet/deck-processor.js?url';
+import { useMixingShown } from '@/features/mix/mix-visibility';
 import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
@@ -503,8 +512,34 @@ export function AutomixHost() {
     return () => {
       window.removeEventListener('ss:player', onPlayer);
       window.clearTimeout(late);
+      // the setting went off (or the page is going) mid-mix: the decks fade
+      // out over 40 ms and the element is unmuted at the player's volume, as
+      // for any other audio (no click from a master dropped at once)
+      const owned = ctl.ownsAdvance();
+      ctl.otherAudio();
       delete window.SoulSyncAutomix;
+      // the muted outgoing track may have ended while the decks owned the
+      // advance: the next track is owed, and nobody else will start it now
+      // (media-player.js's own path runs from here on: SoulSyncAutomix is
+      // gone). Only once the element has ended, as the controller's unstick()
+      // asks: a stale owed mark from an ended event during a load must not
+      // skip the track now playing. An element that ended on its own while
+      // the player owned the advance (the sleep timer's end of track) is left
+      // as the player left it.
+      const st = port.state();
+      const el = port.audio();
+      const hasNext = st.index >= 0 && st.index + 1 < st.queue.length;
+      if (hasNext && Boolean(el?.ended) && (st.advanceOwed === true || owned))
+        void port.playIndex(st.index + 1, {});
       ctl.stop();
+      // nothing of a mix stays behind: the player's marks go, and Up next
+      // draws again without its gaps
+      delete document.getElementById('media-player')?.dataset.automix;
+      for (const w of document.querySelectorAll<HTMLElement>('[data-player-wave]')) {
+        w.style.removeProperty('--automix-at');
+        delete w.dataset.automixMark;
+      }
+      port.renderQueue();
     };
   }, [ctl]);
 
@@ -644,6 +679,14 @@ export function AutomixHost() {
       {slots.player ? createPortal(<LiveWords view={view} />, slots.player) : null}
     </>
   );
+}
+
+/**
+ * Auto-mix only while the mixing features show: hidden, nothing of it
+ * mounts (no controller is even made), so the player is the player.
+ */
+export function AutomixGate() {
+  return useMixingShown() ? <AutomixHost /> : null;
 }
 
 /**

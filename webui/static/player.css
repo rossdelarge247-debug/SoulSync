@@ -1366,8 +1366,10 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-player-shortcuts-head h3 { margin: 0; font-size: 18px; font-weight: 600; }
 .ss-player-shortcuts-card > p { margin: 4px 0 12px; font-size: 14px; color: var(--ss-text-meta); line-height: 1.5; }
 .ss-player-shortcuts-grid { margin: 0; }
-/* the Mix tab's keys only while it shows (html[data-mix-tab], Settings → Library → DJ's
-   "Show the Mix tab"; src/features/mix/mix-visibility.ts); plain M and N rows otherwise */
+/* the mixing features' static parts only while they show (html[data-mix-tab], Settings →
+   Library → DJ's "Show the mixing features"; src/features/mix/mix-visibility.ts): the
+   Sets row, the player's Auto mix slots, Add to set…, "8 from Sunday Set", the Mix tab's
+   keys in the ? list; plain M and N rows otherwise. Global: this sheet loads on every page */
 html:not([data-mix-tab]) [data-mix-only],
 html[data-mix-tab] [data-mix-off-only] { display: none !important; }
 .ss-player-shortcuts-grid > div {

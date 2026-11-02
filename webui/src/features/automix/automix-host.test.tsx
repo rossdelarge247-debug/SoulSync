@@ -6,6 +6,8 @@
  */
 import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -13,13 +15,16 @@ import {
   analysisStore,
   resetAnalysisRequests,
 } from '@/features/dj/analysis.api';
+import { Engine } from '@/features/engine/engine';
 import { mixTabShown, resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
+import { extractFunction } from '@/test/vanilla-extract';
 
 import type { AutomixView } from './controller';
 
-import { AutomixHost, liveKey, liveWords } from './automix-host';
+import { AutomixGate, AutomixHost, liveKey, liveWords } from './automix-host';
+import { AutomixController } from './controller';
 import { BarStatus, HandoverDeck, HandoverRecord, MixNowButton, countWords } from './handover';
 import { readPrefs, refreshPrefs } from './prefs';
 
@@ -868,13 +873,19 @@ describe("UX-9: a mix that couldn't start says so", () => {
   });
 });
 
-describe('with the Mix tab hidden (Settings → Library → DJ, the default)', () => {
-  it('Between tracks still chooses Off or Auto mix, and Up next gets its chips with Auto mix', async () => {
-    resetMixTabForTests();
-    expect(mixTabShown()).toBe(false);
+describe('with the mixing features shown (Settings → Library → DJ)', () => {
+  afterEach(() => resetMixTabForTests());
+
+  it('Between tracks chooses Off or Auto mix, and Up next gets its chips with Auto mix', async () => {
+    resetMixTabForTests(true);
+    expect(mixTabShown()).toBe(true);
     localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();
-    mount();
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AutomixGate />
+      </QueryClientProvider>,
+    );
     const card = await waitFor(() => {
       const el = document.querySelector<HTMLElement>(
         '#ss-between-tracks-library [data-between-tracks]',
@@ -893,5 +904,136 @@ describe('with the Mix tab hidden (Settings → Library → DJ, the default)', (
     await waitFor(() => expect(document.querySelector('[data-automix-gap]')).not.toBeNull());
     localStorage.removeItem('soulsync-between-tracks');
     refreshPrefs();
+  });
+});
+
+describe('with the mixing features hidden (Settings → Library → DJ, the default)', () => {
+  const source = readFileSync(resolve(process.cwd(), 'static/media-player.js'), 'utf8');
+  /** the player's own end of a track (static/media-player.js), as it runs */
+  function ended(playNextInQueue: () => void) {
+    // eslint-disable-next-line typescript-eslint/no-implied-eval
+    return new Function(
+      'window',
+      'playNextInQueue',
+      `let npAdvanceOwed = false, npSleepEndOfTrack = false, npXfadeActive = false;
+       let npQueue = [{ id: '1' }, { id: '2' }], npQueueIndex = 0, npShuffleOn = false;
+       let npRepeatMode = 'off', npLoadingQueueItem = false, currentTrack = { id: '1' };
+       const console = { log() {} };
+       const setPlayingState = () => {}, npSpokenOnEnded = () => {};
+       ${extractFunction('npAutomix', source)}
+       ${extractFunction('npAutomixOwnsAdvance', source)}
+       ${extractFunction('onAudioEnded', source)}
+       return { onAudioEnded, owed: () => npAdvanceOwed };`,
+    )(window, playNextInQueue) as { onAudioEnded: () => void; owed: () => boolean };
+  }
+  const paths: string[] = [];
+  const seen = ({ request }: { request: Request }) => paths.push(new URL(request.url).pathname);
+
+  beforeEach(() => {
+    resetMixTabForTests();
+    paths.length = 0;
+    server.events.on('request:start', seen);
+  });
+  afterEach(() => {
+    server.events.removeListener('request:start', seen);
+    resetMixTabForTests();
+  });
+
+  function mountGate() {
+    return render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AutomixGate />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('nothing of auto-mix runs: no engine, controls, chips, plans or analysis, though Auto mix is stored', async () => {
+    const create = vi.spyOn(Engine, 'create');
+    // Auto mix is what this browser has stored (the suite's beforeEach)
+    expect(readPrefs().between).toBe('dj');
+    mountGate();
+    drawQueue();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 600));
+    });
+    expect(window.SoulSyncAutomix).toBeUndefined();
+    expect(document.querySelector('[data-automix-gap]')).toBeNull();
+    expect(document.querySelector('#ss-between-tracks-library')!.childElementCount).toBe(0);
+    expect(document.querySelector('#ss-between-tracks-settings')!.childElementCount).toBe(0);
+    expect(document.querySelector('[data-automix-slot="menu-between"]')!.childElementCount).toBe(0);
+    expect(document.querySelector('[data-automix-slot="upnext-head"]')!.childElementCount).toBe(0);
+    expect(screen.queryByRole('button', { name: 'Mix now' })).toBeNull();
+    expect(document.getElementById('media-player')!.dataset.automix).toBeUndefined();
+    expect(create).not.toHaveBeenCalled();
+    expect(asked).toEqual([]);
+    expect(paths.filter((p) => p.includes('/api/library/dj'))).toEqual([]);
+    // the stored choice is kept, not overwritten
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
+    create.mockRestore();
+  });
+
+  it('the player advances on its own path at the end of a track', () => {
+    mountGate();
+    const next = vi.fn();
+    const player = ended(next);
+    player.onAudioEnded();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(player.owed()).toBe(false);
+  });
+
+  it('[review M1] turned off with the next track owed: the decks fade out, and the next track starts', async () => {
+    const fade = vi.spyOn(AutomixController.prototype, 'otherAudio');
+    resetMixTabForTests(true);
+    mountGate();
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    // the muted outgoing element ended while the decks owned the advance
+    const base = player.state as () => Record<string, unknown>;
+    player.state = () => ({ ...base(), advanceOwed: true });
+    Object.assign(audio, { ended: true });
+    (player.playIndex as ReturnType<typeof vi.fn>).mockClear();
+    act(() => resetMixTabForTests(false));
+    expect(fade).toHaveBeenCalled();
+    expect(player.playIndex).toHaveBeenCalledTimes(1);
+    expect(player.playIndex).toHaveBeenCalledWith(1, {});
+    expect(window.SoulSyncAutomix).toBeUndefined();
+    fade.mockRestore();
+  });
+
+  it('[re-review L1] a stale owed mark while the next track plays doesn\'t skip it', async () => {
+    resetMixTabForTests(true);
+    mountGate();
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    // an ended event during a load left the mark set; the track now plays
+    const base = player.state as () => Record<string, unknown>;
+    player.state = () => ({ ...base(), advanceOwed: true });
+    Object.assign(audio, { ended: false });
+    (player.playIndex as ReturnType<typeof vi.fn>).mockClear();
+    act(() => resetMixTabForTests(false));
+    expect(player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it('[review M1] turned off with nothing owed: nothing is started', async () => {
+    resetMixTabForTests(true);
+    mountGate();
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    (player.playIndex as ReturnType<typeof vi.fn>).mockClear();
+    act(() => resetMixTabForTests(false));
+    expect(player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it('shown, auto-mix takes over (the stored Auto mix with it); hidden again, it lets go and Up next loses its gaps', async () => {
+    mountGate();
+    expect(window.SoulSyncAutomix).toBeUndefined();
+    act(() => resetMixTabForTests(true));
+    await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());
+    await waitFor(() => expect(document.querySelector('[data-automix-gap]')).not.toBeNull());
+    act(() => resetMixTabForTests(false));
+    expect(window.SoulSyncAutomix).toBeUndefined();
+    expect(document.querySelector('[data-automix-gap]')).toBeNull();
+    expect(document.querySelector('[data-automix-mark]')).toBeNull();
+    const next = vi.fn();
+    ended(next).onAudioEnded();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
   });
 });

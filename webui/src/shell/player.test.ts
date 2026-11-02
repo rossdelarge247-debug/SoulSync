@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { starStore } from '@/features/stars/stars-store';
+
 import { extractFunction } from '../test/vanilla-extract';
 import { bootPlayer, type PlayerChrome, type PlayerEngine, type PlayerSnapshot } from './player';
 import { PLAYER_STATE_KEY } from './player-state';
@@ -773,5 +775,49 @@ describe('radio in the bar (HANDOFF 49)', () => {
     ).toBe('NTS 1');
     expect($('.ss-player-centre [data-player-live]')).toBeNull();
     expect($('.ss-player-centre [data-player-meter]').hidden).toBe(false);
+  });
+});
+
+describe('the record\'s "…" and the mixing features (review M2)', () => {
+  const w = window as unknown as { openAddToMixSet?: unknown };
+  beforeEach(() => {
+    w.openAddToMixSet = vi.fn();
+    // a library track that can be starred: Add to set… would apply to it
+    starStore().prime({ '42': { starred: false, canStar: true } });
+  });
+  afterEach(() => {
+    delete w.openAddToMixSet;
+    document.documentElement.removeAttribute('data-mix-tab');
+  });
+
+  it('hidden (the default): no Add to set…, and the focus enters the menu on its first reachable item', () => {
+    boot(fakeEngine(snapshot()));
+    $('[data-player-more]').click();
+    const menu = $('#ss-player-menu');
+    const mixset = $('[data-player-menu="mixset"]');
+    expect(mixset.hidden).toBe(true);
+    const focused = document.activeElement as HTMLElement;
+    expect(menu.contains(focused)).toBe(true);
+    expect(focused).not.toBe(mixset);
+    expect(focused.closest('[hidden], [data-mix-only]')).toBeNull();
+  });
+
+  it('shown: Add to set… is there, first, and takes the focus', () => {
+    document.documentElement.setAttribute('data-mix-tab', '');
+    boot(fakeEngine(snapshot()));
+    $('[data-player-more]').click();
+    const mixset = $('[data-player-menu="mixset"]');
+    expect(mixset.hidden).toBe(false);
+    expect(document.activeElement).toBe(mixset);
+  });
+
+  it('turned on while the menu is open, Add to set… comes back', async () => {
+    boot(fakeEngine(snapshot()));
+    $('[data-player-more]').click();
+    expect($('[data-player-menu="mixset"]').hidden).toBe(true);
+    document.documentElement.setAttribute('data-mix-tab', '');
+    window.dispatchEvent(new CustomEvent('soulsync:mix-tab-changed', { detail: { shown: true } }));
+    await flush();
+    expect($('[data-player-menu="mixset"]').hidden).toBe(false);
   });
 });

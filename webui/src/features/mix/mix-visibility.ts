@@ -1,14 +1,26 @@
 /**
- * Settings → Library → DJ's "Show the Mix tab" (`library.dj_show_mix_tab`,
- * off by default while Ross rethinks mixing; HANDOFF "Mix tab hidden").
+ * Settings → Library → DJ's "Show the mixing features" (`library.dj_show_mix_tab`,
+ * off by default while Ross rethinks mixing; HANDOFF "Mix tab hidden" and
+ * "the player calmed"). The key and the internal names still say "Mix tab":
+ * the setting started as that and widened, and nothing had to move.
  *
- * Off hides the tray's Mix mode (and the switch, which would hold Now
- * playing alone; DJ now isn't built), the phone sheet's Mix · Set, the
- * Visuals' Mix button and drawer, M / N / A as the Mix tab's keys (M and N
- * mute and skip again), "Mixes well with…" in every track's "…", and with
- * them the tab's rows as drag sources and its set card as a target. A tray
- * left in Mix, or a remembered Mix, falls back to Now playing. Sets, Up
- * next, Between tracks, Play as a mix and the analysis stay.
+ * Off hides every mixing feature, so the player behaves as it did before
+ * the DJ work:
+ * - the Mix tab: the tray's Mix mode (and the switch, which would hold Now
+ *   playing alone; DJ now isn't built), the phone sheet's Mix · Set, the
+ *   Visuals' Mix button and drawer, M / N / A as the Mix tab's keys (M and N
+ *   mute and skip again), "Mixes well with…" in every track's "…";
+ * - Sets: Library → Sets (its sidebar row; a direct link says it's turned
+ *   off), Add to set… and Send to… in every "…", the selection's set
+ *   actions on Tracks, the sets as drop targets, the working set, Up next's
+ *   "8 from Sunday Set", Play as a mix (on a set's page);
+ * - Between tracks / Auto mix: its controls everywhere, and the engine
+ *   itself (no controller, decks or pre-loading; X does nothing): the player
+ *   advances on its own path. A stored Auto mix is kept, not used;
+ * - the analysis in the player (the record's key line and "Ready to mix")
+ *   and the top bar's analysis count. The analysis itself goes on quietly
+ *   (Export to Traktor uses it), and Tracks keeps its BPM and key.
+ * Turned on, everything comes back as it was.
  *
  * Like the module switches (src/features/modules/), the state the page
  * shell rendered with comes first (`window.SOULSYNC_MIX_TAB`, api/dj.py),
@@ -26,7 +38,11 @@ function fromShell(): boolean {
   return typeof window !== 'undefined' && window.SOULSYNC_MIX_TAB === true;
 }
 
-/** `html[data-mix-tab]` while it shows: CSS hides the tab's own rows otherwise (the `?` list). */
+/**
+ * `html[data-mix-tab]` while it shows: CSS hides the mixing features' static
+ * parts otherwise (`[data-mix-only]`: the Sets row, the player's slots, the
+ * `?` list's rows; static/player.css).
+ */
 export const MIX_TAB_ATTRIBUTE = 'data-mix-tab';
 
 function mark(on: boolean): void {
@@ -77,6 +93,13 @@ export function subscribeMixTab(listener: () => void): () => void {
 export function useMixTabShown(): boolean {
   return useSyncExternalStore(subscribeMixTab, mixTabShown, mixTabShown);
 }
+
+/**
+ * The same setting by its wider name (Sets, Between tracks, Play as a mix,
+ * the player's analysis): what the code outside the Mix tab asks.
+ */
+export const mixingShown = mixTabShown;
+export const useMixingShown = useMixTabShown;
 
 if (typeof window !== 'undefined') {
   window.addEventListener(MIX_TAB_CHANGED_EVENT, (event) => {

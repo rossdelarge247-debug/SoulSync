@@ -11,6 +11,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -512,6 +513,24 @@ describe('the topbar count and its popover (31b, 31c)', () => {
     document.body.innerHTML =
       '<header id="ss-topbar"><div class="ss-topbar-end"><a id="ss-running">Activity</a></div></header>';
   }
+  // the count is one of the mixing features (Settings → Library → DJ)
+  beforeEach(() => resetMixTabForTests(true));
+  afterEach(() => resetMixTabForTests());
+
+  it('is not in the top bar while the mixing features are hidden, and asks nothing', async () => {
+    resetMixTabForTests();
+    topbar();
+    view(<AnalysisCountHost />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(document.getElementById('ss-analysis-count')).toBeNull();
+    expect(document.querySelector('[data-analysis-count]')).toBeNull();
+    expect(progressBodies).toHaveLength(0);
+    // shown again: the count comes back
+    act(() => resetMixTabForTests(true));
+    expect(await screen.findByRole('button', { name: 'Analysing · 14 in line' })).toBeTruthy();
+  });
 
   it('"Analysing · 14 in line" in the top bar; the popover holds the checklist, the line and Stop', async () => {
     topbar();

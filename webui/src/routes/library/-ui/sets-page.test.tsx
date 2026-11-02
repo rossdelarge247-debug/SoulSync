@@ -1428,10 +1428,10 @@ describe("Brief B on a set's page (32a–32d, 32f)", () => {
   });
 });
 
-describe('with the Mix tab hidden (Settings → Library → DJ, the default): Sets keep working', () => {
+describe('Sets with the mixing features shown: Play as a mix, the working set, a drop', () => {
   const toasts: string[] = [];
   beforeEach(() => {
-    resetMixTabForTests(false);
+    resetMixTabForTests(true);
     toasts.length = 0;
     window.showToast = vi.fn((m: string) => {
       toasts.push(m);
@@ -1461,7 +1461,7 @@ describe('with the Mix tab hidden (Settings → Library → DJ, the default): Se
     expect(toasts).toEqual([]);
   });
 
-  it('the working-set toggle works, and its toast leaves the Mix tab out', async () => {
+  it('the working-set toggle works, and says so', async () => {
     renderPage();
     const row = (await screen.findByText('Sunday Set')).closest('li')!;
     fireEvent.click(await within(row).findByRole('button', { name: 'Make this my working set' }));
@@ -1470,9 +1470,9 @@ describe('with the Mix tab hidden (Settings → Library → DJ, the default): Se
     );
     expect(await within(row).findByRole('button', { name: 'Working set' })).toHaveAttribute(
       'title',
-      'Your working set. Press to have none',
+      'Your working set: the Mix tab adds to it. Press to have none',
     );
-    expect(toasts).toContain('Sunday Set is your working set.');
+    expect(toasts).toContain('Sunday Set is your working set: the Mix tab adds to it.');
   });
 
   it('a drop onto a set is accepted', async () => {
@@ -1494,38 +1494,38 @@ describe('with the Mix tab hidden (Settings → Library → DJ, the default): Se
     expect(await screen.findByText('Kelp Garden')).toBeTruthy();
     resetDndForTests();
   });
+});
 
-  it('a set row\'s "…" has no Mixes well with…, and the rest of 24a\'s order', async () => {
+describe('with the mixing features hidden (Settings → Library → DJ, the default): Sets are turned off', () => {
+  beforeEach(() => resetMixTabForTests(false));
+
+  it('a direct link says Sets are turned off, reads no set, and an admin has the way back', async () => {
     renderPage('/library?view=sets&set=7');
-    await screen.findByDisplayValue('Sunday Set');
-    fireEvent.click(await screen.findByRole('button', { name: 'More for Foghorn Study' }));
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual([
-      'Play next',
-      'Add to set…',
-      'Send to…',
-      'Add to playlist…',
-      'Move up',
-      'Move down',
-      'Move…',
-      'Remove from set',
-    ]);
+    const notice = await screen.findByRole('region', { name: 'Sets are turned off' });
+    expect(notice).toHaveAttribute('data-sets-off');
+    expect(within(notice).getByText('Turned off')).toBeTruthy();
+    expect(
+      within(notice).getByText('You can show them again in Settings → Library → DJ.'),
+    ).toBeTruthy();
+    expect(
+      within(notice).getByRole('link', { name: 'Open Settings → Library → DJ' }),
+    ).toHaveAttribute('href', expect.stringContaining('/settings?tab=library&section=dj'));
+    // no Play as a mix, no planner, and nothing asked of the sets
+    expect(screen.queryByRole('button', { name: 'Play as a mix' })).toBeNull();
+    expect(screen.queryByDisplayValue('Sunday Set')).toBeNull();
+    expect(sent.filter((c) => c.path.startsWith('/api/sets'))).toEqual([]);
   });
 
-  it('the "…" follows the setting while the page is open (review L3)', async () => {
+  it('turned on while the page is open, the set comes back as it was', async () => {
     renderPage('/library?view=sets&set=7');
-    await screen.findByDisplayValue('Sunday Set');
-    const open = async () => {
-      fireEvent.click(await screen.findByRole('button', { name: 'More for Foghorn Study' }));
-      return (await screen.findAllByRole('menuitem')).map((m) => m.textContent);
-    };
-    expect(await open()).not.toContain('Mixes well with…');
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryAllByRole('menuitem')).toEqual([]));
+    await screen.findByRole('region', { name: 'Sets are turned off' });
     act(() => {
       window.dispatchEvent(
         new CustomEvent('soulsync:mix-tab-changed', { detail: { shown: true } }),
       );
     });
-    expect(await open()).toContain('Mixes well with…');
+    expect(await screen.findByDisplayValue('Sunday Set')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Play as a mix' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Sets are turned off' })).toBeNull();
   });
 });

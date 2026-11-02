@@ -9,6 +9,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { trackMenu } from '@/features/dj/track-menu';
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 
 import type { DragItem } from './dnd-model';
 
@@ -36,6 +37,8 @@ function phone(on: boolean) {
 }
 
 beforeEach(() => {
+  // the sets are targets with the mixing features shown (Settings → Library → DJ)
+  resetMixTabForTests(true);
   setSendToContext({
     working: { id: 4, name: 'Sunday Set', kind: 'hand', next: 9 },
     after: null,
@@ -47,6 +50,40 @@ afterEach(() => {
   act(() => closeSendToTray());
   provideDjNowEntry(null);
   setSendToContext({ working: null, after: null, upNextLast: null });
+  resetMixTabForTests();
+});
+
+describe('with the mixing features hidden (the default)', () => {
+  beforeEach(() => resetMixTabForTests());
+
+  it('Up next is the only target, in the submenu and the tray, and DJ now isn’t named', () => {
+    provideDjNowEntry(() => ({ key: 'send-dj', label: 'DJ now', onSelect: () => {} }));
+    expect(sendToEntries(items).map((e) => e.label)).toEqual(['Up next']);
+    expect(trayTargets(true).map((t) => t.key)).toEqual(['upnext']);
+    expect(trayTargets(false).map((t) => t.key)).toEqual(['upnext']);
+  });
+
+  it('the track menu has no Add to set… or Send to…, on a desktop and on a phone', () => {
+    for (const onPhone of [false, true]) {
+      const keys = trackMenu(
+        { id: '9', title: 'Canopy' },
+        { phone: onPhone, sendTo: items, playNext: { onSelect: () => {} } },
+      ).map((e) => e.key);
+      expect(keys).not.toContain('mixset');
+      expect(keys).not.toContain('send');
+      expect(keys).toContain('next');
+    }
+  });
+
+  it('the phone’s tray says Up next alone, and sends there', () => {
+    phone(true);
+    render(<SendToTray />);
+    act(() => openSendToTray(items));
+    const dialog = screen.getByRole('dialog', { name: 'Send Canopy to…' });
+    expect(
+      Array.from(dialog.querySelectorAll('[class*="trayName"]')).map((n) => n.textContent),
+    ).toEqual(['Up next']);
+  });
 });
 
 describe('Send to… in the "…" (32d)', () => {

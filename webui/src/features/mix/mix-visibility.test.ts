@@ -121,9 +121,9 @@ describe('"Mixes well with…" in the track menus (track-menu.ts)', () => {
   const phoneKeys = () =>
     trackMenu(TRACK, { phone: true, playNext: { onSelect: vi.fn() } }).map((e) => e.key);
 
-  it('is left out while the Mix tab is hidden, on a desktop and on a phone', () => {
-    expect(keys()).toEqual(['next', 'mixset']);
-    expect(phoneKeys()).toEqual(['next', 'mixset']);
+  it('is left out while the mixing features are hidden, with Add to set…, on a desktop and on a phone', () => {
+    expect(keys()).toEqual(['next']);
+    expect(phoneKeys()).toEqual(['next']);
   });
 
   it('is there, third, with the Mix tab shown', () => {
@@ -270,10 +270,19 @@ describe('the ? shortcuts list (review M1)', () => {
     return { mixOnly: words('[data-mix-only]'), offOnly: words('[data-mix-off-only]') };
   };
 
-  it("marks the Mix tab's M, N and A rows, and has plain M and N rows for without it", () => {
+  it("marks the Mix tab's M, N and A rows and Auto mix's X, and has plain M and N rows for without them", () => {
     const { mixOnly, offOnly } = rows();
-    expect(mixOnly.map((r) => r.split(':')[0])).toEqual(['M', 'N', 'A']);
+    expect(mixOnly.map((r) => r.split(':')[0])).toEqual(['M', 'N', 'A', 'X']);
     expect(offOnly).toEqual(['M: Mute', 'N: Next track']);
+  });
+
+  it('keeps every other key listed either way (Shift M, S, T, V, F, L, ?)', () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const grid = doc.querySelector('#np-v2-shorts-overlay .ss-player-shortcuts-grid')!;
+    const always = [
+      ...grid.querySelectorAll(':scope > div:not([data-mix-only]):not([data-mix-off-only])'),
+    ].map((r) => [...r.querySelectorAll('kbd')].map((k) => k.textContent).join(' '));
+    for (const k of ['Shift M', 'S', 'T', 'V Shift V', 'F', 'L', '?']) expect(always).toContain(k);
   });
 
   it('CSS shows one set or the other by html[data-mix-tab]', () => {
@@ -290,6 +299,33 @@ describe('the ? shortcuts list (review M1)', () => {
     expect(document.documentElement.hasAttribute(MIX_TAB_ATTRIBUTE)).toBe(true);
     fromSettings(false);
     expect(document.documentElement.hasAttribute(MIX_TAB_ATTRIBUTE)).toBe(false);
+  });
+});
+
+describe('the static parts that hide with the mixing features ([data-mix-only])', () => {
+  const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const mixOnly = (sel: string) => doc.querySelector(sel)?.hasAttribute('data-mix-only');
+
+  it('the sidebar’s Sets row (and with it the phone’s Library sheet, the same rows)', () => {
+    expect(mixOnly('a[data-nav-row="sets"]')).toBe(true);
+    // the other Library rows stay
+    for (const row of ['artists', 'albums', 'tracks', 'history'])
+      expect(mixOnly(`a[data-nav-row="${row}"]`)).toBe(false);
+  });
+
+  it('the player’s Add to set…, Up next’s "8 from Sunday Set" and every Auto mix slot', () => {
+    expect(mixOnly('[data-player-menu="mixset"]')).toBe(true);
+    expect(mixOnly('[data-player-upnext-from]')).toBe(true);
+    for (const slot of ['mixnow-bar', 'mixnow-deck', 'list-head', 'upnext-head', 'menu-between'])
+      expect(mixOnly(`[data-automix-slot="${slot}"]`)).toBe(true);
+    expect(mixOnly('#ss-between-tracks-settings')).toBe(true);
+    expect(mixOnly('#dj-between-tracks-group')).toBe(true);
+    expect(doc.getElementById('ss-https-note')!.parentElement!.hasAttribute('data-mix-only')).toBe(
+      true,
+    );
+    // the player's own controls don't
+    expect(mixOnly('[data-player-menu="lyrics"]')).toBe(false);
   });
 });
 

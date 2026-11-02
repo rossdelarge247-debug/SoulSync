@@ -43,6 +43,7 @@ import { createPortal } from 'react-dom';
 
 import type { ShellContext } from '@/platform/shell/bridge';
 
+import { useMixingShown } from '@/features/mix/mix-visibility';
 import { appURL } from '@/platform/url-base';
 
 import {
@@ -787,9 +788,15 @@ const COUNT_HOST = 'ss-analysis-count';
 /**
  * The count in the shell's top bar, before Activity's link (desktop; on a
  * phone the Activity page shows the panel, 31f). Mounted once in the
- * router's root.
+ * router's root, and only while the mixing features show (Settings →
+ * Library → DJ): hidden, the analysis goes on quietly (Export to Traktor
+ * uses it) and Tracks and Activity still say how far it has got.
  */
 export function AnalysisCountHost() {
+  return useMixingShown() ? <AnalysisCountSlot /> : null;
+}
+
+function AnalysisCountSlot() {
   const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
     const end = document.querySelector('#ss-topbar .ss-topbar-end');
