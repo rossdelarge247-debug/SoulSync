@@ -37,11 +37,13 @@ import {
 } from './dnd-model';
 
 /**
- * DJ now (Brief E) is step 5: it joins as a target (kind `dj`, "drop to
- * cue") when it lands. Until then it isn't drawn at all, rather than shown
- * disabled; the phone's tray says "DJ now · laptop only" (32e).
+ * The `dj` target (Brief F, step 2): DJ mode's lane B, one target that isn't
+ * a list (436), registered by src/features/dj-mode/dj-stage.tsx while DJ mode
+ * is on; a track dropped there loads into lane B, cued. The bar's "Load as
+ * B" (37l) joins in step 4, when DJ mode can stay on with the overlay closed.
+ * The phone's tray still says "DJ now · laptop only" (32e).
  */
-export const DJ_TARGET_READY = false;
+export const DJ_TARGET_READY = true;
 
 export interface Verdict {
   ok: boolean;
@@ -103,6 +105,11 @@ export interface DropTarget {
   moveWords?(drag: Drag, from: number, at: number): string;
   /** what scrolls (defaults to the nearest scrolling ancestor) */
   scroller?(): HTMLElement | null;
+  /**
+   * The target says an invalid drop's reason itself, where its drop line is
+   * (DJ mode's lane B, 37d), so no amber note floats over it as well.
+   */
+  inlineReason?: boolean;
 }
 
 export interface Over {
@@ -261,6 +268,9 @@ export function useDropTarget(id: string | null, make: () => DropTarget): void {
       },
       get name() {
         return latest.current().name;
+      },
+      get inlineReason() {
+        return latest.current().inlineReason;
       },
       el: () => latest.current().el(),
       accepts: (d) => latest.current().accepts(d),
@@ -698,7 +708,7 @@ function hitTest(): void {
   const line = verdict.ok ? openGap(t, preview) : openGap(t, null);
   const box = t.el()?.getBoundingClientRect();
   let note: NoteBox | null = null;
-  if (!verdict.ok && verdict.reason && box) {
+  if (!verdict.ok && verdict.reason && box && !t.inlineReason) {
     note = {
       top: box.top + 6,
       left: box.left + 6,

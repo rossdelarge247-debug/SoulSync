@@ -302,6 +302,9 @@ export function Inbox({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      // the Visuals overlay covers the page: its keys (DJ mode's D) are the player's
+      const overlay = document.getElementById('np-modal-overlay');
+      if (overlay && !overlay.classList.contains('hidden')) return;
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if (target?.isContentEditable || event.metaKey || event.ctrlKey || event.altKey) return;

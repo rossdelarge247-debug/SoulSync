@@ -1235,12 +1235,12 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 #np-modal-overlay .np-modal { position: absolute; inset: 0; overflow: hidden; }
 #np-v2-bg,
 .ss-visuals-stage { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
-/* who paints: data-visuals-engine (synchros | milkdrop | classic | data | still | lyrics);
-   Data (30a) draws on Classic's canvas; Lyrics only (27a) turns every visual off */
+/* who paints: data-visuals-engine (synchros | milkdrop | classic | data | still | lyrics | dj);
+   Data (30a) draws on Classic's canvas; Lyrics only (27a) and DJ mode (37b) turn every visual off */
 .ss-visuals-stage { display: none; }
 #np-modal-overlay[data-visuals-engine='milkdrop'] #ss-visuals-milkdrop,
 #np-modal-overlay:is([data-visuals-engine='classic'], [data-visuals-engine='data']) #ss-visuals-classic { display: block; }
-#np-modal-overlay:is([data-visuals-engine='milkdrop'], [data-visuals-engine='classic'], [data-visuals-engine='data'], [data-visuals-engine='still'], [data-visuals-engine='lyrics']) #np-v2-bg { display: none !important; }
+#np-modal-overlay:is([data-visuals-engine='milkdrop'], [data-visuals-engine='classic'], [data-visuals-engine='data'], [data-visuals-engine='still'], [data-visuals-engine='lyrics'], [data-visuals-engine='dj']) #np-v2-bg { display: none !important; }
 #np-v2-visuals-header,
 .ss-player-visuals-transport { position: absolute; z-index: 3; transition: opacity 300ms ease; }
 .np-modal.npv2-ui-hidden #np-v2-visuals-header,
@@ -1249,6 +1249,51 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 #np-modal-overlay[data-visuals-panel] .np-modal .ss-player-visuals-transport { opacity: 1; pointer-events: auto; }
 /* the credit comes back with the chrome (10c) */
 #np-modal-overlay .np-modal:not(.npv2-ui-hidden) [data-visuals-credit] { display: flex; }
+
+/* DJ mode (Brief F, 37b; src/features/dj-mode): the lanes are on the stage, so
+   the header and the player's transport stay up; the stage is #0c0c0c with a
+   faint wash; Lyrics' layer waits (37l) and the credit has nothing to name */
+#np-modal-overlay[data-dj-mode] .np-modal #np-v2-visuals-header,
+#np-modal-overlay[data-dj-mode] .np-modal .ss-player-visuals-transport { opacity: 1; pointer-events: auto; }
+#np-modal-overlay[data-dj-mode] .np-modal { background: radial-gradient(120% 90% at 50% 0%, rgba(var(--ss-accent-rgb, 139, 92, 246), 0.06), transparent 60%), #0c0c0c; cursor: auto; }
+#np-modal-overlay[data-dj-mode] [data-lyrics-layer],
+#np-modal-overlay[data-dj-mode] [data-visuals-credit] { display: none !important; }
+#np-modal-overlay[data-dj-mode] .ss-visuals-head-left > :not(.ss-visuals-dj-head) { display: none; }
+.ss-visuals-dj-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ss-visuals-dj-head[hidden],
+.ss-visuals-dj-close[hidden],
+.ss-visuals-dj-btn[hidden] { display: none; }
+.ss-visuals-hbtn.ss-visuals-dj-back {
+    padding: 0 10px 0 8px;
+    gap: 6px;
+    border-color: rgba(var(--ss-accent-light-rgb), 0.35);
+    background: rgba(var(--ss-accent-rgb, 139, 92, 246), 0.12);
+    font-size: 15px;
+}
+.ss-visuals-dj-back svg { width: 16px; height: 16px; }
+.ss-visuals-dj-back kbd {
+    margin-left: 4px;
+    padding: 2px 5px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: 5px;
+    font: 500 11px/1 var(--ss-shell-font);
+    color: var(--ss-text-meta);
+}
+.ss-visuals-dj-title { margin: 0; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.ss-visuals-dj-line { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: var(--ss-text-meta); }
+.ss-visuals-hbtn.ss-visuals-dj-btn { padding: 0 14px 0 12px; }
+.ss-visuals-dj-dot { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ss-success); }
+.ss-visuals-dj-btn[aria-pressed='true'] { border-color: rgba(var(--ss-success-rgb), 0.45); background: rgba(var(--ss-success-rgb), 0.08); }
+.ss-visuals-dj-btn[aria-pressed='true'] .ss-visuals-dj-dot { display: inline-block; }
+/* the visual stops: its name dims beside Lyrics (its ‹ › step nothing, so they go)
+   and its title says why; DJ mode's head takes the room; Lyrics waits */
+#np-modal-overlay[data-dj-mode] #np-v2-visuals-header { grid-template-columns: minmax(0, 1fr) auto auto; }
+#np-modal-overlay[data-dj-mode] .np-v2-visuals-arrow { display: none; }
+#np-modal-overlay[data-dj-mode] .ss-visuals-name { width: 180px; }
+#np-modal-overlay[data-dj-mode] #np-v2-visuals-theme-switch,
+#np-modal-overlay[data-dj-mode] .ss-visuals-lyrics-btn,
+#np-modal-overlay[data-dj-mode] .ss-visuals-panel-btn { opacity: 0.45; }
+#np-modal-overlay[data-dj-mode] .ss-visuals-lyrics-btn { cursor: default; }
 
 .ss-visuals-hbtn {
     display: inline-flex;
@@ -1371,6 +1416,8 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     .ss-visuals-lyrics-btn span { display: none; }
     .ss-visuals-panel-btn,
     .ss-visuals-lyrics-btn { padding: 0; }
+    /* DJ mode keeps its words: it's the stage's mode */
+    #np-modal-overlay[data-dj-mode] .ss-visuals-name { display: none; }
 }
 
 /* the phone (10e, 10f): close, the track, ‹ ›, the Visuals button; the mini

@@ -466,3 +466,12 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* DJ mode (Brief F, 37c): the Visuals overlay (z-index 10500) holds lane B,
+   so while it's on the ghost and the notes are drawn over it */
+:global(html[data-dj-mode]) .ghost {
+  z-index: 10650;
+}
+:global(html[data-dj-mode]) .note {
+  z-index: 10660;
+}

@@ -13064,6 +13064,15 @@
                         <h2 id="np-v2-visuals-title">Unknown Track</h2>
                         <p id="np-v2-visuals-artist">Unknown Artist</p>
                     </div>
+                    <!-- 37b: DJ mode's head (src/features/dj-mode): Back, its name and one line; shown while it's on -->
+                    <div class="ss-visuals-dj-head" id="np-v2-visuals-dj-head" hidden>
+                        <button type="button" class="ss-visuals-hbtn ss-visuals-dj-back" id="np-v2-visuals-dj-back" aria-keyshortcuts="Escape">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                            <span>Back to the player</span><kbd aria-hidden="true">Esc</kbd>
+                        </button>
+                        <h2 class="ss-visuals-dj-title">DJ mode</h2>
+                        <p class="ss-visuals-dj-line" id="np-v2-visuals-dj-line"></p>
+                    </div>
                 </div>
                 <div id="np-v2-visuals-theme-switch">
                     <button type="button" class="ss-visuals-hbtn np-v2-visuals-arrow" id="np-v2-visuals-theme-prev" aria-label="Previous visual (Shift+V)">
@@ -13083,6 +13092,11 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h13"/></svg>
                         <span>Lyrics</span>
                     </button>
+                    <!-- 37a: DJ mode (D), a mode of the stage; a library track on a laptop or desktop only (src/features/dj-mode) -->
+                    <button type="button" class="ss-visuals-hbtn ss-visuals-dj-btn" id="np-v2-visuals-dj-btn" aria-pressed="false" aria-keyshortcuts="D" title="DJ mode (D)" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg>
+                        <span>DJ mode</span><span class="ss-visuals-dj-dot" aria-hidden="true"></span>
+                    </button>
                     <!-- 29b: the Mix tab as a drawer (src/features/mix/mix-host.tsx) -->
                     <button type="button" class="ss-visuals-hbtn ss-visuals-mix-btn" id="np-v2-visuals-mix-btn" aria-pressed="false" aria-expanded="false" aria-controls="ss-mix-drawer" title="Mix (M)" hidden>
                         <span>Mix</span>
@@ -13093,6 +13107,10 @@
                     </button>
                     <button type="button" class="ss-visuals-hbtn" id="np-v2-visuals-fullscreen" aria-label="Fill the screen" aria-pressed="false">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+                    </button>
+                    <!-- 37b: while DJ mode is on, × sits at the header's end (the one at the start makes room for Back) -->
+                    <button type="button" class="ss-visuals-hbtn ss-visuals-dj-close" id="np-v2-visuals-dj-close" aria-label="Close the visuals" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
                     </button>
                 </div>
             </div>
@@ -13171,6 +13189,8 @@
                 <div><dt>A random visual</dt><dd><kbd>R</kbd></dd></div>
                 <div><dt>Favourite this MilkDrop preset</dt><dd><kbd>Shift S</kbd></dd></div>
                 <div><dt>Lyrics over the visuals (on a phone, in the record)</dt><dd><kbd>T</kbd></dd></div>
+                <!-- 37l: the D row (src/features/dj-mode); in the visuals, or from the tray (it opens them in DJ mode) -->
+                <div><dt>DJ mode · a library track, on a laptop or desktop</dt><dd><kbd>D</kbd></dd></div>
                 <div><dt>Close the panel, then the visuals, then collapse the tray</dt><dd><kbd>Esc</kbd></dd></div>
             </dl>
         </div>

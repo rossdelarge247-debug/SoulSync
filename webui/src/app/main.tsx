@@ -1,6 +1,7 @@
 import '@vitejs/plugin-react/preamble';
 import { createRoot } from 'react-dom/client';
 
+import { mountDjMode } from '@/features/dj-mode/dj-mode-mount';
 import { mountTraktorCard } from '@/features/dj/traktor-card';
 import { mountCandidateInspectorHost } from '@/features/downloads/inspector-modal';
 import { mountFoldersCard } from '@/features/drives/folders-card';
@@ -84,6 +85,7 @@ mountLossyDeleteOriginalHost();
 mountSpotifyPausedHost();
 mountVisualsWhenNeeded();
 mountLyrics();
+mountDjMode();
 mountDriveMoveHost();
 mountFoldersCard();
 mountTraktorCard();

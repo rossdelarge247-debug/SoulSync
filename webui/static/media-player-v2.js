@@ -3789,6 +3789,12 @@ function npv2HandleKeys(event) {
                     npv2VisualsWakeUI();
                     return;
                 }
+                // DJ mode (Brief F, 413): Esc is Back while nothing is blending
+                // (always, in step 2; src/features/dj-mode)
+                if (window.SoulSyncDj && window.SoulSyncDj.escape && window.SoulSyncDj.escape()) {
+                    npv2VisualsWakeUI();
+                    return;
+                }
                 npv2SetVisualsMode(false);
                 return;
             }

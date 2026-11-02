@@ -186,7 +186,7 @@ function BarZones() {
       <div ref={ref} className={styles.barZone} data-dnd-target="bar-upnext">
         Up next · drop to play next
       </div>
-      {/* "DJ now · drop to cue" joins here with step 5 (dnd-engine's DJ_TARGET_READY) */}
+      {/* DJ mode's "Load as B" joins here in Brief F's step 4 (37l), once DJ mode can stay on with the overlay closed */}
     </div>
   );
 }

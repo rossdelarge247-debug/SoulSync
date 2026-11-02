@@ -718,6 +718,95 @@ describe('Data (30a–30i) and Lyrics only (27a)', () => {
   });
 });
 
+describe('DJ mode, a mode of the stage (Brief F, 37b, 37l)', () => {
+  async function djStore() {
+    const { djModeStore, resetDjModeStore } = await import('@/features/dj-mode/dj-mode-store');
+    resetDjModeStore();
+    (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+      state: () => ({
+        track: { id: 't1', title: 'Night Ferry', is_library: true, filename: '/m/1.flac' },
+        kind: 'library',
+      }),
+    };
+    const store = djModeStore({
+      fetch: async () => new Response('{}', { status: 404 }),
+      analyse: () => undefined,
+      analysis: {
+        watch: () => () => undefined,
+        entry: () => undefined,
+        subscribe: () => () => undefined,
+      },
+      say: () => undefined,
+      phone: () => false,
+    });
+    return { store, reset: resetDjModeStore };
+  }
+
+  it('stops the visual while on, and Back brings the one you had back', async () => {
+    const { store, reset } = await djStore();
+    const h = harness();
+    h.c.setOpen(true);
+    h.c.setFamily('classic');
+    expect(h.overlay.dataset.visualsEngine).toBe('classic');
+    store.setOn(true);
+    expect(h.c.snapshot().djMode).toBe(true);
+    expect(h.overlay.dataset.visualsEngine).toBe('dj');
+    expect(h.c.snapshot().header).toEqual({ name: 'Bars', meta: 'Stopped for DJ mode' });
+    // V and R wait while the visual is stopped
+    h.c.key('next');
+    expect(h.c.snapshot().classicMode).toBe('bars');
+    store.back();
+    expect(h.overlay.dataset.visualsEngine).toBe('classic');
+    expect(h.c.snapshot().header.meta).toBe('Classic · drawn by SYNCHRO.S');
+    h.c.dispose();
+    reset();
+    delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+  });
+
+  it('wins over Lyrics only, and comes back to it on Back', async () => {
+    const { store, reset } = await djStore();
+    const { lyricsStore, resetLyricsStore } = await import('@/features/lyrics/lyrics-store');
+    resetLyricsStore();
+    const lyrics = lyricsStore(window);
+    (
+      window as unknown as { SoulSyncPlayer: { lyricsData?: () => null } }
+    ).SoulSyncPlayer.lyricsData = () => null;
+    lyrics.refresh();
+    const h = harness();
+    h.c.setOpen(true);
+    lyrics.setOn(true);
+    lyrics.setOnly(true);
+    expect(h.overlay.dataset.visualsEngine).toBe('lyrics');
+    store.setOn(true);
+    expect(h.overlay.dataset.visualsEngine).toBe('dj');
+    store.back();
+    expect(h.overlay.dataset.visualsEngine).toBe('lyrics');
+    h.c.dispose();
+    reset();
+    resetLyricsStore();
+    delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+  });
+
+  it('choosing Data turns DJ mode off (Data is a mode of the stage too)', async () => {
+    const { store, reset } = await djStore();
+    const h = harness();
+    h.c.setOpen(true);
+    h.c.setFamily('synchros');
+    store.setOn(true);
+    h.c.setFamily('data');
+    expect(store.snapshot().on).toBe(false);
+    expect(h.overlay.dataset.visualsEngine).toBe('data');
+    // DJ mode chosen while Data shows: the lanes take the stage, and Back gives Data back
+    store.setOn(true);
+    expect(h.overlay.dataset.visualsEngine).toBe('dj');
+    store.back();
+    expect(h.overlay.dataset.visualsEngine).toBe('data');
+    h.c.dispose();
+    reset();
+    delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+  });
+});
+
 describe('Data during auto-mix (review M3)', () => {
   it('while auto-mix owns playback the fading element’s volume isn’t divided out, nor called Muted', () => {
     const h = harness();

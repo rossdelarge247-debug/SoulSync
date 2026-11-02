@@ -10,10 +10,12 @@
  * The overlay tells the legacy engine who paints through
  * `data-visuals-engine` on `#np-modal-overlay`: `synchros` (its canvas),
  * `milkdrop`, `classic` or `data` (this one's canvases; Data draws on
- * Classic's), `still`, or `lyrics` while Lyrics only turns the visual off
- * (27a; src/features/lyrics).
+ * Classic's), `still`, `lyrics` while Lyrics only turns the visual off
+ * (27a; src/features/lyrics), or `dj` while DJ mode has the stage (Brief F,
+ * 37b; src/features/dj-mode): the visual stops and comes back on Back.
  */
 
+import { djModeStore } from '@/features/dj-mode/dj-mode-store';
 import { lyricsStore } from '@/features/lyrics/lyrics-store';
 
 import type { DataColour, DataInfo, DataNumbers, DataRow } from './data-viz';
@@ -145,9 +147,11 @@ export interface VisualsSnapshot {
   open: boolean;
   panelOpen: boolean;
   family: Family;
-  engine: 'synchros' | 'milkdrop' | 'classic' | 'data' | 'still' | 'lyrics';
+  engine: 'synchros' | 'milkdrop' | 'classic' | 'data' | 'still' | 'lyrics' | 'dj';
   /** Lyrics only (27a): the lyrics layer turned the visual off */
   lyricsOnly: boolean;
+  /** DJ mode (37b): a mode of the stage; the visual stops while it's on */
+  djMode: boolean;
   data: DataPrefs;
   /** Data's readout lines 1 and 2 as words, for a screen reader (the canvas is hidden) */
   dataSummary: string;
@@ -218,6 +222,8 @@ export interface ControllerDeps {
 type Listener = () => void;
 
 export function engineModeFor(s: VisualsSnapshot): VisualsSnapshot['engine'] {
+  // DJ mode is the stage's mode (37l): it wins over Lyrics only and Data
+  if (s.djMode) return 'dj';
   if (s.lyricsOnly) return 'lyrics';
   // Data under reduced motion is a still block a second (30g), not the still stage
   if (s.family === 'data') return 'data';
@@ -352,6 +358,7 @@ export class VisualsController {
       credit: null,
       header: { name: '', meta: '' },
       lyricsOnly: lyricsStore(this.win).snapshot().onlyActive,
+      djMode: djModeStore().snapshot().on,
       data: {
         numbers: prefs.dataNumbers,
         bits: prefs.dataBits,
@@ -435,6 +442,17 @@ export class VisualsController {
         if (only === this.s.lyricsOnly) return;
         this.set({ lyricsOnly: only });
         this.startEngine();
+      }),
+    );
+    // DJ mode (37b) stops the stage; Back, and the visual you had resumes
+    const dj = djModeStore();
+    this.cleanups.push(
+      dj.subscribe(() => {
+        const on = dj.snapshot().on;
+        if (on === this.s.djMode) return;
+        this.set({ djMode: on });
+        this.startEngine();
+        if (!on) this.lastChange = this.now();
       }),
     );
     this.win.addEventListener('ss:player', onPlayer);
@@ -527,6 +545,9 @@ export class VisualsController {
   }
 
   setFamily(family: Family, moved: Moved = 'picked'): void {
+    // Data is a mode of the stage too (37l): choosing it turns DJ mode off
+    // (nothing blends in step 2, so it doesn't ask)
+    if (family === 'data' && this.s.djMode) djModeStore().back();
     if (family === this.s.family) return;
     this.clearPreview(true);
     savePrefs({ family });
@@ -1147,7 +1168,7 @@ export class VisualsController {
   // ── auto-cycle ─────────────────────────────────────────────────────────────
 
   private cycleTick(): void {
-    if (!this.s.open || this.s.still) return;
+    if (!this.s.open || this.s.still || this.s.djMode) return;
     const every = autocycleSeconds(this.s.autocycle);
     if (!every || this.s.family !== 'milkdrop') return;
     if (this.s.loadingKey || this.s.previewKey) return;
@@ -1159,7 +1180,7 @@ export class VisualsController {
   }
 
   private onTrackChange(): void {
-    if (!this.s.open || this.s.still || this.s.autocycle !== 'track') return;
+    if (!this.s.open || this.s.still || this.s.djMode || this.s.autocycle !== 'track') return;
     if (this.s.family === 'milkdrop') {
       const key = stepKey(this.cycleList(), this.s.presetKey, 1, this.s.failed);
       if (key) this.pick(key, 'track');
@@ -1177,6 +1198,8 @@ export class VisualsController {
 
   key(action: 'next' | 'previous' | 'random' | 'favourite'): void {
     this.npv2()?.wakeVisuals?.();
+    // the visual is stopped while DJ mode has the stage: V, R and ⇧S wait
+    if (this.s.djMode) return;
     if (action === 'next') this.step(1);
     else if (action === 'previous') this.step(-1);
     else if (action === 'random') this.random();
@@ -1249,6 +1272,9 @@ export class VisualsController {
   }
 
   private headerFor(s: VisualsSnapshot): { name: string; meta: string } {
+    // DJ mode (37l): the visual you had, stopped until Back
+    if (s.djMode)
+      return { ...this.headerFor({ ...s, djMode: false }), meta: 'Stopped for DJ mode' };
     // Lyrics only (27a): no visual plays, so the header says so
     if (s.lyricsOnly) return { name: 'Lyrics only', meta: 'The visual is off' };
     if (s.family === 'milkdrop') {
