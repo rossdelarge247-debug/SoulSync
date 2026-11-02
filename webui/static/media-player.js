@@ -3167,8 +3167,9 @@ function handlePlayerKeyboardShortcuts(event) {
 // (26a, auto-mix stage C: src/features/automix): it acts only with DJ mix
 // on and a next track it can mix into, else the key is the page's. With the
 // mixing features hidden (Settings → Library → DJ; src/features/mix/
-// mix-visibility.ts) neither SoulSyncMix nor SoulSyncAutomix is there: A
-// and X do nothing, M mutes and N skips, and the ? list hides their rows. T is
+// mix-visibility.ts) SoulSyncMix stays but its key() answers false, and
+// SoulSyncAutomix isn't there at all: A and X do nothing, M mutes and N
+// skips, and the ? list hides their rows. T is
 // lyrics over the visuals (24a, 27a; src/features/lyrics): it acts while the
 // Visuals are open or the phone's sheet shows the record, for music only (not
 // radio or spoken audio), else the key is the page's.

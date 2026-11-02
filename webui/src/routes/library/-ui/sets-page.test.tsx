@@ -1472,7 +1472,7 @@ describe('Sets with the mixing features shown: Play as a mix, the working set, a
       'title',
       'Your working set: the Mix tab adds to it. Press to have none',
     );
-    expect(toasts.some((t) => t.startsWith('Sunday Set is your working set'))).toBe(true);
+    expect(toasts).toContain('Sunday Set is your working set: the Mix tab adds to it.');
   });
 
   it('a drop onto a set is accepted', async () => {

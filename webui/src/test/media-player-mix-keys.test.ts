@@ -172,10 +172,16 @@ describe('the table (one place for 287)', () => {
   });
 });
 
-describe('the mixing features hidden (Settings → Library → DJ): no SoulSyncMix, no SoulSyncAutomix', () => {
+describe('the mixing features hidden (Settings → Library → DJ): SoulSyncMix says no, no SoulSyncAutomix', () => {
   beforeEach(() => {
-    // mix-host.tsx and the automix host aren't there to answer
-    delete (window as unknown as { SoulSyncMix?: unknown }).SoulSyncMix;
+    // mix-host.tsx keeps SoulSyncMix while hidden, its key() answering false
+    // (keyAction checks mixTabShown); the automix host isn't mounted at all
+    (window as unknown as { SoulSyncMix?: unknown }).SoulSyncMix = {
+      key: () => false,
+      available: () => false,
+      drawerOpen: () => false,
+      closeDrawer: () => undefined,
+    };
     delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
   });
 
