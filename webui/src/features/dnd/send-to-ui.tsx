@@ -78,8 +78,8 @@ export function upNextWords(): string {
 /**
  * DJ now's place in Send to… (32d: "DJ now · cue as next"). Brief E (step
  * 5) provides it with `provideDjNowEntry`; until then the menu doesn't name
- * DJ now at all (absent, not disabled), and dnd-engine's DJ_TARGET_READY
- * keeps it out of the drag's targets.
+ * DJ now at all (absent, not disabled). The drag's `dj` target is DJ mode's
+ * lane B now (Brief F, src/features/dj-mode), not a Send to… entry.
  */
 let djNowEntry: ((items: DragItem[]) => SendToEntry) | null = null;
 

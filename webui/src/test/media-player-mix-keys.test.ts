@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe('the table (one place for 287)', () => {
-  it('maps M, ⇧M, N, ⇧N, A, X and T, and nothing else', () => {
+  it('maps M, ⇧M, N, ⇧N, A, X, T, D and B, and nothing else', () => {
     expect(handler().table).toEqual({
       M: ['mix:M', 'mute'],
       '⇧M': ['mute'],
@@ -69,8 +69,57 @@ describe('the table (one place for 287)', () => {
       '⇧N': ['next'],
       A: ['mix:A'],
       X: ['automix:X'],
-      T: ['lyrics:T'],
+      T: ['dj:T', 'lyrics:T'],
+      D: ['dj:D'],
+      B: ['dj:B'],
     });
+  });
+
+  it('d and b: DJ mode’s (37p), left to the page when it doesn’t act; T asks DJ mode first', () => {
+    const djKey = vi.fn((k: string) => k === 'D');
+    const lyricsKey = vi.fn(() => true);
+    const w = window as unknown as { SoulSyncDj?: unknown; SoulSyncLyrics?: unknown };
+    w.SoulSyncDj = { key: djKey };
+    w.SoulSyncLyrics = { key: lyricsKey };
+    try {
+      const { handle } = handler();
+      const d = key('d');
+      handle(d);
+      expect(djKey).toHaveBeenCalledWith('D');
+      expect(d.defaultPrevented).toBe(true);
+      // B: no Browse yet (step 3), so the key stays the page's
+      const b = key('b');
+      handle(b);
+      expect(djKey).toHaveBeenCalledWith('B');
+      expect(b.defaultPrevented).toBe(false);
+      // T: DJ mode off, so the lyrics take it
+      handle(key('t'));
+      expect(djKey).toHaveBeenCalledWith('T');
+      expect(lyricsKey).toHaveBeenCalledWith('T');
+      // DJ mode on: T says the lyrics come back later, and the layer isn't asked
+      djKey.mockImplementation(() => true);
+      lyricsKey.mockClear();
+      handle(key('t'));
+      expect(lyricsKey).not.toHaveBeenCalled();
+      // ⇧D isn't bound; nothing else hears D
+      djKey.mockClear();
+      handle(key('D', { shiftKey: true }));
+      expect(djKey).not.toHaveBeenCalled();
+      expect(mixKey).not.toHaveBeenCalled();
+      expect(mute).not.toHaveBeenCalled();
+      // a page that claims d (the Import inbox) keeps it
+      document.documentElement.dataset.letterKeys = 'jkadx';
+      handle(key('d'));
+      expect(djKey).not.toHaveBeenCalled();
+    } finally {
+      delete document.documentElement.dataset.letterKeys;
+      delete w.SoulSyncDj;
+      delete w.SoulSyncLyrics;
+    }
+    // without DJ mode loaded D does nothing
+    const ev = key('d');
+    handler().handle(ev);
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   it('t: lyrics over the visuals, and left to the page when the layer doesn’t act (27a)', () => {

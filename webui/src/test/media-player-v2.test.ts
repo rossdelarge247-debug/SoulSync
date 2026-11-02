@@ -2096,6 +2096,36 @@ describe('the Visuals keys (HANDOFF 60)', () => {
     expect(calls).toEqual(['close panel', 'close visuals']);
   });
 
+  it('Esc is DJ mode’s Back while it’s on (413), after the panel and before closing the visuals', () => {
+    let on = true;
+    const w = window as unknown as { SoulSyncDj?: unknown };
+    const { calls, press } = keys(true, false, { bridge: true, panel: true });
+    w.SoulSyncDj = {
+      escape: () => {
+        if (!on) return false;
+        on = false;
+        calls.push('dj back');
+        return true;
+      },
+    };
+    try {
+      press('Escape');
+      press('Escape');
+      press('Escape');
+      expect(calls).toEqual(['close panel', 'dj back', 'close visuals']);
+    } finally {
+      delete w.SoulSyncDj;
+    }
+  });
+
+  it('the shortcuts list has DJ mode’s D (37l)', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toContain(
+      '<dt>DJ mode · a library track, on a laptop or desktop</dt><dd><kbd>D</kbd></dd>',
+    );
+    expect(html).toMatch(/id="np-v2-visuals-dj-btn"[^>]*aria-keyshortcuts="D"[^>]*hidden/);
+  });
+
   it('F with nothing playing leaves the visuals closed', () => {
     const { calls, press } = keys(false, true, { track: false });
     press('f');

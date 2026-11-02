@@ -501,7 +501,8 @@ export function whyWords(e: AnalysisLineEntry): string {
     case 'lab':
       return you || !first ? 'the lab' : `${first}'s lab`;
     case 'dj_now':
-      return you || !first ? 'DJ now' : `${first}'s DJ now`;
+      // the source keeps its old name; it's DJ mode's lanes that ask now (Brief F)
+      return you || !first ? 'DJ mode' : `${first}'s DJ mode`;
     case 'page':
       return you ? 'you opened it' : first ? `${first} opened it` : 'opened';
   }

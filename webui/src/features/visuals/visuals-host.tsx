@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 
 import { Button, LabelledSwitch, Select } from '@/components/form';
+import { DjStage } from '@/features/dj-mode/dj-stage';
 
 import type { VisualsSnapshot } from './visuals-controller';
 import type { OverlayKey } from './visuals.logic';
@@ -77,6 +78,15 @@ function HeaderBridge() {
   return null;
 }
 
+/** DJ mode's lanes (Brief F, 37b): in their own box before the transport, so focus goes Back → DJ mode → A → B → the transport (37p). */
+function DjStagePortal() {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setTarget(document.getElementById('ss-dj-stage-root'));
+  }, []);
+  return target ? createPortal(<DjStage />, target) : null;
+}
+
 function OverlayPieces() {
   const s = useVisuals();
   const [art, setArt] = useState<string | null>(null);
@@ -94,6 +104,7 @@ function OverlayPieces() {
       </div>
       <DataPill />
       <VisualsPanel />
+      <DjStagePortal />
     </>
   );
 }
@@ -266,6 +277,12 @@ export function mountVisualsHost(win: Window = window): VisualsController | null
   const host = doc.createElement('div');
   host.id = 'ss-visuals-root';
   modal.appendChild(host);
+  // DJ mode's lanes sit before the transport in the page's order (37p)
+  const djRoot = doc.createElement('div');
+  djRoot.id = 'ss-dj-stage-root';
+  const transport = modal.querySelector('.ss-player-visuals-transport');
+  if (transport) transport.before(djRoot);
+  else modal.appendChild(djRoot);
 
   const controller = new VisualsController({ win });
   controller.attach({ overlay, gl, canvas2d: c2 });

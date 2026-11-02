@@ -3118,7 +3118,11 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             npSetVolume(npVolumePercent - 5);
             break;
-        // 24a: M, N, A, X and T through NP_LETTER_KEYS (below the handler)
+        // 24a: M, N, A, X and T through NP_LETTER_KEYS (below the handler); D and B are DJ mode's (37p)
+        case 'd':
+        case 'D':
+        case 'b':
+        case 'B':
         case 'm':
         case 'M':
         case 'n':
@@ -3172,7 +3176,11 @@ function handlePlayerKeyboardShortcuts(event) {
 // skips, and the ? list hides their rows. T is
 // lyrics over the visuals (24a, 27a; src/features/lyrics): it acts while the
 // Visuals are open or the phone's sheet shows the record, for music only (not
-// radio or spoken audio), else the key is the page's.
+// radio or spoken audio), else the key is the page's. D is DJ mode (Brief F,
+// 37p; src/features/dj-mode): on or off in the Visuals, and from the tray it
+// opens them in DJ mode; only for a library track on a laptop or desktop, else
+// the key is the page's. B is Browse while DJ mode is on (once step 3 adds it),
+// and while DJ mode is on T says the lyrics come back when it's off.
 const NP_LETTER_KEYS = {
     'M': ['mix:M', 'mute'],
     '⇧M': ['mute'],
@@ -3180,13 +3188,18 @@ const NP_LETTER_KEYS = {
     '⇧N': ['next'],
     'A': ['mix:A'],
     'X': ['automix:X'],
-    'T': ['lyrics:T'],
+    'T': ['dj:T', 'lyrics:T'],
+    'D': ['dj:D'],
+    'B': ['dj:B'],
 };
 
 // true when the action acted (the key is then the page's no more)
 function npLetterKeyAction(action) {
     if (action.startsWith('mix:')) {
         return Boolean(window.SoulSyncMix && window.SoulSyncMix.key(action.slice(4)));
+    }
+    if (action.startsWith('dj:')) {
+        return Boolean(window.SoulSyncDj && window.SoulSyncDj.key(action.slice(3)));
     }
     if (action.startsWith('lyrics:')) {
         return Boolean(window.SoulSyncLyrics && window.SoulSyncLyrics.key(action.slice(7)));
