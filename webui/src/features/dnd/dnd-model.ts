@@ -385,16 +385,24 @@ export function numbersWords(numbers: number[]): string {
   return sorted.map((n) => `#${n}`).join(', ');
 }
 
-/** The ghost (32a): "Static Bloom · 9A 124"; several: "Static Bloom, Undertow" with a count. */
-export function ghostWords(items: DragItem[]): { title: string; meta: string; count: number } {
+/**
+ * The ghost (32a): "Static Bloom · 9A 124"; several: "Static Bloom, Undertow"
+ * with a count. Key and BPM are Tracks' and DJ mode's data (38g), so the
+ * ghost carries them only when `keyBpm` says so (a drag from Tracks); any
+ * other drag's ghost is title · artist.
+ */
+export function ghostWords(
+  items: DragItem[],
+  { keyBpm = true }: { keyBpm?: boolean } = {},
+): { title: string; meta: string; count: number } {
   const first = items[0];
   if (!first) return { title: '', meta: '', count: 0 };
+  const metaOf = (t: DragItem) =>
+    keyBpm ? [t.key, t.bpm ? Math.round(t.bpm) : null].filter(Boolean).join(' ') : (t.artist ?? '');
   if (items.length > 1) {
-    const meta = items
-      .slice(0, 2)
-      .map((t) => [t.key, t.bpm ? Math.round(t.bpm) : null].filter(Boolean).join(' '))
-      .filter(Boolean)
-      .join(' · ');
+    const meta = keyBpm
+      ? items.slice(0, 2).map(metaOf).filter(Boolean).join(' · ')
+      : [...new Set(items.slice(0, 2).map(metaOf).filter(Boolean))].join(', ');
     return {
       title:
         items
@@ -405,11 +413,7 @@ export function ghostWords(items: DragItem[]): { title: string; meta: string; co
       count: items.length,
     };
   }
-  return {
-    title: first.title || 'Untitled',
-    meta: [first.key, first.bpm ? Math.round(first.bpm) : null].filter(Boolean).join(' '),
-    count: 1,
-  };
+  return { title: first.title || 'Untitled', meta: metaOf(first), count: 1 };
 }
 
 /** What a drop says in its toast (32b state 8). */

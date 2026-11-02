@@ -229,10 +229,13 @@ function TrayTarget({ view, first }: { view: TrayTargetView; first: boolean }) {
 }
 
 function DragTray() {
+  // 38g: "Play next · Add to Up next", not "Send to…", once Up next is the
+  // only place a drag can go (the mixing features hidden)
+  const sets = useMixingShown();
   return (
     <div className={styles.tray} data-dnd-drag-tray="">
       <p className={styles.trayHead}>
-        <span>Send to…</span>
+        <span>{sets ? 'Send to…' : 'Play next'}</span>
       </p>
       <ul className={styles.trayGrid}>
         {trayTargets().map((t, i) => (
@@ -424,7 +427,8 @@ export function DndHost() {
   const pointer = drag && drag.via !== 'keyboard';
   const ghostNo = st.over && !st.over.verdict.ok;
   const first = drag?.items[0];
-  const ghost = drag ? ghostWords(drag.items) : null;
+  // 38g: key · BPM only on a drag from Tracks (DJ mode's lane will join it)
+  const ghost = drag ? ghostWords(drag.items, { keyBpm: drag.source.kind === 'tracks' }) : null;
   return createPortal(
     <>
       {pointer && ghost ? (
