@@ -130,7 +130,7 @@ def test_track_rows_lookup(client):
     one = body["tracks"]["1"]
     assert one == {"bpm": 124.0, "bpm_source": "analysis", "bpm_tag": None, "key": "8A", "key_name": "Am", "key_long": "A minor",
                    "key_source": "analysis", "key_confidence": 0.8, "key_uncertain": False, "energy": 7,
-                   "analyzed": True, "skipped": None, "bpm_unsure": False, "bpm_choices": []}
+                   "analyzed": True, "skipped": None, "left_out": None, "bpm_unsure": False, "bpm_choices": []}
     # not analysed yet: the BPM enrichment found
     assert body["tracks"]["9"]["bpm"] == 128.0 and body["tracks"]["9"]["bpm_source"] == "enrichment"
     assert body["tracks"]["9"]["key"] is None
@@ -201,8 +201,15 @@ def test_activity_shows_the_sweep_with_stop_then_what_it_did(db, monkeypatch):
                                                         "tags_written": 0, "unreachable": 0})
     out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), live_batches={}, running_automations={})
     [item] = [i for i in out["items"] if i["id"] == f"library-job:{run_id}"]
-    assert item["status"] == "running" and item["title"] == "Working out BPM, key and energy"
-    assert item["detail"] == "4,980 tracks · 1,240 done · waiting while a download runs"
+    # Design's 38g: the job says what it's for now nothing says "ready to mix"
+    assert item["status"] == "running" and item["title"] == "Analysing your library"
+    assert item["detail"] == "1,240 of 4,980 · for Export to Traktor · waiting while a download runs"
+    # with the mixing features shown it isn't only for Traktor (review L5)
+    monkeypatch.setattr(worker, "show_mix_tab", lambda: True)
+    out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), live_batches={}, running_automations={})
+    [item] = [i for i in out["items"] if i["id"] == f"library-job:{run_id}"]
+    assert item["detail"] == "1,240 of 4,980 · waiting while a download runs"
+    monkeypatch.setattr(worker, "show_mix_tab", lambda: False)
     assert item["ref"]["stop_path"] == "library/dj/stop" and item["link"] == "/library?view=tracks"
     assert item["kind"] == "library"  # under Activity's Library jobs filter
     assert out["running_count"] >= 1
@@ -213,7 +220,7 @@ def test_activity_shows_the_sweep_with_stop_then_what_it_did(db, monkeypatch):
     out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), kind="library", live_batches={},
                           running_automations={})
     [item] = [i for i in out["items"] if i["id"] == f"library-job:{run_id}"]
-    assert item["title"] == "Worked out BPM, key and energy" and item["status"] == "warning"
+    assert item["title"] == "Analysed your library" and item["status"] == "warning"
     assert item["detail"] == ("4,980 tracks · 3 tracks couldn't be analysed · 7 files weren't there · "
                               "BPM and key written into 1,200 files")
     assert "stop_path" not in item["ref"]
@@ -236,7 +243,7 @@ def test_activity_says_a_restart_stopped_it(db, monkeypatch):
     conn.close()
     monkeypatch.setattr(feed, "_live_dj_job", lambda: None)
     out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), live_batches={}, running_automations={})
-    [item] = [i for i in out["items"] if i["title"].startswith("Stopped working out")]
+    [item] = [i for i in out["items"] if i["title"] == "Stopped analysing your library"]
     assert item["detail"] == "Stopped after 20 of 50 tracks when SYNCHRO.S restarted"
 
 

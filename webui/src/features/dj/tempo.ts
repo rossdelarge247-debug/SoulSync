@@ -10,6 +10,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
+import { mixTabShown } from '@/features/mix/mix-visibility';
+
 import {
   DJ_QUERY_KEY,
   postDjBpm,
@@ -75,7 +77,7 @@ export function tempoWords(
     if (changed.length === 1) {
       const [id, bpm] = changed[0]!;
       words = ready[id]
-        ? `${bpmNumber(bpm ?? 0)} BPM it is: ready to mix`
+        ? `${bpmNumber(bpm ?? 0)} BPM it is${mixTabShown() ? ': ready to mix' : ''}`
         : `Kept ${bpmNumber(bpm ?? 0)} BPM · the beats still don’t line up well enough to mix`;
     } else {
       words = `Kept the BPM of ${tracks(changed.length)}`;

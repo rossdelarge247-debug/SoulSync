@@ -278,7 +278,7 @@ def _move_up(database, track_id: str):
         return response
     if not worker.settings_state().get("analyze", True):
         return jsonify({"success": False, "code": "off",
-                        "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+                        "error": "Working out BPM and key is off in Settings → Library."}), 409
     try:
         result = ondemand.ask(database, [track_id], pid, explicit=True, source="asked")
     except Exception as exc:  # noqa: BLE001
@@ -715,7 +715,7 @@ def dj_analyse():
         return _no_store({"success": True, **gone}, 200)
     if not worker.settings_state().get("analyze", True):
         return jsonify({"success": False, "code": "off",
-                        "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+                        "error": "Working out BPM and key is off in Settings → Library."}), 409
     if mine:
         # Analyse mine: the caller's own tracks in line go first
         moved = ondemand.promote(int(pid))
@@ -739,7 +739,7 @@ def dj_analyse():
                               retry=retry, soon=soon, again=again)
     except worker.Held:
         return jsonify({"success": False, "code": "held",
-                        "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409
+                        "error": "Working out BPM and key is stopped; ask for these to go on."}), 409
     except Exception as exc:  # noqa: BLE001
         logger.error("Analyse on demand failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500

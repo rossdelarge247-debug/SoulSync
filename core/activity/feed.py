@@ -976,13 +976,28 @@ def _job_visible(ctx: _Ctx, profile_id) -> bool:
         return ctx.viewer.is_admin
 
 
-# the library's DJ analysis (core/dj/worker.py), a library job of its own
+# the library's DJ analysis (core/dj/worker.py), a library job of its own;
+# its words name why it runs now nothing says "ready to mix" (Design's 38g):
+# "Analysing your library · 1,240 of 4,980 · for Export to Traktor"
 _DJ_TITLES = {
-    "running": "Working out BPM, key and energy",
-    "done": "Worked out BPM, key and energy",
-    "stopped": "Stopped working out BPM, key and energy",
-    "failed": "Couldn't work out BPM, key and energy",
+    "running": "Analysing your library",
+    "done": "Analysed your library",
+    "stopped": "Stopped analysing your library",
+    "failed": "Couldn't analyse your library",
 }
+_DJ_WHY = "for Export to Traktor"
+
+
+def _dj_why() -> str:
+    """ "for Export to Traktor" while the mixing features are hidden (the
+    default): with them shown the analysis is for mixing too, so the row
+    doesn't say it's only for Traktor (Brief F review, L5)."""
+    try:
+        from core.dj.worker import show_mix_tab
+
+        return "" if show_mix_tab() else _DJ_WHY
+    except Exception:  # noqa: BLE001 - no DJ module: the default words
+        return _DJ_WHY
 _DJ_LINK = "/library?view=tracks"
 _DJ_STOP = "library/dj/stop"
 _DJ_WAITING = {
@@ -1043,7 +1058,7 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
               f"BPM and key written into {_many(tagged, 'file')}" if tagged else "",
               grid_words)
     if live is not None:
-        detail = _sentence(_many(total, "track"), f"{done:,} done", _DJ_WAITING.get(live.get("waiting") or "", ""))
+        detail = _sentence(f"{done:,} of {total:,}", _dj_why(), _DJ_WAITING.get(live.get("waiting") or "", ""))
         # Stop is an admin's (POST /api/library/dj/stop is admin-only): a
         # member's own run shows no Stop that would only be refused
         if getattr(getattr(ctx, "viewer", None), "is_admin", False):

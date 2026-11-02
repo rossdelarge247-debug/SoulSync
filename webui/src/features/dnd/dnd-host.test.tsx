@@ -12,6 +12,8 @@ import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
+import type { SourceKind } from './dnd-model';
+
 import { getTarget, pointerDown, resetDndForTests } from './dnd-engine';
 import { DndHost } from './dnd-host';
 
@@ -62,14 +64,23 @@ function mount() {
   );
 }
 
-function lift() {
+function lift(kind: SourceKind = 'tracks') {
   act(() => {
     pointerDown(
       { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 5, clientY: 5 },
       document.getElementById('grip')!,
       () => ({
-        items: [{ id: '1', title: 'Static Bloom', queue: { id: '1' } }],
-        source: { kind: 'tracks', listId: 'tracks', indexes: [0] },
+        items: [
+          {
+            id: '1',
+            title: 'Static Bloom',
+            artist: 'Ferrous',
+            key: '9A',
+            bpm: 123,
+            queue: { id: '1' },
+          },
+        ],
+        source: { kind, listId: kind, indexes: [0] },
         rows: [document.getElementById('row')!],
       }),
     );
@@ -100,5 +111,37 @@ describe('the sidebar’s Your sets during a drag (32a)', () => {
     expect(document.querySelector('[data-dnd-side-sets]')).toBeNull();
     expect(getTarget('side-set:7')).toBeUndefined();
     expect(paths.filter((p) => p.startsWith('/api/sets'))).toEqual([]);
+  });
+});
+
+describe('the ghost (32a, 38g)', () => {
+  it('from Tracks: title · key BPM', () => {
+    mount();
+    lift('tracks');
+    const ghost = document.querySelector('[data-dnd-ghost]')!;
+    expect(ghost.textContent).toContain('Static Bloom');
+    expect(ghost.textContent).toContain('9A 123');
+  });
+
+  it('[review M2] from a set or the Mix tab (the mixing features): title · key BPM too', () => {
+    for (const kind of ['set', 'mix'] as const) {
+      mount();
+      lift(kind);
+      const ghost = document.querySelector('[data-dnd-ghost]')!;
+      expect(ghost.textContent).toBe('Static Bloom9A 123');
+      cleanup();
+      resetDndForTests();
+    }
+  });
+
+  it('from anywhere else (Search, an album, Up next): title · artist, no key or BPM', () => {
+    for (const kind of ['search', 'album', 'upnext'] as const) {
+      mount();
+      lift(kind);
+      const ghost = document.querySelector('[data-dnd-ghost]')!;
+      expect(ghost.textContent).toBe('Static BloomFerrous');
+      cleanup();
+      resetDndForTests();
+    }
   });
 });

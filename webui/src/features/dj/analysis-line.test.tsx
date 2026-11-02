@@ -84,6 +84,8 @@ let stopped = 0;
 let progressBodies: Record<string, unknown>[] = [];
 
 beforeEach(() => {
+  // Brief A as drawn, with the mixing features shown ("ready to mix")
+  resetMixTabForTests(true);
   resetAnalysisRequests();
   analysisStore.reset();
   resetAnalysisAnnouncements();
@@ -144,6 +146,7 @@ afterEach(() => {
   cleanup();
   analysisStore.reset();
   vi.useRealTimers();
+  resetMixTabForTests();
 });
 
 function view(node: ReactNode, admin = true) {

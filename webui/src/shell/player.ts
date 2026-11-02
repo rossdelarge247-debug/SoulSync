@@ -228,6 +228,9 @@ export interface PlayerChrome {
 
 export const PHONE_QUERY = '(max-width: 768px)';
 
+/** Up next's empty words (38g); index.html's #np-queue-empty starts with them. */
+export const UP_NEXT_EMPTY = 'Nothing next. Add from Tracks, an album or Search.';
+
 const FOCUSABLE =
   'button:not([disabled]):not([hidden]), a[href]:not([hidden]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -1423,10 +1426,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       const list = root!.querySelector<HTMLElement>('#np-queue-list');
       if (!list?.classList.contains('show-all')) {
         empty.classList.remove('hidden');
-        setText(
-          empty,
-          'Nothing after this track. Play an album or a playlist, or choose Add to Up next on any track.',
-        );
+        // 38g: Up next's empty words, the same with a track playing
+        setText(empty, UP_NEXT_EMPTY);
       }
     } else if (empty && st.queue.length) {
       empty.classList.add('hidden');

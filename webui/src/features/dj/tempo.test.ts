@@ -140,6 +140,11 @@ describe('the "…" menu', () => {
     expect(tempoWords('confirm', { changed: { '1': 128 }, skipped: {} }).words).not.toContain(
       'ready to mix',
     );
+    // 38g: with the mixing features hidden, nothing says "ready to mix"
+    resetMixTabForTests(false);
+    expect(
+      tempoWords('confirm', { changed: { '1': 174 }, skipped: {}, ready: { '1': true } }).words,
+    ).toBe('174 BPM it is');
   });
 
   it('offers both octaves, none first, when the grid would be ready at either', () => {

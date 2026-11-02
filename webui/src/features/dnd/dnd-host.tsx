@@ -37,12 +37,15 @@ import {
   useDropTarget,
   type Drag,
 } from './dnd-engine';
-import { REASONS, ghostWords, textOf } from './dnd-model';
+import { REASONS, ghostWords, textOf, type SourceKind } from './dnd-model';
 import styles from './dnd.module.css';
 import { moveRefusal, player, sendToUpNext, sendToWorkingSet, setSendToContext } from './send-to';
 import { SendToTray, sendToAnotherSet, trayTargets, type TrayTargetView } from './send-to-ui';
 import { setHoldings, setTarget } from './set-targets';
 import { bindUpNext, mixing } from './up-next-dnd';
+
+/** Where a drag's ghost keeps the key and BPM (38g; review M2). */
+const KEY_BPM_SOURCES: ReadonlySet<SourceKind> = new Set(['tracks', 'set', 'mix']);
 
 declare global {
   interface Window {
@@ -229,10 +232,13 @@ function TrayTarget({ view, first }: { view: TrayTargetView; first: boolean }) {
 }
 
 function DragTray() {
+  // 38g: "Play next · Add to Up next", not "Send to…", once Up next is the
+  // only place a drag can go (the mixing features hidden)
+  const sets = useMixingShown();
   return (
     <div className={styles.tray} data-dnd-drag-tray="">
       <p className={styles.trayHead}>
-        <span>Send to…</span>
+        <span>{sets ? 'Send to…' : 'Play next'}</span>
       </p>
       <ul className={styles.trayGrid}>
         {trayTargets().map((t, i) => (
@@ -424,7 +430,12 @@ export function DndHost() {
   const pointer = drag && drag.via !== 'keyboard';
   const ghostNo = st.over && !st.over.verdict.ok;
   const first = drag?.items[0];
-  const ghost = drag ? ghostWords(drag.items) : null;
+  // 38g: key · BPM only on a drag from Tracks (DJ mode's lane will join
+  // it), and from the Mix tab and a set, which show only with the mixing
+  // features and are about key and tempo (review M2)
+  const ghost = drag
+    ? ghostWords(drag.items, { keyBpm: KEY_BPM_SOURCES.has(drag.source.kind) })
+    : null;
   return createPortal(
     <>
       {pointer && ghost ? (

@@ -8346,7 +8346,7 @@
                                         role="button" tabindex="0" aria-expanded="false" aria-controls="settings-dj-section">
                                         <span class="settings-section-arrow">&#9660;</span>
                                         <h3>DJ</h3>
-                                        <span class="settings-section-hint">BPM, key and energy, the mixing features</span>
+                                        <span class="settings-section-hint">BPM and key, for Export to Traktor</span>
                                     </div>
                                     <div class="settings-section-body collapsed" data-stg="library" id="settings-dj-section">
                                         <!-- Settings → Library → DJ: Between tracks, Off / Auto mix (33e;
@@ -8356,19 +8356,25 @@
                                             <div id="ss-between-tracks-library"></div>
                                         </div>
                                         <div class="settings-group" data-stg="library" id="dj-settings-group">
-                                            <h3>BPM, key and energy</h3>
+                                            <h3>BPM and key</h3>
                                             <label class="toggle-row">
                                                 <input type="checkbox" id="dj-analysis">
-                                                <span>Work out BPM, key and energy</span>
+                                                <span>Work out BPM and key</span>
                                             </label>
                                             <div class="help-text" style="margin-top: 6px;">
                                                 SYNCHRO.S listens to every track in your library, one at a
-                                                time in the background, and works out its tempo, its key
-                                                (shown in Camelot notation, like 8A) and an energy level
-                                                from 1 to 10. It goes gently: it pauses while a download or
+                                                time in the background, and works out its tempo and its key
+                                                (shown in Camelot notation, like 8A), for Export to
+                                                Traktor. It goes gently: it pauses while a download or
                                                 an import is running, and Activity shows how far it has got,
                                                 with Stop. A BPM or key already in a file's tags, or from
                                                 your metadata source, is kept.
+                                            </div>
+                                            <!-- with the mixing features shown, the Mix tab still uses
+                                                 energy (Brief F review, L5) -->
+                                            <div class="help-text" style="margin-top: 6px;" data-mix-only data-dj-energy-note>
+                                                With the mixing features shown it also works out an energy
+                                                level from 1 to 10, which the Mix tab and sets use.
                                             </div>
                                             <label class="toggle-row" style="margin-top: 10px;">
                                                 <input type="checkbox" id="dj-write-tags">
@@ -12770,7 +12776,7 @@
                     <!-- Up next's head (33e, 320): Between tracks, and with it Off said
                          once; src/features/automix/automix-host.tsx fills it -->
                     <div class="ss-player-upnext-head" data-automix-slot="upnext-head" data-mix-only></div>
-                    <div class="ss-player-empty np-queue-empty" id="np-queue-empty">Nothing up next. Play an album or a playlist, or choose Add to Up next on any track.</div>
+                    <div class="ss-player-empty np-queue-empty" id="np-queue-empty">Nothing next. Add from Tracks, an album or Search.</div>
                     <div class="ss-player-rows np-queue-list" id="np-queue-list"></div>
                     <p class="ss-player-list-foot" data-player-queue-foot></p>
                 </div>

@@ -209,8 +209,9 @@ def _same_bpm(a, b) -> bool:
 def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Dict[str, Any]]:
     """One track's DJ data for the page: ``{bpm, bpm_source, bpm_tag, key,
     key_name, key_long, key_source, key_confidence, key_uncertain, energy,
-    analyzed, skipped, bpm_unsure, bpm_choices}``. A track analysis hasn't reached yet still shows the BPM
-    enrichment found.
+    analyzed, skipped, left_out, bpm_unsure, bpm_choices}``. A track analysis hasn't reached yet still shows the BPM
+    enrichment found. ``left_out`` is ``failed`` (the analysis couldn't read it)
+    or ``unreachable`` (its file wasn't there), so Tracks' dash can say why.
 
     The BPM is the person's ×2 / ÷2 (``override``), else the grid's measured
     one (``grid``, when the row carries ``grid_bpm``: a done grid at this
@@ -232,7 +233,8 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
         bpm, source = round(override, 2), "override"
     key = parse_key(row.get("musical_key")) if row.get("musical_key") else None
     skipped = row.get("error") if row.get("status") == "skipped" else None
-    if bpm is None and key is None and row.get("energy") is None and not skipped:
+    left_out = {"error": "failed", "unreachable": "unreachable"}.get(row.get("status") or "")
+    if bpm is None and key is None and row.get("energy") is None and not skipped and not left_out:
         return None
     conf = row.get("key_confidence")
     choices = _octave_choices(row)
@@ -249,6 +251,7 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
         "energy": row.get("energy"),
         "analyzed": row.get("status") == "done",
         "skipped": skipped,
+        "left_out": left_out,
         # held for beat-matching only until a person says which octave:
         # "BPM is right" when the BPM shown is the one octave it would be
         # ready at; the choices when more than one is (grid v5's fourth

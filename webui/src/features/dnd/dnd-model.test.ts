@@ -206,6 +206,21 @@ describe('the words', () => {
       count: 2,
     });
   });
+  it('38g: off Tracks the ghost is title · artist, never key and BPM', () => {
+    const a = t('Static Bloom', '9A', 124, { artist: 'Ferrous' });
+    const b = t('Undertow', '7A', 122, { artist: 'Marram' });
+    expect(ghostWords([a], { keyBpm: false })).toEqual({
+      title: 'Static Bloom',
+      meta: 'Ferrous',
+      count: 1,
+    });
+    expect(ghostWords([a, b], { keyBpm: false }).meta).toBe('Ferrous, Marram');
+    expect(ghostWords([a, t('x', null, null, { artist: 'Ferrous' })], { keyBpm: false }).meta).toBe(
+      'Ferrous',
+    );
+    // from Tracks (the default) it keeps them
+    expect(ghostWords([a]).meta).toBe('9A 124');
+  });
   it('the toast (32b state 8, 32f)', () => {
     expect(
       dropWords({ mode: 'copy', items: [t('a'), t('b')], where: 'Sunday Set', numbers: [7, 8] }),

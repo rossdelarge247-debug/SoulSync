@@ -1,6 +1,47 @@
+import { useId } from 'react';
+
 import { Button } from '@/components/form';
 
 import styles from './library.module.css';
+
+/** A button beside the primary (hidden on a phone, where the "…" holds it). */
+export interface BarAction {
+  label: string;
+  onClick: () => void;
+  /** disabled with its own reason, though the bar has a selection */
+  disabled?: boolean;
+  /** what it does or why it's disabled ("12 tracks · ones already done are
+   *  skipped", "Music HD isn't connected"): its title and accessible description */
+  description?: string;
+}
+
+/** One secondary: its description is the title and, for a screen reader, its aria-describedby. */
+function BarButton({ action, count }: { action: BarAction; count: number }) {
+  const id = useId();
+  return (
+    <>
+      <Button
+        size="lg"
+        variant="secondary"
+        className={styles.barSecondary}
+        disabled={count === 0 || Boolean(action.disabled)}
+        // UX-23: one reason line for the bar, the primary's; this one
+        // stays focusable and points at it
+        focusableWhenDisabled
+        title={action.description}
+        aria-describedby={action.description ? id : undefined}
+        onClick={action.onClick}
+      >
+        {action.label}
+      </Button>
+      {action.description ? (
+        <span id={id} hidden>
+          {action.description}
+        </span>
+      ) : null}
+    </>
+  );
+}
 import { MoreMenu, type MenuEntry } from './parts';
 
 /**
@@ -41,8 +82,8 @@ export function SelectionBar({
   barLabel: string;
   /** 21a draws Tracks' "Export to Traktor…" as a secondary */
   primaryVariant?: 'primary' | 'secondary';
-  /** 28b: Tracks' "Export to Traktor…" beside the primary */
-  secondary?: { label: string; onClick: () => void } | null;
+  /** 28b: Tracks' "Export to Traktor…" beside the primary; 38b: several, in order */
+  secondary?: BarAction | BarAction[] | null;
 }) {
   return (
     <div className={styles.barDock} data-selection-bar="">
@@ -78,20 +119,9 @@ export function SelectionBar({
               </>
             )}
           </Button>
-          {secondary ? (
-            <Button
-              size="lg"
-              variant="secondary"
-              className={styles.barSecondary}
-              disabled={count === 0}
-              // UX-23: one reason line for the bar, the primary's; this one
-              // stays focusable and points at it
-              focusableWhenDisabled
-              onClick={secondary.onClick}
-            >
-              {secondary.label}
-            </Button>
-          ) : null}
+          {(Array.isArray(secondary) ? secondary : secondary ? [secondary] : []).map((action) => (
+            <BarButton key={action.label} action={action} count={count} />
+          ))}
           <MoreMenu label="More actions for the selection" entries={menu} vertical={false} />
           <Button size="lg" variant="ghost" className={styles.barDone} onClick={onDone}>
             Done

@@ -43,6 +43,15 @@ async function run(go: () => Promise<DropResult | null>): Promise<void> {
   }
 }
 
+/**
+ * Play next or Add to Up next for these tracks (38b's selection bar, and
+ * Space on Tracks with the mixing features hidden): straight after the
+ * playing track, or at the end, with the drop's toast and Undo.
+ */
+export function putInUpNext(items: DragItem[], where: 'next' | 'end'): Promise<void> {
+  return run(() => sendToUpNext(items, where));
+}
+
 /** Another set… (the Add to set… picker, for these tracks). */
 export function sendToAnotherSet(items: DragItem[], anchor?: HTMLElement | null): void {
   openAddToMixSet(

@@ -406,3 +406,19 @@ def test_no_write_into_a_copy_outside_the_library(db, tmp_path):
     _track(db, 10, path)
     assert worker.process_track(db, "10", resolve=lambda p: p, analyze=lambda p: _analysis(), write_tags=True,
                                 notify=lambda n: None, library_roots=lambda: [str(lib)]) == "tagged"
+
+
+def test_public_says_why_a_track_was_left_out():
+    """Tracks' dash says why (Brief F review, L1): a track the analysis
+    couldn't read, or whose file wasn't there, is shaped with ``left_out``
+    rather than looking like one it hasn't reached yet."""
+    failed = store.public({"status": "error", "error": "decode failed"})
+    assert failed is not None and failed["left_out"] == "failed" and failed["bpm"] is None
+    assert failed["analyzed"] is False and failed["skipped"] is None
+    away = store.public({"status": "unreachable"})
+    assert away is not None and away["left_out"] == "unreachable"
+    # not reached yet: nothing to show, as before
+    assert store.public({"status": "pending"}) is None
+    assert store.public(None) is None
+    done = store.public({"status": "done", "bpm": 124.0, "bpm_source": "analysis"})
+    assert done["left_out"] is None
