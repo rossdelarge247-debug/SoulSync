@@ -895,6 +895,19 @@
   gap: 12px;
 }
 
+/* 38b: Tracks' five actions don't fit beside the count at every width; the
+   bar then takes a second row, the actions on it, right-aligned */
+.bar:has(.barSecondary + .barSecondary) {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.bar:has(.barSecondary + .barSecondary) .barActions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
 .barActions [data-slot='disabled-reason'] {
   order: -1;
   color: var(--ss-text-meta);

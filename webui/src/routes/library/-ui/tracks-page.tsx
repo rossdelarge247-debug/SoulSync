@@ -50,7 +50,7 @@ import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { Grip } from '@/features/dnd/grip';
 import { djItem, onGripDown, onRowTouch } from '@/features/dnd/items';
 import { useRowGrid } from '@/features/dnd/row-grid';
-import { openSendToTray } from '@/features/dnd/send-to-ui';
+import { openSendToTray, putInUpNext } from '@/features/dnd/send-to-ui';
 import { awayWords } from '@/features/drives/drives.format';
 import { useMixingShown } from '@/features/mix/mix-visibility';
 import { useWorkingSet } from '@/features/mix/mix.api';
@@ -102,6 +102,34 @@ function usePhone(): boolean {
 /** "too long to analyse" -> "Too long to analyse", for the BPM's title. */
 function sentenceCase(words: string): string {
   return words ? words[0].toUpperCase() + words.slice(1) : words;
+}
+
+/**
+ * Why a BPM or key cell is a dash (38b): the analysis left the track out
+ * ("Too long to analyse"), it hasn't got to it yet, or it found none. The
+ * words are the dash's title and what a screen reader hears; "No BPM" is
+ * never written in the row itself.
+ */
+export function dashReason(dj: DjTrack['dj'], part: 'bpm' | 'key'): string {
+  if (dj?.skipped) return sentenceCase(dj.skipped);
+  if (!dj?.analyzed) return 'Not analysed yet';
+  return part === 'bpm' ? 'No steady beat found' : 'No key found';
+}
+
+/** "5:12" (38b's Length column), or "–" when the length isn't known. */
+export function lengthWords(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return '–';
+  const total = Math.round(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** A quiet "–" with its reason as the title and the accessible name (38b). */
+function Dash({ reason, suffix = '' }: { reason: string; suffix?: string }) {
+  return (
+    <span className={styles.none} role="img" title={reason} aria-label={reason}>
+      –{suffix}
+    </span>
+  );
 }
 
 function artistHref(track: DjTrack): string | null {
@@ -212,8 +240,6 @@ function TrackRow({
   // (Mixes well with…, Add to set…, Send to…)
   const sets = useMixingShown();
   const dj = track.dj;
-  // why the analysis left it out ("Too long to analyse"): the BPM dash's title
-  const skipped = dj?.skipped ? sentenceCase(dj.skipped) : null;
   const artist = artistHref(track);
   const album =
     artist && track.album_id !== null && track.album_id !== ''
@@ -309,21 +335,10 @@ function TrackRow({
           ) : null}
         </span>
         {phone ? (
-          // 17c: "124 BPM · 8A · Tidewater", the key's text in its hue
+          // 38c: "Tidewater · 8A · 124", one meta line, the key's text in its
+          // hue; a track without them: "Ola · – · – BPM", each dash with why
           <span className={hs.meta}>
             {[
-              dj?.bpm ? (
-                <span key="bpm" className={styles.tabular}>
-                  {bpmNumber(dj.bpm)} BPM
-                </span>
-              ) : skipped ? (
-                // a track the analysis left out: a quiet dash where the BPM
-                // goes, the reason in its title and for a screen reader
-                <span key="bpm" className={styles.none} title={skipped}>
-                  – BPM<span className={styles.srOnly}> ({skipped})</span>
-                </span>
-              ) : null,
-              key,
               artist ? (
                 <a key="artist" href={artist}>
                   {track.artist_name}
@@ -331,14 +346,20 @@ function TrackRow({
               ) : (
                 track.artist_name || 'Unknown artist'
               ),
-            ]
-              .filter(Boolean)
-              .map((part, i) => (
-                <span key={i}>
-                  {i ? ' · ' : null}
-                  {part}
+              key ?? <Dash key="key" reason={dashReason(dj, 'key')} />,
+              dj?.bpm ? (
+                <span key="bpm" className={styles.tabular}>
+                  {bpmNumber(dj.bpm)}
                 </span>
-              ))}
+              ) : (
+                <Dash key="bpm" reason={dashReason(dj, 'bpm')} suffix=" BPM" />
+              ),
+            ].map((part, i) => (
+              <span key={i}>
+                {i ? ' · ' : null}
+                {part}
+              </span>
+            ))}
           </span>
         ) : (
           <span className={hs.meta}>
@@ -358,71 +379,72 @@ function TrackRow({
       </div>
       {phone ? null : (
         <>
-          <span className={styles.bpm} title={dj?.bpm ? bpmTitle(dj) : (skipped ?? undefined)}>
-            {dj?.bpm ? (
-              bpmNumber(dj.bpm)
-            ) : (
-              <span className={styles.none}>
-                –{skipped ? <span className={styles.srOnly}> ({skipped})</span> : null}
-              </span>
-            )}
+          {/* 38b: BPM right-aligned, the key's chip, the length; a dash says why */}
+          <span className={styles.bpm} title={dj?.bpm ? bpmTitle(dj) : undefined}>
+            {dj?.bpm ? bpmNumber(dj.bpm) : <Dash reason={dashReason(dj, 'bpm')} />}
           </span>
-          <span className={styles.keyCell}>{key ?? <span className={styles.none}>–</span>}</span>
+          <span className={styles.keyCell}>{key ?? <Dash reason={dashReason(dj, 'key')} />}</span>
+          <span className={styles.length}>{lengthWords(track.duration_ms)}</span>
+          <span className={styles.starCell}>
+            <StarButton id={track.id} title={track.title} />
+          </span>
+          {/* Brief D (34a), 38b: Play at rest, Play next and the "…" on the
+              row's hover and focus, in the one 92px column */}
+          <RowPlay
+            title={track.title}
+            playing={playing}
+            hidden={missing}
+            disabled={away ?? null}
+            onPlay={() => playDjTrackNow(track)}
+            onPlayNext={() => playTrackNext(track)}
+            className={styles.playCell}
+          >
+            <MoreMenu
+              className={styles.more}
+              label={`More for ${track.title}`}
+              entries={entries.map(({ key: k, label, onSelect, disabled, reason, submenu }) => ({
+                key: k,
+                label,
+                onSelect,
+                disabled,
+                reason,
+                submenu,
+              }))}
+            />
+          </RowPlay>
         </>
       )}
-      {phone ? null : (
-        // Brief D (34a): Play is the one visible button, Play next beside it
-        // on hover and focus; Playing (green) on the playing row
-        <RowPlay
-          title={track.title}
-          playing={playing}
-          hidden={missing}
-          disabled={away ?? null}
-          onPlay={() => playDjTrackNow(track)}
-          onPlayNext={() => playTrackNext(track)}
-          className={styles.playCell}
-        />
-      )}
-      <span className={styles.starCell}>
-        <StarButton id={track.id} title={track.title} />
-      </span>
-      <div className={styles.actions}>
-        {phone ? (
-          <>
-            <button
-              type="button"
-              className={hs.phoneMore}
-              aria-label={`More for ${track.title}`}
-              aria-haspopup="dialog"
-              aria-expanded={sheet}
-              onClick={() => setSheet(true)}
-            >
-              <MoreIcon />
-            </button>
-            {sheet ? (
-              <ActionSheet
-                label={`More for ${track.title}`}
-                heading={[track.title, track.artist_name].filter(Boolean).join(' · ')}
-                onClose={() => setSheet(false)}
-                actions={entries}
-              />
-            ) : null}
-          </>
-        ) : (
-          <MoreMenu
-            className={styles.more}
-            label={`More for ${track.title}`}
-            entries={entries.map(({ key: k, label, onSelect, disabled, reason, submenu }) => ({
-              key: k,
-              label,
-              onSelect,
-              disabled,
-              reason,
-              submenu,
-            }))}
+      {phone ? (
+        // 38c: Play on the right, the "…" beside it (Star is the sheet's first item)
+        <>
+          <RowPlay
+            title={track.title}
+            playing={playing}
+            hidden={missing}
+            disabled={away ?? null}
+            onPlay={() => playDjTrackNow(track)}
+            className={styles.phonePlay}
           />
-        )}
-      </div>
+          <button
+            type="button"
+            className={hs.phoneMore}
+            aria-label={`More for ${track.title}`}
+            aria-haspopup="dialog"
+            aria-expanded={sheet}
+            onClick={() => setSheet(true)}
+          >
+            <MoreIcon />
+          </button>
+          {sheet ? (
+            <ActionSheet
+              label={`More for ${track.title}`}
+              heading={[track.title, track.artist_name].filter(Boolean).join(' · ')}
+              onClose={() => setSheet(false)}
+              actions={entries}
+            />
+          ) : null}
+        </>
+      ) : null}
     </li>
   );
 }
@@ -691,10 +713,15 @@ export function TracksPage({
       : s.held && toDo
         ? heldWords(sweep, { admin: isAdmin })
         : toDo
-          ? ['Analysis idle', nextSweepWords(sweep?.next_in)].filter(Boolean).join(' · ')
+          ? // 38b: "4,120 of 4,980 analysed · Analyse all", the count on its own
+            mixing
+            ? ['Analysis idle', nextSweepWords(sweep?.next_in)].filter(Boolean).join(' · ')
+            : readyLine
           : s.job?.recent
             ? `All ${s.counts.tracks.toLocaleString()} tracks are ${readyWord}`
-            : null;
+            : mixing
+              ? null
+              : readyLine;
   const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
   // a member's picks all in the shared library: nothing they can set
   const pickedAllShared = !isAdmin && allShared(picked, tracks);
@@ -772,20 +799,48 @@ export function TracksPage({
     const indexes = ids.map((id) => tracks.findIndex((t) => t.id === id));
     return { items, source: { kind: 'tracks', listId: 'tracks', indexes }, rows };
   };
-  // UX-27's row grid and 32d's keys: Space picks the row (or the selection) up
-  // and, Tracks being only a source, asks where it goes (Send to…)
+  // UX-27's row grid and 32d's keys: Space picks the row (or the selection)
+  // up and, Tracks being only a source, asks where it goes (Send to…) while
+  // there are sets; without them Up next is the one place, so Space plays
+  // the track (or the selection) next (38b)
   useRowGrid(listEl, {
     rowSelector: '[data-track-row]',
     hint: mixing
       ? 'Arrows move between rows; Enter plays; Space sends the track (or the selection) to a set or Up next; the right arrow reaches its buttons.'
-      : 'Arrows move between rows; Enter plays; Space sends the track (or the selection) to Up next; the right arrow reaches its buttons.',
+      : 'Arrows move between rows; Space plays next; Enter plays; the right arrow reaches its buttons.',
     onSpace: (row) => {
       const track = tracks.find((t) => t.id === row.getAttribute('data-track-row'));
       if (!track || track.file_missing || away) return false;
-      openSendToTray(itemsFor(track).items);
+      if (mixing) openSendToTray(itemsFor(track).items);
+      else void putInUpNext(itemsFor(track).items, 'next');
       return true;
     },
   });
+  // 38b's selection actions after Export to Traktor…, in order
+  const putPicked = (where: 'next' | 'end') => {
+    const { items } = selectionItems();
+    if (items.some((t) => t.fileMissing))
+      window.showToast?.('Can’t be played: their files are missing', 'info');
+    else void putInUpNext(items, where);
+  };
+  const pickedToPlaylist = () =>
+    openAddToPlaylist(tracks.filter((t) => picked.includes(t.id)).map(playlistTrack), null);
+  const barActions = [
+    { key: 'analyse', label: 'Analyse these', onClick: () => analysePicked() },
+    { key: 'playlist', label: 'Add to playlist…', onClick: pickedToPlaylist },
+    {
+      key: 'next',
+      label: 'Play next',
+      onClick: () => putPicked('next'),
+      disabled: Boolean(away),
+    },
+    {
+      key: 'upnext',
+      label: 'Add to Up next',
+      onClick: () => putPicked('end'),
+      disabled: Boolean(away),
+    },
+  ];
 
   const keyPick = (
     <PickButton
@@ -938,7 +993,7 @@ export function TracksPage({
               <span>Track</span>
               <span className={styles.headBpm}>BPM</span>
               <span>Key</span>
-              <span />
+              <span>Length</span>
               <span />
               <span />
             </div>
@@ -963,6 +1018,14 @@ export function TracksPage({
               />
             ))}
           </ul>
+          {/* 38b: the keyboard hint under the list (a phone has no keys) */}
+          {phone ? null : (
+            <p className={styles.keysHint} data-keys-hint="">
+              {mixing
+                ? 'Space sends to a set or Up next · Enter plays · drag to a set, a playlist or Up next'
+                : 'Space plays next · Enter plays · drag to a playlist or Up next'}
+            </p>
+          )}
         </div>
       ) : (
         <div className={hs.empty}>
@@ -1018,8 +1081,11 @@ export function TracksPage({
           primaryLabel={mixing ? 'Add to set…' : 'Export to Traktor…'}
           idleLabel={mixing ? 'Add to set…' : 'Export to Traktor…'}
           emptyReason="Tick tracks to select them"
+          // 38b: Export to Traktor… (filled) · Analyse these · Add to
+          // playlist… · Play next · Add to Up next; with the mixing features
+          // shown, Add to set… leads and Export to Traktor… follows (28b)
           secondary={
-            mixing ? { label: 'Export to Traktor…', onClick: () => setExporting(true) } : null
+            mixing ? { label: 'Export to Traktor…', onClick: () => setExporting(true) } : barActions
           }
           selectAll={
             picked.length < tracks.length
@@ -1034,6 +1100,16 @@ export function TracksPage({
           // (Library → Sets' draft; with the mixing features), then Clear
           // the selection; Double and Halve BPM after Add to playlist… (HANDOFF 344)
           menu={[
+            // a phone has no room for the bar's buttons: the "…" holds them
+            ...(phone && !mixing
+              ? barActions.map((a) => ({
+                  key: a.key,
+                  label: a.label,
+                  disabled: !picked.length || Boolean(a.disabled),
+                  reason: a.disabled ? away?.words : undefined,
+                  onSelect: a.onClick,
+                }))
+              : []),
             ...(phone && mixing
               ? [
                   {
@@ -1067,16 +1143,16 @@ export function TracksPage({
                   },
                 ]
               : []),
-            {
-              key: 'playlist',
-              label: 'Add to playlist…',
-              disabled: !picked.length,
-              onSelect: () =>
-                openAddToPlaylist(
-                  tracks.filter((t) => picked.includes(t.id)).map(playlistTrack),
-                  null,
-                ),
-            },
+            ...(mixing
+              ? [
+                  {
+                    key: 'playlist',
+                    label: 'Add to playlist…',
+                    disabled: !picked.length,
+                    onSelect: pickedToPlaylist,
+                  },
+                ]
+              : []),
             // the picked tracks' BPM at double or half (a half-time read)
             {
               key: 'double',
@@ -1102,15 +1178,19 @@ export function TracksPage({
                   },
                 ]
               : []),
-            {
-              key: 'analyse',
-              label: 'Analyse these',
-              disabled: !picked.length,
-              reason: picked.length
-                ? analyseTheseHint(Math.min(picked.length, 500))
-                : 'Tick tracks to select them',
-              onSelect: () => analysePicked(),
-            },
+            ...(mixing
+              ? [
+                  {
+                    key: 'analyse',
+                    label: 'Analyse these',
+                    disabled: !picked.length,
+                    reason: picked.length
+                      ? analyseTheseHint(Math.min(picked.length, 500))
+                      : 'Tick tracks to select them',
+                    onSelect: () => analysePicked(),
+                  },
+                ]
+              : []),
             {
               key: 'clear',
               label: 'Clear the selection',

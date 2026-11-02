@@ -1,6 +1,14 @@
 import { Button } from '@/components/form';
 
 import styles from './library.module.css';
+
+/** A button beside the primary (hidden on a phone, where the "…" holds it). */
+export interface BarAction {
+  label: string;
+  onClick: () => void;
+  /** disabled with its own reason, though the bar has a selection */
+  disabled?: boolean;
+}
 import { MoreMenu, type MenuEntry } from './parts';
 
 /**
@@ -41,8 +49,8 @@ export function SelectionBar({
   barLabel: string;
   /** 21a draws Tracks' "Export to Traktor…" as a secondary */
   primaryVariant?: 'primary' | 'secondary';
-  /** 28b: Tracks' "Export to Traktor…" beside the primary */
-  secondary?: { label: string; onClick: () => void } | null;
+  /** 28b: Tracks' "Export to Traktor…" beside the primary; 38b: several, in order */
+  secondary?: BarAction | BarAction[] | null;
 }) {
   return (
     <div className={styles.barDock} data-selection-bar="">
@@ -78,20 +86,21 @@ export function SelectionBar({
               </>
             )}
           </Button>
-          {secondary ? (
+          {(Array.isArray(secondary) ? secondary : secondary ? [secondary] : []).map((action) => (
             <Button
+              key={action.label}
               size="lg"
               variant="secondary"
               className={styles.barSecondary}
-              disabled={count === 0}
+              disabled={count === 0 || Boolean(action.disabled)}
               // UX-23: one reason line for the bar, the primary's; this one
               // stays focusable and points at it
               focusableWhenDisabled
-              onClick={secondary.onClick}
+              onClick={action.onClick}
             >
-              {secondary.label}
+              {action.label}
             </Button>
-          ) : null}
+          ))}
           <MoreMenu label="More actions for the selection" entries={menu} vertical={false} />
           <Button size="lg" variant="ghost" className={styles.barDone} onClick={onDone}>
             Done
