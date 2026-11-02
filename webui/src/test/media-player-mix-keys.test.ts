@@ -172,6 +172,33 @@ describe('the table (one place for 287)', () => {
   });
 });
 
+describe('the mixing features hidden (Settings → Library → DJ): no SoulSyncMix, no SoulSyncAutomix', () => {
+  beforeEach(() => {
+    // mix-host.tsx and the automix host aren't there to answer
+    delete (window as unknown as { SoulSyncMix?: unknown }).SoulSyncMix;
+    delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
+  });
+
+  it('M mutes and N skips; A and X do nothing and stay the page’s', () => {
+    const { handle } = handler();
+    const m = key('m');
+    handle(m);
+    expect(m.defaultPrevented).toBe(true);
+    expect(mute).toHaveBeenCalledTimes(1);
+    const n = key('n');
+    handle(n);
+    expect(n.defaultPrevented).toBe(true);
+    expect(next).toHaveBeenCalledTimes(1);
+    for (const k of ['a', 'x']) {
+      const ev = key(k);
+      handle(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+    expect(mute).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('[gauntlet L1] a page that claims letters keeps them', () => {
   afterEach(() => {
     delete document.documentElement.dataset.letterKeys;

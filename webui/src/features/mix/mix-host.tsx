@@ -16,11 +16,14 @@
  * `window.SoulSyncMix.key('A' | 'N' | 'M')`, true when the Mix tab acted.
  * X is reserved for Mix now (auto-mix, 26c) and isn't bound yet.
  *
- * While the Mix tab is hidden (Settings → Library → DJ's "Show the Mix tab",
- * off by default: mix-visibility.ts) none of that shows: no switch (Now
- * playing would be alone in it), no Mix mode or phone Mix · Set, no Visuals
- * Mix button or drawer, and the keys aren't the Mix tab's (M mutes, N skips).
- * The record's key line ("Ready to mix", the analysis) stays.
+ * While the mixing features are hidden (Settings → Library → DJ's "Show the
+ * mixing features", off by default: mix-visibility.ts) none of that shows: no
+ * switch (Now playing would be alone in it), no Mix mode or phone Mix · Set,
+ * no Visuals Mix button or drawer, and the keys aren't the Mix tab's (M
+ * mutes, N skips). Nor does the record's key line (BPM, key, "Ready to mix"
+ * and the analysis) or Up next's "8 from Sunday Set": the record is as it
+ * was before the DJ work, and the model asks for nothing (no DJ data,
+ * working set or analysis for the playing track).
  */
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -235,11 +238,11 @@ export function MixTabHost() {
   const drawerShown = tabShown && visualsOpen && state.drawer && Boolean(trackSubject);
   // the model is always there (the keys use it), but it asks for analysis
   // and watches progress only while someone can see the tab
-  const model = useMixModel(trackSubject, profileId ?? null, {
+  // hidden, nothing uses the model: no track, so it reads nothing
+  const model = useMixModel(tabShown ? trackSubject : null, profileId ?? null, {
     shown: (mixShown && trayOpen) || drawerShown,
     // the record's key line says "Ready to mix" in Now playing too (36a)
-    watch: trayOpen,
-    // hidden, the key line is all that's shown: no matches asked for
+    watch: tabShown && trayOpen,
     askMatches: tabShown,
   });
 
@@ -286,8 +289,8 @@ export function MixTabHost() {
   useEffect(() => {
     const el = slots.upNextFrom;
     if (!el) return;
-    el.textContent = model.upNextFrom ?? '';
-  }, [slots.upNextFrom, model.upNextFrom]);
+    el.textContent = tabShown ? (model.upNextFrom ?? '') : '';
+  }, [slots.upNextFrom, model.upNextFrom, tabShown]);
 
   // Visuals: the header's Mix button and the drawer (29b)
   useEffect(() => {
@@ -343,10 +346,7 @@ export function MixTabHost() {
 
   if (!hasSubject) return null;
   const preview = subject.kind === 'preview' ? subject.title : null;
-  if (!tabShown)
-    return slots.keyLine && trackSubject && !trackSubject.radio
-      ? createPortal(<RecordKeyLine model={model} />, slots.keyLine)
-      : null;
+  if (!tabShown) return null;
   return (
     <>
       {slots.modesMusic && !trackSubject?.radio && !phone

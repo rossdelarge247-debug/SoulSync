@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/form';
 import { Skeleton } from '@/components/primitives';
+import { useMixingShown } from '@/features/mix/mix-visibility';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { SetupCheckReport } from '../-setup-check.types';
@@ -216,6 +217,7 @@ function LoadingSkeleton() {
 }
 
 function AdminSetupCheck() {
+  const mixing = useMixingShown();
   const local = useQuery(setupCheckQueryOptions('local', true));
   const full = useQuery(setupCheckQueryOptions('all', true));
   const setupStatus = useQuery(setupStatusQueryOptions(true));
@@ -345,7 +347,8 @@ function AdminSetupCheck() {
           <SummaryTiles report={report} partial={partial} now={now} />
           <PrivacyCard />
           <CheckGroups groups={groups} onRerun={rerun} rerunning={running} />
-          <BrowserInfo />
+          {/* This browser · Auto mix: only while the mixing features show */}
+          {mixing ? <BrowserInfo /> : null}
         </div>
       ) : !bothFailed ? (
         <LoadingSkeleton />

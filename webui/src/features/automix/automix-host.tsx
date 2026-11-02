@@ -23,6 +23,14 @@
  * - `[data-automix-slot="record"]` / `="deck"`: the handover in the tray's
  *   record and in the waveform's place (26d; the phone's sheet, 26f).
  *
+ * Only while the mixing features show (Settings → Library → DJ's "Show the
+ * mixing features", off by default; mix-visibility.ts): `AutomixGate`, in
+ * the router's root, doesn't mount the host otherwise, so no controller,
+ * decks, plans or pre-loading run, `window.SoulSyncAutomix` isn't there and
+ * static/media-player.js advances on its own path (X does nothing). Auto
+ * mix stays as stored in this browser (prefs.ts), not used; turned back on,
+ * it's as it was.
+ *
  * `#media-player[data-automix]` (counting, mixing, fallback) tells
  * static/player.css to step the waveform and the record aside, and each
  * `[data-player-wave]` gets a cyan marker where the mix will start
@@ -48,6 +56,7 @@ import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
 import { fetchGrids, fetchWindow } from '@/features/engine/loader';
 import workletUrl from '@/features/engine/worklet/deck-processor.js?url';
+import { useMixingShown } from '@/features/mix/mix-visibility';
 import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
@@ -505,6 +514,14 @@ export function AutomixHost() {
       window.clearTimeout(late);
       delete window.SoulSyncAutomix;
       ctl.stop();
+      // nothing of a mix stays behind (the setting went off mid-mix): the
+      // player's marks go, and Up next draws again without its gaps
+      delete document.getElementById('media-player')?.dataset.automix;
+      for (const w of document.querySelectorAll<HTMLElement>('[data-player-wave]')) {
+        w.style.removeProperty('--automix-at');
+        delete w.dataset.automixMark;
+      }
+      port.renderQueue();
     };
   }, [ctl]);
 
@@ -644,6 +661,14 @@ export function AutomixHost() {
       {slots.player ? createPortal(<LiveWords view={view} />, slots.player) : null}
     </>
   );
+}
+
+/**
+ * Auto-mix only while the mixing features show: hidden, nothing of it
+ * mounts (no controller is even made), so the player is the player.
+ */
+export function AutomixGate() {
+  return useMixingShown() ? <AutomixHost /> : null;
 }
 
 /**

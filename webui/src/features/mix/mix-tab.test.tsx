@@ -92,7 +92,7 @@ const MATCHES = [
 interface World {
   playing: Record<string, unknown> | null;
   kind: string;
-  queue: { id: string }[];
+  queue: { id: string; mix_set?: { id: number; name: string; row: number } }[];
   index: number;
   working: { id: number; name: string } | null;
   rows: ReturnType<typeof viewRow>[];
@@ -1054,9 +1054,23 @@ describe('hidden: Settings → Library → DJ\'s "Show the Mix tab" off (the def
     resetMixForTests();
   });
 
-  it('shows no switch and no Mix mode in the tray; the record keeps its key line', async () => {
+  it('shows no switch and no Mix mode in the tray, and no key line or analysis: the record as before', async () => {
+    const paths: string[] = [];
+    const seen = ({ request }: { request: Request }) => paths.push(new URL(request.url).pathname);
+    server.events.on('request:start', seen);
+    // a queue played from a set: Up next would say "2 from Sunday Set"
+    world.queue = [
+      { id: '1', mix_set: { id: 3, name: 'Sunday Set', row: 0 } },
+      { id: '4', mix_set: { id: 3, name: 'Sunday Set', row: 1 } },
+      { id: '5', mix_set: { id: 3, name: 'Sunday Set', row: 2 } },
+    ];
+    world.index = 0;
     mount();
     await settle();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    server.events.removeListener('request:start', seen);
     expect(modes('music').childElementCount).toBe(0);
     expect(modes('sheet').childElementCount).toBe(0);
     expect(document.documentElement.hasAttribute('data-mix-available')).toBe(false);
@@ -1065,11 +1079,41 @@ describe('hidden: Settings → Library → DJ\'s "Show the Mix tab" off (the def
     expect(document.querySelector('[data-mix-col]')).toBeNull();
     // the Mix tab's rows aren't there to lift, nor its set card to drop on (step 4)
     expect(document.querySelector('[data-dnd-row="mix"]')).toBeNull();
-    // the analysis stays: the record's key line ("8A · 124 BPM", Ready to mix)
+    // no key line ("8A · 124 BPM", Ready to mix), no "8 from Sunday Set"
+    expect(document.querySelector('[data-player-keyline]')!.childElementCount).toBe(0);
+    expect(document.querySelector('[data-mix-keyline]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Ready to mix');
+    expect(document.querySelector('[data-player-upnext-from]')!.textContent).toBe('');
+    // and nothing asked for the playing track: no DJ data, sets or analysis
+    expect(world.asked).toEqual([]);
+    expect(
+      paths.filter((p) => p.startsWith('/api/library/dj') || p.startsWith('/api/sets')),
+    ).toEqual([]);
+  });
+
+  it('shown, the key line and "3 from Sunday Set"-style line come back', async () => {
+    world.queue = [
+      { id: '1', mix_set: { id: 3, name: 'Sunday Set', row: 0 } },
+      { id: '4', mix_set: { id: 3, name: 'Sunday Set', row: 1 } },
+      { id: '5', mix_set: { id: 3, name: 'Sunday Set', row: 2 } },
+    ];
+    world.index = 0;
+    mount();
+    await settle();
+    setting(true);
     await waitFor(() =>
       expect(document.querySelector('[data-player-keyline]')!.childElementCount).toBeGreaterThan(0),
     );
-    expect(world.asked).toEqual([]);
+    await waitFor(() =>
+      expect(document.querySelector('[data-player-upnext-from]')!.textContent).toBe(
+        '2 from Sunday Set',
+      ),
+    );
+    setting(false);
+    await waitFor(() =>
+      expect(document.querySelector('[data-player-keyline]')!.childElementCount).toBe(0),
+    );
+    expect(document.querySelector('[data-player-upnext-from]')!.textContent).toBe('');
   });
 
   it('a remembered Mix opens on Now playing, and the browser keeps it for later', async () => {
