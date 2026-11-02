@@ -231,6 +231,31 @@ export const PHONE_QUERY = '(max-width: 768px)';
 const FOCUSABLE =
   'button:not([disabled]):not([hidden]), a[href]:not([hidden]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Whether the mixing features show (Settings → Library → DJ's "Show the
+ * mixing features"): `html[data-mix-tab]`, which src/features/mix/
+ * mix-visibility.ts keeps from first paint (the shell can't import it:
+ * it's React's side). Sets and Add to set… go with them.
+ */
+function mixingShown(doc: Document): boolean {
+  return doc.documentElement.hasAttribute('data-mix-tab');
+}
+
+/**
+ * The first control a person can actually reach: not `[hidden]` (itself or
+ * inside), and not a `[data-mix-only]` part while the mixing features are
+ * hidden (CSS takes those out of the page; review M2).
+ */
+function firstReachable(box: HTMLElement, doc: Document): HTMLElement | null {
+  const mixing = mixingShown(doc);
+  for (const el of box.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    if (el.closest('[hidden]')) continue;
+    if (!mixing && el.closest('[data-mix-only]')) continue;
+    return el;
+  }
+  return null;
+}
+
 function stripId(value: string | undefined | null): string {
   const s = String(value ?? '');
   const i = s.indexOf('||');
@@ -487,7 +512,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     setAttr(anchor, 'aria-expanded', 'true');
     drawMenu();
     placeMenu(m, anchor);
-    m.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    firstReachable(m, doc)?.focus();
   }
 
   function fillChoices(
@@ -1014,7 +1039,9 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
         : '';
     setHidden(
       item('mixset'),
-      !libraryId ||
+      // Add to set… goes with the mixing features (Sets)
+      !mixingShown(doc) ||
+        !libraryId ||
         !starStore().get(libraryId)?.canStar ||
         typeof (view as { openAddToMixSet?: unknown }).openAddToMixSet !== 'function',
     );
@@ -1415,6 +1442,13 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
 
   // ── events ───────────────────────────────────────────────────────────────
   on(view, 'ss:player', () => draw());
+  // the mixing features turned on or off in Settings: an open "…" follows
+  // (after mix-visibility.ts has moved html[data-mix-tab]: its listener may run after this one)
+  on(view, 'soulsync:mix-tab-changed', () => {
+    queueMicrotask(() => {
+      if (menu && !menu.hidden) drawMenu();
+    });
+  });
   // HANDOFF 44: queued rows below the quality target, judged as they come into view
   const queueList = root.querySelector<HTMLElement>('#np-queue-list');
   if (queueList) {
