@@ -292,6 +292,17 @@ describe('Library → Tracks', () => {
     expect(long.querySelector('[class*="meta"]')!.textContent).toBe('Saltmarsh · Lantern');
   });
 
+  it('[review L6] with the mixing features shown, Space still opens Send to… and the hint under the list is gone', async () => {
+    renderPage();
+    const row = (await screen.findByText('Static Bloom')).closest('li')!;
+    expect(document.querySelector('[data-keys-hint]')).toBeNull();
+    row.focus();
+    fireEvent.keyDown(row, { key: ' ' });
+    const tray = await screen.findByRole('dialog', { name: 'Send Static Bloom to…' });
+    fireEvent.keyDown(tray, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Send Static Bloom to…' })).toBeNull();
+  });
+
   it("sends the URL's BPM range and key", async () => {
     // an old link sorted by energy reads as BPM: there's no Energy sort now
     renderPage('/library?view=tracks&bpm=120-128&key=8A:mix&sort=energy');
@@ -914,6 +925,98 @@ describe('Library → Tracks with the mixing features hidden (Settings → Libra
     delete w.SoulSyncPlayer;
   });
 
+  it('[review M1] a held Space plays the track next once, not once per repeat', async () => {
+    const queue: Record<string, unknown>[] = [{ id: '9', title: 'Playing now' }];
+    const insertAt = vi.fn((index: number, rows: Record<string, unknown>[]) => {
+      queue.splice(index, 0, ...rows);
+      return rows;
+    });
+    const w = window as unknown as Record<string, unknown>;
+    w.SoulSyncPlayer = { state: () => ({ queue, index: 0 }), insertAt, removeTracks: () => 0 };
+    renderPage();
+    const row = (await screen.findByText('Static Bloom')).closest('li')!;
+    row.focus();
+    fireEvent.keyDown(row, { key: ' ' });
+    for (let i = 0; i < 5; i++) {
+      const ev = new KeyboardEvent('keydown', {
+        key: ' ',
+        repeat: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      row.dispatchEvent(ev);
+      // the page doesn't scroll on a held Space either
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    await waitFor(() => expect(insertAt).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(insertAt).toHaveBeenCalledTimes(1);
+    delete w.SoulSyncPlayer;
+  });
+
+  it('[review L1, L2] a dash says why: left out, file away, analysis off; the row and the sheet say it too', async () => {
+    const base = BROWSE.tracks[3]!.dj as Record<string, unknown>;
+    const left = (id: string, title: string, extra: Record<string, unknown>) => ({
+      ...track(id, title, null),
+      dj: { ...base, skipped: null, ...extra },
+    });
+    const original = BROWSE.tracks;
+    (BROWSE as { tracks: unknown[] }).tracks = [
+      ...original,
+      left('6', 'Broken file', { left_out: 'failed' }),
+      left('7', 'On the old drive', { left_out: 'unreachable' }),
+    ];
+    try {
+      renderPage();
+      const broken = (await screen.findByText('Broken file')).closest('li')!;
+      expect(within(broken).getAllByRole('img', { name: 'Couldn’t be analysed' })).toHaveLength(2);
+      const away = screen.getByText('On the old drive').closest('li')!;
+      expect(within(away).getAllByRole('img', { name: 'Its file wasn’t there' })).toHaveLength(2);
+      // the row's description, for a keyboard or a screen reader (no hover needed)
+      const long = screen.getByText('Two-hour mix').closest('li')!;
+      const described = document.getElementById(long.getAttribute('aria-describedby')!)!;
+      expect(described.textContent).toBe('BPM and key: Too long to analyse');
+      // a whole row of data has no description
+      const ok = screen.getByText('Static Bloom').closest('li')!;
+      expect(ok.hasAttribute('aria-describedby')).toBe(false);
+    } finally {
+      (BROWSE as { tracks: unknown[] }).tracks = original;
+    }
+  });
+
+  it('[review L1] with analysis off, an unanalysed track says "Analysis is off"', async () => {
+    statusBody = { ...STATUS, settings: { ...STATUS.settings, analyze: false } };
+    renderPage();
+    const unknown = (await screen.findByText('Not yet')).closest('li')!;
+    await waitFor(() =>
+      expect(within(unknown).getAllByRole('img', { name: 'Analysis is off' })).toHaveLength(2),
+    );
+  });
+
+  it('[review L3, L4] the bar says why Play next waits (the drive) and what Analyse these skips', async () => {
+    driveAway = true;
+    renderPage();
+    await screen.findByText('Static Bloom');
+    await screen.findByText('Your library’s drive isn’t connected');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    for (const name of ['Play next', 'Add to Up next']) {
+      const b = within(bar).getByRole('button', { name });
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toBe(
+        'Music HD isn’t connected',
+      );
+    }
+    const analyse = within(bar).getByRole('button', { name: 'Analyse these' });
+    expect(analyse.getAttribute('title')).toBe('1 track · ones already done are skipped');
+    expect(document.getElementById(analyse.getAttribute('aria-describedby')!)!.textContent).toBe(
+      '1 track · ones already done are skipped',
+    );
+  });
+
   it('38b: idle, the page’s line is "1 of 3 analysed · Analyse all"', async () => {
     statusBody = {
       ...STATUS,
@@ -989,6 +1092,12 @@ describe('Library → Tracks on a phone (17c)', () => {
     const unknown = screen.getByText('Not yet').closest('li')!;
     expect(unknown.querySelector('[class*="meta"]')!.textContent).toBe('Saltmarsh · – · – BPM');
     expect(within(unknown).getAllByRole('img', { name: 'Not analysed yet' })).toHaveLength(2);
+    // [review L2] the sheet says why, as there's no hover on a phone
+    fireEvent.click(within(long).getByRole('button', { name: 'More for Two-hour mix' }));
+    const sheet = await screen.findByRole('dialog', { name: 'More for Two-hour mix' });
+    expect(sheet.querySelector('[data-sheet-note]')!.textContent).toBe(
+      'BPM and key: Too long to analyse',
+    );
   });
 
   it('38b: the selection bar has no room on a phone, so its "…" holds the actions in order', async () => {
@@ -1000,8 +1109,9 @@ describe('Library → Tracks on a phone (17c)', () => {
     const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
     fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
     const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent ?? '');
+    // Analyse these carries its second line, what it skips (review L4)
     expect(items.slice(0, 4)).toEqual([
-      'Analyse these',
+      'Analyse these1 track · ones already done are skipped',
       'Add to playlist…',
       'Play next',
       'Add to Up next',

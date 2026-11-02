@@ -106,3 +106,12 @@
   margin-right: 12px;
   color: var(--ss-text-secondary);
 }
+
+/* a quiet line under the heading (Tracks: why its BPM and key are dashes) */
+.note {
+  margin: -4px 0 0;
+  padding: 0 4px 8px;
+  color: var(--ss-text-meta);
+  font-size: 13px;
+  line-height: 1.4;
+}

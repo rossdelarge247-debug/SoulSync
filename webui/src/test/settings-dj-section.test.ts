@@ -82,7 +82,15 @@ describe('Settings → Library → DJ', () => {
     expect(body().querySelector('#dj-analysis')?.closest('label')?.textContent?.trim()).toBe(
       'Work out BPM and key',
     );
-    expect(body().querySelector('#dj-settings-group')?.textContent).not.toMatch(/energy/i);
+    const group = body().querySelector('#dj-settings-group')!.cloneNode(true) as HTMLElement;
+    // review L5: energy is named only where the mixing features still use it
+    const energy = group.querySelector('[data-dj-energy-note]')!;
+    expect(energy.hasAttribute('data-mix-only')).toBe(true);
+    expect(energy.textContent?.replace(/\s+/g, ' ')).toMatch(
+      /energy level from 1 to 10, which the Mix tab and sets use/,
+    );
+    group.querySelectorAll('[data-mix-only]').forEach((el) => el.remove());
+    expect(group.textContent).not.toMatch(/energy/i);
     expect(document.querySelector('#organization-music-panel #dj-settings-group')).toBeNull();
     expect(document.querySelector('#organization-music-panel #dj-between-tracks-group')).toBeNull();
   });

@@ -897,12 +897,12 @@
 
 /* 38b: Tracks' five actions don't fit beside the count at every width; the
    bar then takes a second row, the actions on it, right-aligned */
-.bar:has(.barSecondary + .barSecondary) {
+.bar:has(.barSecondary ~ .barSecondary) {
   flex-wrap: wrap;
   row-gap: 8px;
 }
 
-.bar:has(.barSecondary + .barSecondary) .barActions {
+.bar:has(.barSecondary ~ .barSecondary) .barActions {
   flex-wrap: wrap;
   justify-content: flex-end;
   margin-left: auto;

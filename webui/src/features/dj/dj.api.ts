@@ -35,6 +35,8 @@ export interface DjInfo {
   analyzed: boolean;
   /** Why analysis left it out ("too long to analyse"), else null. */
   skipped?: string | null;
+  /** The analysis couldn't read it (`failed`) or its file wasn't there (`unreachable`). */
+  left_out?: 'failed' | 'unreachable' | null;
   /**
    * The beat grid is held for beat-matching only because its octave isn't
    * sure: "BPM is right" (or Double / Halve) settles it in one press.

@@ -106,14 +106,41 @@ function sentenceCase(words: string): string {
 
 /**
  * Why a BPM or key cell is a dash (38b): the analysis left the track out
- * ("Too long to analyse"), it hasn't got to it yet, or it found none. The
- * words are the dash's title and what a screen reader hears; "No BPM" is
- * never written in the row itself.
+ * ("Too long to analyse", "Couldn't be analysed", "Its file wasn't there"),
+ * analysis is off, it hasn't got to it yet, or it found none. The words are
+ * the dash's title and what a screen reader hears; "No BPM" is never
+ * written in the row itself.
  */
-export function dashReason(dj: DjTrack['dj'], part: 'bpm' | 'key'): string {
+export function dashReason(
+  dj: DjTrack['dj'],
+  part: 'bpm' | 'key',
+  { analysisOff = false }: { analysisOff?: boolean } = {},
+): string {
   if (dj?.skipped) return sentenceCase(dj.skipped);
-  if (!dj?.analyzed) return 'Not analysed yet';
+  if (dj?.left_out === 'failed') return 'Couldn’t be analysed';
+  if (dj?.left_out === 'unreachable') return 'Its file wasn’t there';
+  if (!dj?.analyzed) return analysisOff ? 'Analysis is off' : 'Not analysed yet';
   return part === 'bpm' ? 'No steady beat found' : 'No key found';
+}
+
+/**
+ * The row's accessible description when a dash stands in for its BPM or key
+ * ("BPM and key: Too long to analyse"), so a keyboard or phone user hears
+ * why without a hover (review L2); the phone's sheet shows it too. Null
+ * when both are there.
+ */
+export function rowDashWords(
+  dj: DjTrack['dj'],
+  { analysisOff = false }: { analysisOff?: boolean } = {},
+): string | null {
+  const noBpm = !dj?.bpm;
+  const noKey = !dj?.key;
+  if (!noBpm && !noKey) return null;
+  const bpmWhy = dashReason(dj, 'bpm', { analysisOff });
+  const keyWhy = dashReason(dj, 'key', { analysisOff });
+  if (noBpm && noKey)
+    return bpmWhy === keyWhy ? `BPM and key: ${bpmWhy}` : `BPM: ${bpmWhy} · Key: ${keyWhy}`;
+  return noBpm ? `BPM: ${bpmWhy}` : `Key: ${keyWhy}`;
 }
 
 /** "5:12" (38b's Length column), or "–" when the length isn't known. */
@@ -221,8 +248,11 @@ function TrackRow({
   checked = false,
   onToggle,
   lift,
+  analysisOff = false,
 }: {
   track: DjTrack;
+  /** Settings → Library's analysis is off: a dash says so (review L1) */
+  analysisOff?: boolean;
   /** Brief B: what a drag from this row lifts (the row, or the selection it's in) */
   lift: () => Lifted | null;
   phone: boolean;
@@ -240,6 +270,10 @@ function TrackRow({
   // (Mixes well with…, Add to set…, Send to…)
   const sets = useMixingShown();
   const dj = track.dj;
+  const why = { analysisOff };
+  // why its BPM or key is a dash, for the row's description and the sheet (L2)
+  const dashWords = rowDashWords(dj, why);
+  const dashId = useId();
   const artist = artistHref(track);
   const album =
     artist && track.album_id !== null && track.album_id !== ''
@@ -280,6 +314,7 @@ function TrackRow({
       data-track-row={track.id}
       // a tab stop in the row grid: it says which track it is (L8)
       aria-label={[track.title, track.artist_name].filter(Boolean).join(', ')}
+      aria-describedby={dashWords ? dashId : undefined}
       data-star-row={track.id}
       data-file-missing={missing ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
@@ -303,6 +338,11 @@ function TrackRow({
           : undefined
       }
     >
+      {dashWords ? (
+        <span id={dashId} hidden>
+          {dashWords}
+        </span>
+      ) : null}
       {/* Brief B (32b): the grip's reserved column; none without a file */}
       {phone ? null : <Grip none={missing} onPointerDown={onGripDown(lift)} />}
       {selecting ? (
@@ -346,13 +386,13 @@ function TrackRow({
               ) : (
                 track.artist_name || 'Unknown artist'
               ),
-              key ?? <Dash key="key" reason={dashReason(dj, 'key')} />,
+              key ?? <Dash key="key" reason={dashReason(dj, 'key', why)} />,
               dj?.bpm ? (
                 <span key="bpm" className={styles.tabular}>
                   {bpmNumber(dj.bpm)}
                 </span>
               ) : (
-                <Dash key="bpm" reason={dashReason(dj, 'bpm')} suffix=" BPM" />
+                <Dash key="bpm" reason={dashReason(dj, 'bpm', why)} suffix=" BPM" />
               ),
             ].map((part, i) => (
               <span key={i}>
@@ -381,9 +421,11 @@ function TrackRow({
         <>
           {/* 38b: BPM right-aligned, the key's chip, the length; a dash says why */}
           <span className={styles.bpm} title={dj?.bpm ? bpmTitle(dj) : undefined}>
-            {dj?.bpm ? bpmNumber(dj.bpm) : <Dash reason={dashReason(dj, 'bpm')} />}
+            {dj?.bpm ? bpmNumber(dj.bpm) : <Dash reason={dashReason(dj, 'bpm', why)} />}
           </span>
-          <span className={styles.keyCell}>{key ?? <Dash reason={dashReason(dj, 'key')} />}</span>
+          <span className={styles.keyCell}>
+            {key ?? <Dash reason={dashReason(dj, 'key', why)} />}
+          </span>
           <span className={styles.length}>{lengthWords(track.duration_ms)}</span>
           <span className={styles.starCell}>
             <StarButton id={track.id} title={track.title} />
@@ -439,6 +481,7 @@ function TrackRow({
             <ActionSheet
               label={`More for ${track.title}`}
               heading={[track.title, track.artist_name].filter(Boolean).join(' · ')}
+              note={dashWords}
               onClose={() => setSheet(false)}
               actions={entries}
             />
@@ -826,19 +869,28 @@ export function TracksPage({
   const pickedToPlaylist = () =>
     openAddToPlaylist(tracks.filter((t) => picked.includes(t.id)).map(playlistTrack), null);
   const barActions = [
-    { key: 'analyse', label: 'Analyse these', onClick: () => analysePicked() },
+    {
+      key: 'analyse',
+      label: 'Analyse these',
+      onClick: () => analysePicked(),
+      // "500 of 620 tracks · ones already done are skipped" (review L4)
+      description: picked.length ? analyseTheseHint(Math.min(picked.length, 500)) : undefined,
+    },
     { key: 'playlist', label: 'Add to playlist…', onClick: pickedToPlaylist },
     {
       key: 'next',
       label: 'Play next',
       onClick: () => putPicked('next'),
       disabled: Boolean(away),
+      // why it waits while the library's drive is away (review L3)
+      description: away?.words,
     },
     {
       key: 'upnext',
       label: 'Add to Up next',
       onClick: () => putPicked('end'),
       disabled: Boolean(away),
+      description: away?.words,
     },
   ];
 
@@ -1015,15 +1067,15 @@ export function TracksPage({
                 checked={selecting && picked.includes(track.id)}
                 onToggle={() => toggle(track.id)}
                 lift={() => liftFrom(track)}
+                analysisOff={s?.settings.analyze === false}
               />
             ))}
           </ul>
-          {/* 38b: the keyboard hint under the list (a phone has no keys) */}
-          {phone ? null : (
+          {/* 38b: the keyboard hint under the list (a phone has no keys); with
+              the mixing features shown the list is as it was, without it (L5) */}
+          {phone || mixing ? null : (
             <p className={styles.keysHint} data-keys-hint="">
-              {mixing
-                ? 'Space sends to a set or Up next · Enter plays · drag to a set, a playlist or Up next'
-                : 'Space plays next · Enter plays · drag to a playlist or Up next'}
+              Space plays next · Enter plays · drag to a playlist or Up next
             </p>
           )}
         </div>
@@ -1106,7 +1158,7 @@ export function TracksPage({
                   key: a.key,
                   label: a.label,
                   disabled: !picked.length || Boolean(a.disabled),
-                  reason: a.disabled ? away?.words : undefined,
+                  reason: a.description,
                   onSelect: a.onClick,
                 }))
               : []),

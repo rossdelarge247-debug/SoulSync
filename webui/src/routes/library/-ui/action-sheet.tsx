@@ -51,11 +51,14 @@ function SheetIcon({ icon }: { icon: NonNullable<SheetAction['icon']> }) {
 export function ActionSheet({
   label,
   heading,
+  note,
   actions,
   onClose,
 }: {
   label: string;
   heading: string;
+  /** a quiet line under the heading (Tracks: why its BPM and key are dashes) */
+  note?: string | null;
   actions: SheetAction[];
   onClose: () => void;
 }) {
@@ -69,6 +72,11 @@ export function ActionSheet({
     >
       <span className={styles.grabber} aria-hidden="true" />
       <p className={styles.heading}>{heading}</p>
+      {note ? (
+        <p className={styles.note} data-sheet-note="">
+          {note}
+        </p>
+      ) : null}
       <ul className={styles.list}>
         {actions.map((action) => (
           <li key={action.key}>
