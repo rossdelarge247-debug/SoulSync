@@ -32,7 +32,14 @@ import type {
   PlayerTrackLike,
 } from './dj-mode.logic';
 
-import { cueTime, djAvailability, gridProblem, laneGrid, PENDING_REASONS } from './dj-mode.logic';
+import {
+  cueTime,
+  djAvailability,
+  gridProblem,
+  laneGrid,
+  noGridWords,
+  PENDING_REASONS,
+} from './dj-mode.logic';
 
 export interface LaneTrack {
   id: string;
@@ -106,6 +113,17 @@ export interface DjModeDeps {
 }
 
 export const PHONE_QUERY = '(max-width: 768px)';
+/** A phone on its side (lyrics-mount's query): still a phone (417, review L9). */
+export const PHONE_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 500px)';
+/** How long a drag's "has its beat grid" answer is trusted (review L5). */
+export const READINESS_MS = 60_000;
+
+/** Is this window a phone's, upright or on its side? */
+export function isPhone(win: Window): boolean {
+  return Boolean(
+    win.matchMedia?.(PHONE_QUERY).matches || win.matchMedia?.(PHONE_LANDSCAPE_QUERY).matches,
+  );
+}
 
 /** Peaks: 202 means ask again after this long (as the player does; gives up after six). */
 export function peaksDelay(attempt: number): number | null {
@@ -167,7 +185,12 @@ export class DjModeStore {
   private browseOpener: (() => void) | null = null;
   private offAnalysis: (() => void) | null = null;
   /** the grid lookups for a drag's drop line (37c): true has a grid, false not yet */
-  private readiness = new Map<string, boolean | 'asking'>();
+  private readiness = new Map<string, { v: boolean | 'asking'; at: number }>();
+  /** tracks this store asked analysis for this session: toggling D doesn't ask again (review M1) */
+  private asked = new Set<string>();
+  /** a grid read on its way, per deck, by load generation (review L1) */
+  private gridFor: Record<Deck, number | null> = { a: null, b: null };
+  private readonly now: () => number;
 
   constructor(deps: DjModeDeps = {}) {
     this.win = deps.win ?? window;
@@ -175,13 +198,15 @@ export class DjModeStore {
     this.analyse =
       deps.analyse ??
       ((ids) => {
-        // a person opened DJ mode or loaded B: their ask, said as DJ mode's
-        requestAnalysis(ids, { reason: 'asked', source: 'dj_now' }).catch(() => {
+        // a person opened DJ mode or loaded B: their ask, said as DJ mode's,
+        // and forced, so an automatic ask a moment ago doesn't swallow it (M1)
+        requestAnalysis(ids, { force: true, reason: 'asked', source: 'dj_now' }).catch(() => {
           /* the lane keeps saying it's in line; the sweep reaches it anyway */
         });
       });
     this.analysis = deps.analysis ?? analysisStore;
-    this.phone = deps.phone ?? (() => Boolean(this.win.matchMedia?.(PHONE_QUERY).matches));
+    this.phone = deps.phone ?? (() => isPhone(this.win));
+    this.now = deps.now ?? (() => Date.now());
     this.libraryAway = deps.libraryAway ?? (() => false);
     this.sayFn = deps.say ?? ((w) => liveSay(w));
     this.s = {
@@ -304,6 +329,7 @@ export class DjModeStore {
     }
     this.clearLane('a');
     this.clearLane('b');
+    this.readiness.clear();
     this.set({ on: false });
     this.say('DJ mode off');
     return true;
@@ -340,12 +366,19 @@ export class DjModeStore {
   // ── lane B ─────────────────────────────────────────────────────────────
 
   /** Load a track into lane B: shown with its waveform and data, cued, not played (step 3 plays it). */
-  loadB(item: DragItem | LaneTrack): boolean {
+  loadB(item: DragItem | LaneTrack, { announce = true }: { announce?: boolean } = {}): boolean {
     if (!this.s.on) return false;
     const track = 'image' in item ? item : laneTrackFromItem(item);
     if (!track.id || track.id === this.playingId()) return false;
     this.loadLane('b', track);
+    // said once, unless the caller says it itself (a drop's toast)
+    if (announce) this.say(`${track.title || 'The track'} loaded as B, cued`);
     return true;
+  }
+
+  /** One polite announcement for a change of state the lanes see (the mix-out reached). */
+  announce(words: string): void {
+    this.say(words);
   }
 
   removeB(): void {
@@ -363,17 +396,20 @@ export class DjModeStore {
    */
   readinessOf(id: string, onKnown: () => void): boolean | null {
     const known = this.readiness.get(id);
-    if (known === true || known === false) return known;
-    if (known === 'asking') return null;
+    // an answer is trusted for a minute; a lookup on its way is waited for
+    if (known && (known.v === 'asking' || this.now() - known.at < READINESS_MS))
+      return known.v === 'asking' ? null : known.v;
     const entry = this.analysis.entry(id);
     if (entry && typeof entry.ready === 'boolean') {
-      this.readiness.set(id, entry.ready);
+      this.readiness.set(id, { v: entry.ready, at: this.now() });
       return entry.ready;
     }
-    this.readiness.set(id, 'asking');
+    this.readiness.set(id, { v: 'asking', at: this.now() });
     void this.getJson(`/api/library/dj/grid/${encodeURIComponent(id)}`).then((body) => {
       const g = (body as { grid?: LaneApiGrid } | null)?.grid;
-      this.readiness.set(id, Boolean(g?.analyzed));
+      // a failed read isn't an answer: the next look asks again (review L5)
+      if (g) this.readiness.set(id, { v: Boolean(g.analyzed), at: this.now() });
+      else this.readiness.delete(id);
       onKnown();
     });
     return null;
@@ -485,9 +521,11 @@ export class DjModeStore {
   }
 
   private async loadGrid(deck: Deck, gen: number, id: string, ask: boolean): Promise<void> {
+    this.gridFor[deck] = gen;
     const body = (await this.getJson(`/api/library/dj/grid/${encodeURIComponent(id)}`)) as {
       grid?: LaneApiGrid;
     } | null;
+    if (this.gridFor[deck] === gen) this.gridFor[deck] = null;
     if (!this.live(deck, gen)) return;
     const api = body?.grid;
     const lane = this.s[deck]!;
@@ -510,23 +548,27 @@ export class DjModeStore {
         reason: problem,
         cue: deck === 'b' ? cueTime(g) : 0,
       });
-      this.readiness.set(id, true);
+      this.readiness.set(id, { v: true, at: this.now() });
       this.stopWatching(deck);
-      if (was === 'analysing' || was === 'waiting')
-        this.say(`${lane.track.title || 'The track'} analysed`);
+      // ready: Brief A's line says "… is ready to mix" once (review L2);
+      // a grid that can't be blended on is said here
+      if (problem && (was === 'analysing' || was === 'waiting'))
+        this.say(noGridWords(lane.track.title, problem));
       return;
     }
     const reason = api.reason ?? 'not_analyzed';
     if (PENDING_REASONS.has(reason)) {
       this.setLane(deck, { phase: this.waitingFor(id) ? 'waiting' : 'analysing', reason: null });
-      if (ask) this.analyse([id]);
+      if (ask && !this.asked.has(id)) {
+        this.asked.add(id);
+        this.analyse([id]);
+      }
       this.watch(deck, id);
       return;
     }
     this.setLane(deck, { phase: 'no_grid', reason });
     this.stopWatching(deck);
-    if (was === 'analysing' || was === 'waiting')
-      this.say(`${lane.track.title || 'The track'} analysed`);
+    if (was === 'analysing' || was === 'waiting') this.say(noGridWords(lane.track.title, reason));
   }
 
   private waitingFor(id: string): boolean {
@@ -563,7 +605,9 @@ export class DjModeStore {
       const e = this.analysis.entry(lane.track.id);
       if (!e) continue;
       if (e.state === 'done' || e.state === 'failed') {
-        void this.loadGrid(deck, this.gen[deck], lane.track.id, false);
+        // one read at a time: each poll before it answers doesn't ask again
+        if (this.gridFor[deck] !== this.gen[deck])
+          void this.loadGrid(deck, this.gen[deck], lane.track.id, false);
         continue;
       }
       const phase: LanePhase = this.waitingFor(lane.track.id) ? 'waiting' : 'analysing';

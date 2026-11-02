@@ -111,6 +111,17 @@ describe('the table (one place for 287)', () => {
       document.documentElement.dataset.letterKeys = 'jkadx';
       handle(key('d'));
       expect(djKey).not.toHaveBeenCalled();
+      // ... but not under the Visuals overlay, which covers the page (review M4)
+      document.body.insertAdjacentHTML('beforeend', '<div id="np-modal-overlay"></div>');
+      const d2 = key('d');
+      handle(d2);
+      expect(djKey).toHaveBeenCalledWith('D');
+      expect(d2.defaultPrevented).toBe(true);
+      document.getElementById('np-modal-overlay')!.classList.add('hidden');
+      djKey.mockClear();
+      handle(key('d'));
+      expect(djKey).not.toHaveBeenCalled();
+      document.getElementById('np-modal-overlay')!.remove();
     } finally {
       delete document.documentElement.dataset.letterKeys;
       delete w.SoulSyncDj;

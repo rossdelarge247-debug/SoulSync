@@ -123,6 +123,8 @@ export interface LaneGrid {
   confident: boolean;
   /** only the first part was analysed (a long file) */
   truncated: boolean;
+  /** how far the analysis read (a long file: its first part), seconds */
+  analysedS: number | null;
 }
 
 export function laneGrid(api: LaneApiGrid | null | undefined): LaneGrid | null {
@@ -141,6 +143,7 @@ export function laneGrid(api: LaneApiGrid | null | undefined): LaneGrid | null {
     meter: api.downbeats?.meter ?? '4/4',
     confident: api.grid?.confident !== false,
     truncated: Boolean(api.truncated),
+    analysedS: typeof api.analysed_s === 'number' && api.analysed_s > 0 ? api.analysed_s : null,
   };
 }
 
@@ -170,6 +173,12 @@ export interface MapSpan {
 
 export interface BeatMapLayout {
   bars: number;
+  /**
+   * A long file only had its first part analysed: where that part ends,
+   * across the lane; the ticks after it follow the grid on (CONTRACTS: a
+   * constant grid runs on past the analysed part), marked as such.
+   */
+  analysedTo: number | null;
   ticks: BeatTick[];
   /** the mix-in and mix-out regions (dashed amber) */
   mixIn: MapSpan | null;
@@ -203,8 +212,10 @@ export function beatMap(g: LaneGrid, duration: number, view?: LaneView): BeatMap
   const v = view ?? { start: 0, end: duration };
   const w = v.end - v.start;
   const ticks: BeatTick[] = [];
+  // a truncated grid runs on to the file's end (review L6); otherwise its own bars
+  const last = g.truncated && g.bars > 0 ? barsWithin(g, duration) : g.bars;
   if (w > 0 && g.bars > 0) {
-    for (let i = 0; i < g.bars; i += 1) {
+    for (let i = 0; i < last; i += 1) {
       const t = g.grid.barTime(i);
       if (t < v.start - 1e-6 || t > v.end + 1e-6 || t > duration + 1e-6) continue;
       const bar = i + 1;
@@ -222,7 +233,30 @@ export function beatMap(g: LaneGrid, duration: number, view?: LaneView): BeatMap
     const span = spanOf(s.start, s.end, v);
     if (span) sections.push({ ...span, kind: s.kind });
   }
-  return { bars: g.bars, ticks, mixIn: region(g.mixIn), mixOut: region(g.mixOut), sections };
+  const analysedTo =
+    g.truncated && g.analysedS !== null && g.analysedS < duration && w > 0
+      ? clamp01((g.analysedS - v.start) / w)
+      : null;
+  return {
+    bars: g.bars,
+    analysedTo,
+    ticks,
+    mixIn: region(g.mixIn),
+    mixOut: region(g.mixOut),
+    sections,
+  };
+}
+
+/** How many bars start within the file, following the grid on. */
+export function barsWithin(g: LaneGrid, duration: number): number {
+  let n = g.bars;
+  while (n < 10_000 && g.grid.barTime(n) <= duration + 1e-6) n += 1;
+  return n;
+}
+
+/** The mix-out has been reached at `t` (said once, 37p). */
+export function inMixOut(g: LaneGrid | null, t: number): boolean {
+  return Boolean(g?.mixOut && t >= g.mixOut.start);
 }
 
 /** The 0-based bar playing at `t` (before the first downbeat: −1). */
@@ -256,6 +290,9 @@ export function clock(seconds: number | null | undefined): string {
  * "in the mix-out".
  */
 export function laneLine(g: LaneGrid, t: number): string {
+  // past a long file's analysed part the bars aren't known: say so, not a wrong bar
+  if (g.truncated && g.analysedS !== null && t >= g.analysedS)
+    return `past the analysed part (the first ${clock(g.analysedS)})`;
   const parts = [`bar ${barAt(g, t)} of ${g.bars}`];
   const inDrop = g.sections.find((s) => s.kind === 'drop' && s.start <= t && t < s.end);
   const nextDrop = g.sections.find((s) => s.kind === 'drop' && s.start > t);
@@ -288,6 +325,8 @@ export function beatMapWords(g: LaneGrid): string {
   const parts = [`${g.bars} bars, a phrase every ${PHRASE_BARS}`];
   if (g.mixIn) parts.push(`mix-in bars ${g.mixIn.start_bar + 1} to ${g.mixIn.end_bar}`);
   if (g.mixOut) parts.push(`mix-out bars ${g.mixOut.start_bar + 1} to ${g.mixOut.end_bar}`);
+  if (g.truncated && g.analysedS !== null)
+    parts.push(`the first ${clock(g.analysedS)} analysed, the grid carried on after it`);
   const kinds = g.sections.map((s) => s.kind);
   if (kinds.length) parts.push(`sections: ${kinds.join(', ')}`);
   return `Beat map: ${parts.join('; ')}`;

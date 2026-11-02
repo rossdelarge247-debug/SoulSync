@@ -18,7 +18,15 @@
  * lane strip and zoom pill take the lane's `strip` and `lineEnd` slots, and
  * zoom passes a `view` to `beatMap` (dj-mode.logic.ts).
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 
 import type { Drag, DropTarget } from '@/features/dnd/dnd-engine';
 import type { DragItem } from '@/features/dnd/dnd-model';
@@ -40,7 +48,7 @@ import {
   laneLine,
   laneVerdict,
   noGridWords,
-  phraseAt,
+  inMixOut,
   type LaneGrid,
 } from './dj-mode.logic';
 import styles from './dj-mode.module.css';
@@ -143,6 +151,13 @@ function GridRows({ grid, duration }: { grid: LaneGrid; duration: number }) {
               left: `${layout.mixOut.x0 * 100}%`,
               width: `${(layout.mixOut.x1 - layout.mixOut.x0) * 100}%`,
             }}
+          />
+        ) : null}
+        {layout.analysedTo !== null ? (
+          <span
+            className={styles.beyond}
+            data-dj-beyond=""
+            style={{ left: `${layout.analysedTo * 100}%` }}
           />
         ) : null}
         {layout.ticks.map((t) => (
@@ -289,71 +304,92 @@ function NoGrid({
 /* ── lane A: the player's track ───────────────────────────────────────── */
 
 /**
- * The playhead and the elapsed time follow the player's element every frame
- * (written straight to the page, no render); the line is worked out again
- * once a phrase, and on a seek that changes the phrase (37p).
+ * The playhead follows the player's element every frame, and the elapsed
+ * time and the line in words every second (review M2), written straight to
+ * the page, no render. The line isn't a live region (it would talk every
+ * phrase, review M3): the group points at it with `aria-describedby`, and
+ * the one change of state it shows, the mix-out reached, is said once.
  */
 function usePlayhead(
   lane: LaneState,
-  waveRef: React.RefObject<HTMLDivElement | null>,
-  timeRef: React.RefObject<HTMLSpanElement | null>,
-): number {
-  const [at, setAt] = useState(() => playerAudio()?.currentTime ?? 0);
-  const grid = lane.grid;
-  const known = lane.duration;
+  duration: number,
+  refs: {
+    wave: React.RefObject<HTMLDivElement | null>;
+    time: React.RefObject<HTMLSpanElement | null>;
+    line: React.RefObject<HTMLParagraphElement | null>;
+  },
+  announce: (words: string) => void,
+): void {
+  const grid = lane.phase === 'ready' ? lane.grid : null;
+  const title = lane.track.title;
+  const sayRef = useRef(announce);
+  sayRef.current = announce;
   useEffect(() => {
     let id = 0;
-    let phrase = Number.NaN;
-    let second = -1;
+    let second = Number.NaN;
+    let mixOut: boolean | null = null;
     const tick = () => {
       const el = playerAudio();
       const t = el?.currentTime ?? 0;
-      const d = known || (el && Number.isFinite(el.duration) ? el.duration : 0) || 0;
-      waveRef.current?.style.setProperty(
+      const d = duration || (el && Number.isFinite(el.duration) ? el.duration : 0) || 0;
+      refs.wave.current?.style.setProperty(
         '--played',
         d > 0 ? String(Math.min(1, Math.max(0, t / d))) : '0',
       );
       const s = Math.floor(t);
-      if (s !== second && timeRef.current) {
+      if (s !== second) {
         second = s;
-        timeRef.current.textContent = clock(t);
-      }
-      const p = grid ? phraseAt(grid, t) : -2;
-      if (p !== phrase) {
-        phrase = p;
-        setAt(t);
+        if (refs.time.current) refs.time.current.textContent = clock(t);
+        const words = grid && d > 0 ? laneLine(grid, t) : '';
+        if (refs.line.current && refs.line.current.textContent !== words)
+          refs.line.current.textContent = words;
+        const now = inMixOut(grid, t);
+        // said when it's reached while playing, not when the lane opens past it
+        if (mixOut === false && now) sayRef.current(`${title || 'Deck A'}: mix-out reached`);
+        mixOut = now;
       }
       id = window.requestAnimationFrame(tick);
     };
     tick();
     return () => window.cancelAnimationFrame(id);
-  }, [grid, known, waveRef, timeRef]);
-  return at;
+  }, [grid, duration, title, refs]);
+}
+
+/** A's length: the peaks', else the track's, else the player's element (review L7). */
+function laneDuration(lane: LaneState, fromPlayer: boolean): number {
+  if (lane.duration) return lane.duration;
+  if (!fromPlayer) return 0;
+  const d = playerAudio()?.duration;
+  return d && Number.isFinite(d) ? d : 0;
 }
 
 function LaneA({
   lane,
+  store,
   strip,
   lineEnd,
 }: {
   lane: LaneState;
+  store: DjModeStore;
   strip?: ReactNode;
   lineEnd?: ReactNode;
 }) {
-  const waveRef = useRef<HTMLDivElement>(null);
-  const timeRef = useRef<HTMLSpanElement>(null);
-  const at = usePlayhead(lane, waveRef, timeRef);
-  const duration = lane.duration ?? 0;
+  const wave = useRef<HTMLDivElement>(null);
+  const time = useRef<HTMLSpanElement>(null);
+  const lineEl = useRef<HTMLParagraphElement>(null);
+  const refs = useMemo(() => ({ wave, time, line: lineEl }), []);
+  const lineId = useId();
+  const duration = laneDuration(lane, true);
+  usePlayhead(lane, duration, refs, (w) => store.announce(w));
   const ready = lane.phase === 'ready' && lane.grid && duration > 0;
-  const line = ready ? laneLine(lane.grid!, at) : null;
-  const name = laneGroupName('A', lane.track.title, 'playing', line);
   return (
     <section
       className={styles.lane}
       data-deck="a"
       data-dj-lane="a"
       role="group"
-      aria-label={name}
+      aria-label={laneGroupName('A', lane.track.title, 'playing')}
+      aria-describedby={lineId}
       tabIndex={0}
     >
       <LaneHead
@@ -362,17 +398,16 @@ function LaneA({
         label="A · playing · the player’s track"
         // the elapsed time is written each second by usePlayhead, not rendered
         time=""
-        timeRef={timeRef}
+        timeRef={time}
         strip={strip}
       />
-      <Waveform peaks={lane.peaks} playhead waveRef={waveRef} />
+      <Waveform peaks={lane.peaks} playhead waveRef={wave} />
       {ready ? <GridRows grid={lane.grid!} duration={duration} /> : null}
       {lane.phase === 'analysing' || lane.phase === 'waiting' ? <Analysing lane={lane} /> : null}
       {lane.phase === 'no_grid' ? <NoGrid lane={lane} /> : null}
       <div className={styles.foot}>
-        <p className={styles.line} aria-live="polite" data-dj-line="a">
-          {line ?? ''}
-        </p>
+        {/* written each second by usePlayhead */}
+        <p ref={lineEl} id={lineId} className={styles.line} data-dj-line="a" />
         {lineEnd}
       </div>
     </section>
@@ -395,12 +430,16 @@ function laneTarget(store: DjModeStore, el: () => HTMLElement | null): DropTarge
       const item = drag.items[0];
       if (!item) return null;
       const before: LaneTrack | null = store.snapshot().b?.track ?? null;
-      if (!store.loadB(item)) return null;
+      if (!store.loadB(item, { announce: false })) return null;
       return {
         words: `${item.title || 'The track'} loaded as B, cued`,
+        // a failed Undo says so (the engine's toast shows the error, review L8)
         undo: () => {
-          if (before) store.loadB(before);
-          else store.removeB();
+          if (!store.snapshot().on) throw new Error('Can’t undo: DJ mode is off');
+          if (before) {
+            if (!store.loadB(before, { announce: false }))
+              throw new Error(`Can’t undo: ${before.title || 'that track'} is playing now`);
+          } else store.removeB();
         },
         focus: () => el()?.focus(),
       };
@@ -471,7 +510,12 @@ function LaneB({
   const dragState = over ? (over.verdict.ok ? 'over' : 'invalid') : verdict?.ok ? 'lit' : undefined;
   const aTitle = s.a?.track.title || 'the playing track';
   const browse = s.browse ? () => store.openBrowse() : null;
-  const remove = () => store.removeB();
+  const lineId = useId();
+  // the Remove button goes with the track: the focus stays in the lane (review L3)
+  const remove = () => {
+    store.removeB();
+    window.setTimeout(() => ref.current?.focus(), 0);
+  };
 
   let body: ReactNode;
   if (over) {
@@ -536,7 +580,7 @@ function LaneB({
           <NoGrid lane={lane} onBrowse={browse} onRemove={remove} />
         ) : null}
         <div className={styles.foot}>
-          <p className={styles.line} aria-live="polite" data-dj-line="b">
+          <p id={lineId} className={styles.line} data-dj-line="b">
             {line}
           </p>
           {lineEnd}
@@ -544,14 +588,7 @@ function LaneB({
       </>
     );
   }
-  const name = lane
-    ? laneGroupName(
-        'B',
-        lane.track.title,
-        'cued',
-        lane.phase === 'ready' && lane.grid ? cuedLine(lane.grid) : null,
-      )
-    : laneGroupName('B', null, '');
+  const name = lane ? laneGroupName('B', lane.track.title, 'cued') : laneGroupName('B', null, '');
   return (
     <section
       ref={ref}
@@ -562,6 +599,7 @@ function LaneB({
       data-dnd-target={LANE_B_TARGET}
       role="group"
       aria-label={lane ? name : 'Deck B, empty: drag a track here'}
+      aria-describedby={lane && !over ? lineId : undefined}
       // with Browse there, it takes the focus in the lane's place (37p)
       tabIndex={lane || !s.browse ? 0 : -1}
     >
@@ -605,7 +643,7 @@ export function DjStage({
     <div className={styles.stage} data-dj-stage="" aria-label="DJ mode">
       <div className={styles.lanes}>
         {s.a ? (
-          <LaneA lane={s.a} strip={slots.strip?.a} lineEnd={slots.lineEnd?.a} />
+          <LaneA lane={s.a} store={store} strip={slots.strip?.a} lineEnd={slots.lineEnd?.a} />
         ) : (
           <section className={styles.lane} data-deck="a" role="group" aria-label="Deck A, empty" />
         )}

@@ -20,7 +20,7 @@ import { useDriveStatusStore } from '@/features/drives/drive-status';
 
 import type { DjModeStore } from './dj-mode-store';
 
-import { djModeStore, PHONE_QUERY } from './dj-mode-store';
+import { djModeStore, PHONE_LANDSCAPE_QUERY, PHONE_QUERY } from './dj-mode-store';
 import { headerLine, LYRICS_WAIT } from './dj-mode.logic';
 
 export interface SoulSyncDjBridge {
@@ -139,7 +139,14 @@ export function mountDjMode(win: Window = window): DjModeStore {
     if (!overlayOpen(doc)) return;
     setTimeout(() => {
       if (!lost()) return;
-      doc.getElementById(on ? 'np-v2-visuals-dj-back' : 'np-v2-visuals-dj-btn')?.focus();
+      if (on) {
+        doc.getElementById('np-v2-visuals-dj-back')?.focus();
+        return;
+      }
+      // turned off because it isn't offered any more, its button is gone too:
+      // the overlay's own close takes the focus (review L4)
+      const btn = doc.getElementById('np-v2-visuals-dj-btn');
+      (btn && !btn.hidden ? btn : doc.getElementById('np-v2-visuals-exit'))?.focus();
     }, 0);
   };
   cleanups.push(store.subscribe(sync));
@@ -148,9 +155,12 @@ export function mountDjMode(win: Window = window): DjModeStore {
   win.addEventListener('ss:player', refresh);
   cleanups.push(() => win.removeEventListener('ss:player', refresh));
   cleanups.push(useDriveStatusStore.subscribe(refresh));
-  const phone = win.matchMedia?.(PHONE_QUERY);
-  phone?.addEventListener?.('change', refresh);
-  cleanups.push(() => phone?.removeEventListener?.('change', refresh));
+  // a phone upright or on its side (review L9)
+  for (const q of [PHONE_QUERY, PHONE_LANDSCAPE_QUERY]) {
+    const mq = win.matchMedia?.(q);
+    mq?.addEventListener?.('change', refresh);
+    cleanups.push(() => mq?.removeEventListener?.('change', refresh));
+  }
 
   const overlay = overlayOf(doc);
   if (overlay) {

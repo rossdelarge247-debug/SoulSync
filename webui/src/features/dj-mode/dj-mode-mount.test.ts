@@ -137,6 +137,23 @@ describe('the toggle (37a)', () => {
   });
 });
 
+describe('focus when it turns itself off (review L4)', () => {
+  it('its button gone with it, the overlay’s close takes the focus', async () => {
+    player(FERRY);
+    overlay().classList.remove('hidden');
+    await tick();
+    window.SoulSyncDj!.key('D');
+    await tick();
+    expect(document.activeElement).toBe($('np-v2-visuals-dj-back'));
+    // radio starts: DJ mode isn't offered, so it turns off and its button hides
+    player({ title: 'NTS 1', is_library: false, kind: 'radio' }, 'radio');
+    expect(window.SoulSyncDj!.on()).toBe(false);
+    expect($('np-v2-visuals-dj-btn').hidden).toBe(true);
+    await tick();
+    expect(document.activeElement).toBe($('np-v2-visuals-exit'));
+  });
+});
+
 describe('the keys (37p)', () => {
   it('D in the overlay turns it on and off; not offered, the key is the page’s', async () => {
     overlay().classList.remove('hidden');

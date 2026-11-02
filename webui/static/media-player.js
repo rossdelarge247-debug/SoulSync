@@ -3076,7 +3076,11 @@ function handlePlayerKeyboardShortcuts(event) {
     // (html[data-letter-keys], e.g. the Import inbox's j k a d x): those
     // letters are the page's there; Space, the arrows and shifted keys stay
     // the player's
-    const claimed = document.documentElement && document.documentElement.dataset
+    // ... except under the Visuals overlay, which covers the page: there the
+    // letters are the player's (DJ mode's D, review M4)
+    const npOverlay = document.getElementById('np-modal-overlay');
+    const overlayUp = Boolean(npOverlay && !npOverlay.classList.contains('hidden'));
+    const claimed = !overlayUp && document.documentElement && document.documentElement.dataset
         ? (document.documentElement.dataset.letterKeys || '') : '';
     if (claimed && !event.shiftKey && typeof event.key === 'string' && event.key.length === 1 &&
         claimed.toLowerCase().includes(event.key.toLowerCase())) return;

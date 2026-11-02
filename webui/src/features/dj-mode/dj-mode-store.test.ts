@@ -36,7 +36,7 @@ const flush = async () => {
   await new Promise((r) => setTimeout(r, 0));
 };
 
-function fake(): Fake {
+function fake(extra: { now?: () => number } = {}): Fake {
   const calls: string[] = [];
   const grids: Fake['grids'] = {
     '2': apiGrid({ track_id: '2' }),
@@ -103,6 +103,7 @@ function fake(): Fake {
     phone: () => phone.on,
     libraryAway: () => away.on,
     say: (w) => said.push(w),
+    ...extra,
   });
   return {
     store,
@@ -252,6 +253,16 @@ describe('lane B', () => {
     expect(f.said.at(-1)).toBe('Harbour Lights removed');
   });
 
+  it('a load is said once; a caller that says it itself (a drop’s toast) keeps it quiet (review M3)', () => {
+    const f = fake();
+    f.store.setOn(true);
+    f.said.length = 0;
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    expect(f.said).toEqual(['Harbour Lights loaded as B, cued']);
+    f.store.loadB({ id: '9', title: 'Low Orbit', inLibrary: true }, { announce: false });
+    expect(f.said).toEqual(['Harbour Lights loaded as B, cued']);
+  });
+
   it('laneTrackFromItem reads the queue record the drag carries', () => {
     expect(
       laneTrackFromItem({
@@ -311,7 +322,33 @@ describe('analysis on open and on load (37e, 37d; 420)', () => {
     expect(a.phase).toBe('ready');
     expect(a.grid?.bars).toBe(142);
     expect(f.watching).toEqual([]);
-    expect(f.said).toContain('Night Ferry analysed');
+    // ready is said once, by Brief A's line ("… is ready to mix"), not here too (review L2)
+    expect(f.said.filter((w) => /analysed|ready/.test(w))).toEqual([]);
+  });
+
+  it('analysed with no grid to blend on: said once, with the reason', async () => {
+    const f = fake();
+    f.grids['2'] = { track_id: '2', analyzed: false, reason: 'not_analyzed' };
+    f.store.setOn(true);
+    await flush();
+    f.grids['2'] = { track_id: '2', analyzed: false, reason: 'no_beat' };
+    f.entries.set('2', { state: 'done', ready: false, beat: 'no_beat' });
+    f.emit();
+    await flush();
+    expect(f.store.snapshot().a).toMatchObject({ phase: 'no_grid', reason: 'no_beat' });
+    expect(f.said.at(-1)).toBe('Night Ferry has no steady beat: Sync is off, blend by ear');
+  });
+
+  it('D off and on again doesn’t ask for the same track twice (review M1)', async () => {
+    const f = fake();
+    f.grids['2'] = { track_id: '2', analyzed: false, reason: 'not_analyzed' };
+    f.store.setOn(true);
+    await flush();
+    f.store.setOn(false);
+    f.store.setOn(true);
+    await flush();
+    expect(f.analysed).toEqual([['2']]);
+    expect(f.store.snapshot().a?.phase).toBe('analysing');
   });
 
   it('a drive that’s away: Waiting, and the analysis carries on when it’s back', async () => {
@@ -385,5 +422,166 @@ describe('a drag’s drop line (37c)', () => {
     expect(f.store.readinessOf('8', known)).toBe(true);
     f.entries.set('9', { state: 'done', ready: false });
     expect(f.store.readinessOf('9', known)).toBe(false);
+  });
+
+  it('a failed lookup isn’t kept; answers are forgotten on Back and after a minute (review L5)', async () => {
+    let now = 1_000;
+    const f = fake({ now: () => now });
+    delete f.grids['8'];
+    const known = vi.fn();
+    expect(f.store.readinessOf('8', known)).toBeNull();
+    await flush();
+    expect(known).toHaveBeenCalledTimes(1);
+    // the read failed: the next look asks again, and this time it answers
+    f.grids['8'] = apiGrid({ track_id: '8' });
+    expect(f.store.readinessOf('8', known)).toBeNull();
+    await flush();
+    expect(f.store.readinessOf('8', known)).toBe(true);
+    // a minute on, the grid may have changed: asked again
+    f.grids['8'] = { track_id: '8', analyzed: false, reason: 'no_beat' };
+    now += 61_000;
+    expect(f.store.readinessOf('8', known)).toBeNull();
+    await flush();
+    expect(f.store.readinessOf('8', known)).toBe(false);
+    // Back forgets them all
+    f.store.setOn(true);
+    f.store.back();
+    f.grids['8'] = apiGrid({ track_id: '8' });
+    expect(f.store.readinessOf('8', known)).toBeNull();
+  });
+});
+
+describe('a phone on its side (review L9)', () => {
+  it('isn’t offered DJ mode either', async () => {
+    const { isPhone } = await import('./dj-mode-store');
+    const win = (q: string[]) =>
+      ({ matchMedia: (m: string) => ({ matches: q.includes(m) }) }) as unknown as Window;
+    expect(isPhone(win([]))).toBe(false);
+    expect(isPhone(win(['(max-width: 768px)']))).toBe(true);
+    expect(isPhone(win(['(orientation: landscape) and (max-height: 500px)']))).toBe(true);
+  });
+});
+
+/* ── the review's probes (3d51f799): a grid read still on its way ───── */
+
+function pending(track: { id: string }) {
+  let t: Record<string, unknown> = {
+    ...track,
+    title: 'T' + track.id,
+    is_library: true,
+    filename: '/x.flac',
+  };
+  (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+    state: () => ({ track: t, kind: 'library' }),
+  };
+  const watching: string[] = [];
+  const subs = new Set<() => void>();
+  const entries = new Map<string, AnalysisEntry>();
+  const gridCalls: string[] = [];
+  const resolvers: ((r: Response) => void)[] = [];
+  const store = new DjModeStore({
+    win: window,
+    fetch: (async (url: string) => {
+      if (url.includes('/dj/grid/')) {
+        gridCalls.push(url);
+        return new Promise<Response>((res) => resolvers.push(res));
+      }
+      return new Response('{}');
+    }) as unknown as (u: string) => Promise<Response>,
+    analyse: () => undefined,
+    analysis: {
+      watch: (ids) => {
+        watching.push(...ids);
+        return () => ids.forEach((id) => watching.splice(watching.indexOf(id), 1));
+      },
+      entry: (id) => entries.get(id),
+      subscribe: (fn) => {
+        subs.add(fn);
+        return () => subs.delete(fn);
+      },
+    },
+    phone: () => false,
+    say: () => undefined,
+  });
+  const answer = (body: unknown) => resolvers.shift()!(new Response(JSON.stringify(body)));
+  return {
+    store,
+    watching,
+    subs,
+    entries,
+    gridCalls,
+    answer,
+    resolvers,
+    setTrack: (x: Record<string, unknown>) => {
+      t = { ...t, ...x };
+    },
+  };
+}
+const NOT_YET = (id: string) => ({
+  grid: { track_id: id, analyzed: false, reason: 'not_analyzed' },
+});
+
+describe('a grid read on its way (review L1 and the test gaps)', () => {
+  it('Back mid-analysis releases the watch and the listener', async () => {
+    const f = pending({ id: '1' });
+    f.store.setOn(true);
+    f.answer(NOT_YET('1'));
+    await flush();
+    expect(f.watching).toEqual(['1']);
+    expect(f.subs.size).toBe(1);
+    f.store.back();
+    expect(f.watching).toEqual([]);
+    expect(f.subs.size).toBe(0);
+  });
+
+  it('closing the overlay mid-analysis releases them too', async () => {
+    const f = pending({ id: '1' });
+    f.store.setOpen(true);
+    f.store.setOn(true);
+    f.answer(NOT_YET('1'));
+    await flush();
+    f.store.setOpen(false);
+    expect(f.watching).toEqual([]);
+    expect(f.subs.size).toBe(0);
+  });
+
+  it('polls before the grid answers ask for it once (L1)', async () => {
+    const f = pending({ id: '1' });
+    f.store.setOn(true);
+    f.answer(NOT_YET('1'));
+    await flush();
+    f.entries.set('1', { state: 'done', ready: true });
+    f.subs.forEach((fn) => fn());
+    f.subs.forEach((fn) => fn());
+    f.subs.forEach((fn) => fn());
+    expect(f.gridCalls.length).toBe(2);
+    // it answers: ready, and nothing more is asked
+    f.answer({ grid: apiGrid({ track_id: '1' }) });
+    await flush();
+    expect(f.store.snapshot().a?.phase).toBe('ready');
+    expect(f.subs.size).toBe(0);
+  });
+
+  it('a track change mid-analysis: the old watch is released, the old answer ignored', async () => {
+    const f = pending({ id: '1' });
+    f.store.setOn(true);
+    const old = f.resolvers.shift()!;
+    f.setTrack({ id: '2', title: 'T2' });
+    f.store.refresh();
+    old(new Response(JSON.stringify(NOT_YET('1'))));
+    await flush();
+    expect(f.watching).toEqual([]);
+    expect(f.store.snapshot().a?.track.id).toBe('2');
+    expect(f.store.snapshot().a?.phase).toBe('loading');
+  });
+
+  it('the failed path: a grid read that fails says it couldn’t be read, and watches nothing', async () => {
+    const f = pending({ id: '1' });
+    f.store.setOn(true);
+    f.resolvers.shift()!(new Response('{}', { status: 500 }));
+    await flush();
+    expect(f.store.snapshot().a).toMatchObject({ phase: 'no_grid', reason: 'error' });
+    expect(f.watching).toEqual([]);
+    expect(f.subs.size).toBe(0);
   });
 });

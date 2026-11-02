@@ -5,7 +5,9 @@ import type { DragItem } from '@/features/dnd/dnd-model';
 import { apiGrid } from './dj-mode.fixtures';
 import {
   barAt,
+  barsWithin,
   beatMap,
+  inMixOut,
   beatMapWords,
   clock,
   cuedLine,
@@ -346,5 +348,27 @@ describe('the analysis popover names DJ mode', () => {
     });
     expect(whyWords(e('you'))).toBe('DJ mode');
     expect(whyWords(e('Mira K.'))).toBe("Mira's DJ mode");
+  });
+});
+
+describe('a long file analysed in part (review L6)', () => {
+  const g = laneGrid(apiGrid({ bars: 60, truncated: true, analysed_s: 121, mix_out: null }))!;
+
+  it('the ticks follow the grid on to the file’s end, and the analysed part’s end is marked', () => {
+    const map = beatMap(g, 286);
+    expect(barsWithin(g, 286)).toBe(143);
+    expect(map.ticks).toHaveLength(143);
+    expect(map.analysedTo).toBeCloseTo(121 / 286, 6);
+    // a whole grid has no marker and stops at its own bars
+    expect(beatMap(laneGrid(apiGrid())!, 286).analysedTo).toBeNull();
+  });
+
+  it('the line says past the analysed part, not a wrong bar; the mix-out is reached once', () => {
+    expect(laneLine(g, 100)).toBe('bar 50 of 60 · drop in 1:01');
+    expect(laneLine(g, 130)).toBe('past the analysed part (the first 2:01)');
+    const whole = laneGrid(apiGrid())!;
+    expect(inMixOut(whole, 240)).toBe(false);
+    expect(inMixOut(whole, 241)).toBe(true);
+    expect(inMixOut(null, 999)).toBe(false);
   });
 });

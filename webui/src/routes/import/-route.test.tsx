@@ -897,6 +897,29 @@ describe('import route', () => {
       expect(document.documentElement.dataset.letterKeys).toBeUndefined();
     });
 
+    it('under the Visuals overlay the inbox’s letters go quiet, so D is DJ mode’s, not Dismiss', async () => {
+      const { unmount } = renderImportRoute(['/import?filter=all']);
+      await screen.findAllByTestId('import-inbox-row');
+      const overlay = document.createElement('div');
+      overlay.id = 'np-modal-overlay';
+      document.body.appendChild(overlay);
+      try {
+        fireEvent.keyDown(window, { key: 'j' });
+        fireEvent.keyDown(window, { key: 'x' });
+        fireEvent.keyDown(window, { key: 'd' });
+        expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        // closed again, the letters are the inbox's
+        overlay.classList.add('hidden');
+        fireEvent.keyDown(window, { key: 'j' });
+        fireEvent.keyDown(window, { key: 'x' });
+        expect(screen.getByText('1 selected')).toBeInTheDocument();
+      } finally {
+        overlay.remove();
+        unmount();
+      }
+    });
+
     it('keyboard shortcuts stay out of text fields', async () => {
       renderImportRoute(['/import/match/hash-1']);
       const input = await screen.findByPlaceholderText('Artist and album');
