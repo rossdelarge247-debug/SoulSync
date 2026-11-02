@@ -25,7 +25,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Analyse on demand, with progress | Built | [below](#analyse-on-demand-with-progress) |
 | A playlist into a set for mixing (Order for mixing) | Ready for Design | [below](#a-playlist-into-a-set-for-mixing-order-for-mixing) |
 
-**Mixing is paused pending Ross's rethink (30 October):** the Mix tab (hidden behind Settings → Library → DJ's "Show the Mix tab", off by default; HANDOFF "Dev, Mix tab hidden while Ross rethinks mixing of 30 October"), DJ now (step 5), Beat This! (grid v6, on `feat/grid-beatthis`) and Analyse now first (on `fix/analyse-now-first`) wait for it. Sets, Up next, Between tracks (Off / Auto mix), Play as a mix and the background analysis carry on as built.
+**Mixing is paused pending Ross's rethink (30 October; widened 2 November):** Design is rethinking it as a much simpler "DJ mode". Meanwhile every mixing feature hides behind Settings → Library → DJ's "Show the mixing features" (`library.dj_show_mix_tab`, off by default): the Mix tab, Sets (with Play as a mix, Add to set…, Send to… and the working set), Between tracks / Auto mix (not even loaded while hidden) and the player's analysis line and top bar count (HANDOFF "Dev, Mix tab hidden while Ross rethinks mixing of 30 October" and "Dev, the player calmed: mixing features hidden, Tracks cleaned up of 2 November"). Nothing is deleted: turned on, they're back as built. DJ now (step 5), Beat This! (grid v6, on `feat/grid-beatthis`) and Analyse now first (on `fix/analyse-now-first`) wait for the rethink. The background analysis, BPM and key, Tracks and Export to Traktor carry on; Tracks lost its Energy column and per-track analysis marker for good.
 
 ---
 
