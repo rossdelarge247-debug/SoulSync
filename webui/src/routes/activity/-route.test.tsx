@@ -441,8 +441,9 @@ describe('activity route', () => {
         id: 'library-job:3',
         kind: 'library',
         status: 'running',
-        title: 'Working out BPM, key and energy',
-        detail: '3 tracks · 1 done',
+        // 38g: the job names why it runs (core/activity/feed.py)
+        title: 'Analysing your library',
+        detail: '1 of 3 · for Export to Traktor',
         link: '/library?view=tracks',
         ref: { job_id: 3, stop_path: 'library/dj/stop', dj_progress: true },
       });
@@ -475,6 +476,8 @@ describe('activity route', () => {
         ),
       );
       await renderPage();
+      expect(await screen.findByText('Analysing your library')).toBeTruthy();
+      expect(screen.getByText(/1 of 3 · for Export to Traktor/)).toBeTruthy();
       // Brief A's line: the track and its step, the bar filled to it, and the sweep's progress
       const words = await screen.findByText(
         'Analysing Static Bloom · beat grid (5 of 6) · Finding beats · 1 of 3',
