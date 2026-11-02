@@ -250,7 +250,8 @@ export function lineView(
       if (entry.ready === false) return bpmKey;
       return {
         tone: 'ready',
-        sentence: 'Ready to mix · beat grid and phrases',
+        // 38g: "analysed", not "ready to mix", while the mixing features are hidden
+        sentence: `${mixTabShown() ? 'Ready to mix' : 'Analysed'} · beat grid and phrases`,
         step: null,
         action: null,
       };
@@ -421,9 +422,13 @@ export function pending(entry: AnalysisEntry | null | undefined): boolean {
   return Boolean(entry && entry.state !== 'done' && entry.state !== 'failed');
 }
 
-/** "Canopy is ready to mix" (31a, state 10): said once, held 4 s. */
+/**
+ * "Canopy is ready to mix" (31a, state 10): said once, held 4 s; "Canopy is
+ * analysed" while the mixing features are hidden (38g).
+ */
 export function readyWords(title: string | null | undefined): string {
-  return title ? `${title} is ready to mix` : 'Ready to mix';
+  const word = mixTabShown() ? 'ready to mix' : 'analysed';
+  return title ? `${title} is ${word}` : word[0].toUpperCase() + word.slice(1);
 }
 
 /* ── the topbar's count and its popover (31b, 31c, 31f) ─────────────── */

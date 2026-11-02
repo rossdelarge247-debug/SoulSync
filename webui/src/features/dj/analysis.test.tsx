@@ -8,6 +8,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { resetMixTabForTests } from '@/features/mix/mix-visibility';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -57,7 +58,10 @@ const answer = (over: Partial<AnalyseAnswer> = {}): AnalyseAnswer => ({
   ...over,
 });
 
+// Brief A's words as drawn, with the mixing features shown ("ready to
+// mix"); hidden (the default) they say "analysed" (38g), tested below
 beforeEach(() => {
+  resetMixTabForTests(true);
   resetAnalysisRequests();
   analysisStore.reset();
 });
@@ -65,6 +69,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   analysisStore.reset();
+  resetMixTabForTests();
 });
 
 const admin = { admin: true };
@@ -251,6 +256,13 @@ describe("the words (Brief A, 31a's states)", () => {
       "Can't be beat-matched · not in 4/4 · echo out or cut",
     );
     expect(readyWords('Canopy')).toBe('Canopy is ready to mix');
+  });
+
+  it('38g: with the mixing features hidden, a done track is "analysed", not "ready to mix"', () => {
+    resetMixTabForTests(false);
+    expect(readyWords('Canopy')).toBe('Canopy is analysed');
+    expect(readyWords(null)).toBe('Analysed');
+    expect(line({ state: 'done' }).sentence).toBe('Analysed · beat grid and phrases');
   });
 
   it('the row marker: two words, the sweep’s own order says what it has (334)', () => {
@@ -521,7 +533,7 @@ describe('asking', () => {
     server.use(
       http.post('/api/library/dj/analyse', () =>
         HttpResponse.json(
-          { success: false, code: 'off', error: 'Working out BPM, key and energy is off' },
+          { success: false, code: 'off', error: 'Working out BPM and key is off' },
           { status: 409 },
         ),
       ),
