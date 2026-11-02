@@ -1193,3 +1193,68 @@ describe('the "…" menu keeps what the old page did', () => {
     }
   });
 });
+
+describe('library tracks: no BPM or key under a title (Ross, 2 November)', () => {
+  // the library's DJ data for Ferry One; the drag still carries it, the row doesn't show it
+  const withDj = () =>
+    fixture.handlers.push((call) =>
+      call.path === '/api/library/dj/tracks'
+        ? json({
+            success: true,
+            tracks: {
+              t1: {
+                bpm: 124,
+                bpm_source: 'tag',
+                key: '8A',
+                key_name: 'Am',
+                key_long: 'A minor',
+                key_source: 'tag',
+                key_uncertain: false,
+                analyzed: true,
+              },
+            },
+          })
+        : undefined,
+    );
+
+  const expectCalm = async () => {
+    const row = (await screen.findByText('Ferry One')).closest('li')!;
+    // the DJ data has landed (for the drag) before the row is read
+    await waitFor(() => expect(callsTo('/api/library/dj/tracks', 'POST')).toHaveLength(1));
+    await waitFor(() => expect(row.textContent).not.toMatch(/BPM|8A/));
+    expect(row.querySelector('[data-dj-meta]')).toBeNull();
+    // the phone's meta line: duration and format, with no stray separator
+    const metas = [...row.querySelectorAll('[class*="rowMeta"]')].map((m) => m.textContent);
+    expect(metas).toEqual(['3:20 · FLAC']);
+  };
+
+  it('on the Tracks tab', async () => {
+    withDj();
+    renderArtist('/artist-detail/library/42?name=Pale%20Harbour&tab=tracks');
+    await expectCalm();
+  });
+
+  it('in the album view (an album named in the URL)', async () => {
+    // the album named is scrolled to; jsdom has no scrollIntoView
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      withDj();
+      renderArtist('/artist-detail/library/42?name=Pale%20Harbour&tab=tracks&album=L-nf');
+      await expectCalm();
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('on a phone', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    withDj();
+    renderArtist('/artist-detail/library/42?name=Pale%20Harbour&tab=tracks');
+    await expectCalm();
+  });
+});

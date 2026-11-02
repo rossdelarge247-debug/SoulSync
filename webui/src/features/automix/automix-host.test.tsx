@@ -999,7 +999,7 @@ describe('with the mixing features hidden (Settings → Library → DJ, the defa
     fade.mockRestore();
   });
 
-  it('[re-review L1] a stale owed mark while the next track plays doesn\'t skip it', async () => {
+  it("[re-review L1] a stale owed mark while the next track plays doesn't skip it", async () => {
     resetMixTabForTests(true);
     mountGate();
     await waitFor(() => expect(window.SoulSyncAutomix).toBeDefined());

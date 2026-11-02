@@ -11,6 +11,10 @@ import { KeyChip } from './key-chip';
  * ("A minor (Am), from the file's tag"). "8B?" stays meta. No energy here:
  * that's Tracks' column. `lead` puts " · " in front, to follow the row's
  * other meta. Nothing when neither is known.
+ *
+ * Not used by any row for now (Ross, 2 November): Listening history, Search
+ * and the Artist page dropped it, as Tracks dropped its marker; Tracks keeps
+ * its BPM and Key columns. Kept for whatever shows them again.
  */
 export function DjMeta({ dj, lead = false }: { dj: DjInfo | null | undefined; lead?: boolean }) {
   if (!dj || (!dj.bpm && !dj.key)) return null;

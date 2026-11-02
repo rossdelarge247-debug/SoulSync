@@ -831,3 +831,99 @@ describe('the hand-offs other pages use', () => {
     expect(seen.streams).toEqual([]);
   });
 });
+
+describe('library tracks: no BPM or key in the meta line (Ross, 2 November)', () => {
+  /** A library track with its DJ data: the drag carries it, the row doesn't show it. */
+  function withTrack() {
+    const asked: string[] = [];
+    server.use(
+      http.get('/api/library/search-tracks', () =>
+        HttpResponse.json({
+          success: true,
+          tracks: [
+            {
+              id: 21,
+              title: 'Slow Tide',
+              artist_name: 'Pale Harbour',
+              album_title: 'Night Ferry',
+              file_path: '/m/slow-tide.flac',
+              bitrate: 1000,
+              duration: 240,
+            },
+          ],
+        }),
+      ),
+      http.post('/api/library/dj/tracks', async ({ request }) => {
+        asked.push(JSON.stringify(await request.json()));
+        return HttpResponse.json({
+          success: true,
+          tracks: {
+            '21': {
+              bpm: 124,
+              bpm_source: 'tag',
+              key: '8A',
+              key_name: 'Am',
+              key_long: 'A minor',
+              key_source: 'tag',
+              key_uncertain: false,
+              analyzed: true,
+            },
+          },
+        });
+      }),
+    );
+    return asked;
+  }
+
+  const expectCalm = async (asked: string[]) => {
+    const library = section('search-library');
+    const row = (await within(library).findByText('Slow Tide')).closest<HTMLElement>(
+      '[data-kind="library"]',
+    )!;
+    // the DJ data has landed (for the drag) before the row is read
+    await waitFor(() => expect(asked).toHaveLength(1));
+    await waitFor(() => expect(row.textContent).not.toMatch(/BPM|8A/));
+    expect(row.querySelector('[data-dj-meta]')).toBeNull();
+    // both meta lines (wide and phone) end on their own words, no stray " · "
+    const metas = [...row.querySelectorAll('[class*="rowMeta"]')].map((m) => m.textContent ?? '');
+    expect(metas).toHaveLength(2);
+    expect(metas[0]).toMatch(/^Pale Harbour · Night Ferry/);
+    expect(metas[1]).toMatch(/^Night Ferry/);
+    for (const meta of metas) expect(meta).not.toMatch(/·\s*$/);
+  };
+
+  it('on a wide screen', async () => {
+    routes();
+    const asked = withTrack();
+    renderRoute('/search?q=slow%20tide&type=tracks');
+    await settled();
+    await expectCalm(asked);
+    // the wide row keeps its Play
+    const library = section('search-library');
+    expect(within(library).getByRole('button', { name: 'Play Slow Tide' })).toBeInTheDocument();
+  });
+
+  it('on a phone', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query.includes('max-width'),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    try {
+      routes();
+      const asked = withTrack();
+      renderRoute('/search?q=slow%20tide&type=tracks');
+      await settled();
+      await expectCalm(asked);
+      // the phone's row: a tap plays, so there's no Play button
+      const library = section('search-library');
+      expect(within(library).queryByRole('button', { name: /^Play Slow Tide/ })).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
