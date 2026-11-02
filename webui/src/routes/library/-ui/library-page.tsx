@@ -6,7 +6,9 @@ import { Button } from '@/components/form';
 import { Notice } from '@/components/primitives';
 import { DriveAwayNotice } from '@/features/drives/drive-away-notice';
 import { useDriveStatus } from '@/features/drives/drive-status';
-import { useReactPageShell } from '@/platform/shell/route-controllers';
+import { useMixingShown } from '@/features/mix/mix-visibility';
+import { SetsOffNotice } from '@/features/sets/sets-off';
+import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch, LibrarySearchParams } from '../-library.types';
 
@@ -76,6 +78,9 @@ export function LibraryPage() {
   useLibraryChanged();
   const search = resolveLibrarySearch(Route.useSearch());
   const navigate = useNavigate({ from: Route.fullPath });
+  const { isAdmin } = useProfile();
+  // Sets is a mixing feature (Settings → Library → DJ): hidden, its link says so
+  const setsShown = useMixingShown();
   // a drive that's away is never an empty library (14k)
   const drive = useDriveStatus();
   const away = Boolean(drive.status?.library_away);
@@ -99,11 +104,12 @@ export function LibraryPage() {
   // Library → Tracks: the DJ data (BPM, key and energy), its own page. Like
   // Listening history it reads the database, not the drive, so a drive that's
   // away gets the Notice above the list rather than the page in its place.
-  // Library → Sets (22a–22i): the set planner, its own page and row
+  // Library → Sets (22a–22i): the set planner, its own page and row; while
+  // the mixing features are hidden, the module switches' quiet "turned off"
   if (search.view === 'sets') {
     return (
       <div id="library-page" className={styles.root}>
-        <SetsPage search={search} go={go} />
+        {setsShown ? <SetsPage search={search} go={go} /> : <SetsOffNotice isAdmin={isAdmin} />}
       </div>
     );
   }

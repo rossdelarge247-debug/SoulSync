@@ -1,7 +1,7 @@
 import type { DragItem } from '@/features/dnd/dnd-model';
 
 import { openSendToTray, sendToEntries } from '@/features/dnd/send-to-ui';
-import { mixTabShown } from '@/features/mix/mix-visibility';
+import { mixTabShown, mixingShown } from '@/features/mix/mix-visibility';
 import { openMixWith } from '@/features/mix/open-mix';
 /**
  * One "…" for every track in the DJ area (24a): Play next, Add to Up next
@@ -14,9 +14,11 @@ import { openMixWith } from '@/features/mix/open-mix';
  * with… · Add to set… ("Sunday Set is working" at its end) · Send to… · Add
  * to playlist…, with Brief D's glyphs beside Star and Play next.
  * "Mixes well with…" opens the tray in Mix following the track (33a; the
- * docked Mixes panel is retired, HANDOFF 329). It isn't there while the Mix
- * tab is hidden (Settings → Library → DJ's "Show the Mix tab", off by
- * default: mix-visibility.ts), wherever the menu is built.
+ * docked Mixes panel is retired, HANDOFF 329). It, Add to set… and Send
+ * to… aren't there while the mixing features are hidden (Settings → Library
+ * → DJ's "Show the mixing features", off by default: mix-visibility.ts),
+ * wherever the menu is built: Send to…'s one target left would be Up next,
+ * which Play next and Add to Up next already are.
  * Tracks, Listening history, the Artist page, Search, Mixes well with and a
  * set's rows all build their menu here, so the order stays one. Tracks
  * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344), led by
@@ -121,7 +123,8 @@ export function trackMenu(
       label: 'Mixes well with…',
       onSelect: () => openMixWith({ id: track.id, title: track.title }, { play: opts.play }),
     });
-  if (!track.fileMissing)
+  const sets = mixingShown();
+  if (!track.fileMissing && sets)
     entries.push({
       key: 'mixset',
       label: 'Add to set…',
@@ -132,7 +135,7 @@ export function trackMenu(
           opts.anchor?.() ?? null,
         ),
     });
-  if (opts.sendTo?.length && !track.fileMissing) {
+  if (opts.sendTo?.length && !track.fileMissing && sets) {
     const items = opts.sendTo;
     entries.push(
       opts.phone
