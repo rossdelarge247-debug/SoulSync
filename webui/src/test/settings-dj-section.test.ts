@@ -68,7 +68,7 @@ describe('Settings → Library → DJ', () => {
     expect(head().dataset.stg).toBe('library');
     expect(head().querySelector('h3')?.textContent).toBe('DJ');
     expect(head().querySelector('.settings-section-hint')?.textContent).toBe(
-      'BPM, key and energy, the mixing features',
+      'BPM and key, for Export to Traktor',
     );
     expect(head().getAttribute('aria-expanded')).toBe('false');
     expect(body().classList.contains('collapsed')).toBe(true);
@@ -77,6 +77,12 @@ describe('Settings → Library → DJ', () => {
       body().querySelector('#dj-between-tracks-group #ss-between-tracks-library'),
     ).not.toBeNull();
     expect(body().querySelector('#dj-settings-group #dj-analysis')).not.toBeNull();
+    // 38g: the words say what it's for now; energy still runs, never shown
+    expect(body().querySelector('#dj-settings-group h3')?.textContent).toBe('BPM and key');
+    expect(body().querySelector('#dj-analysis')?.closest('label')?.textContent?.trim()).toBe(
+      'Work out BPM and key',
+    );
+    expect(body().querySelector('#dj-settings-group')?.textContent).not.toMatch(/energy/i);
     expect(document.querySelector('#organization-music-panel #dj-settings-group')).toBeNull();
     expect(document.querySelector('#organization-music-panel #dj-between-tracks-group')).toBeNull();
   });
