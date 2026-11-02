@@ -22,7 +22,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Privacy: a VPN for Soulseek and torrents, and a privacy check | Building (VPN file, guide and Privacy card on `feat/privacy-vpn`) | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
 | DJ now: a compact DJ mode in the playing panel | Paused: superseded by DJ mode exploration (was Drawn, E1 chosen; not built) | [below](#dj-now-a-compact-dj-mode-in-the-playing-panel) |
-| DJ mode: a simple two-deck view in the player | Ready for Design (exploring) | [below](#dj-mode-a-simple-two-deck-view-in-the-player) |
+| DJ mode: a simple two-deck view in the player | Approved; building (step 2) | [below](#dj-mode-a-simple-two-deck-view-in-the-player) |
 | Analyse on demand, with progress | Built | [below](#analyse-on-demand-with-progress) |
 | A playlist into a set for mixing (Order for mixing) | Paused: superseded by DJ mode exploration (was Ready for Design) | [below](#a-playlist-into-a-set-for-mixing-order-for-mixing) |
 
@@ -864,7 +864,7 @@ Whichever wins replaces the docked Mixes panel and the working-set strip, so the
 
 ## DJ mode: a simple two-deck view in the player
 
-**Status:** Ready for Design (exploring) · raised by Ross, 2026-11-02 · Design's Brief F (`HANDOFF.md`, "Brief F: DJ mode", 2 November; questions 412–426). It supersedes the earlier mixing work as the way to mix in SYNCHRO.S: the Mix tab, Auto-mix and DJ now, and sets as a DJ tool are paused, not deleted (their entries say so). Nothing here is built.
+**Status:** Approved; building (step 2) · raised by Ross, 2026-11-02 · Design's Brief F (`HANDOFF.md`, "Brief F: DJ mode", 2 November; questions 412–426), drawn as 37a–37s and approved by Ross on 2 November · **step 2, the lanes (37a–37e), built on `feat/dj-mode-lanes`** (`HANDOFF.md`, "Dev, DJ mode step 2: the lanes"): the toggle and D, the stage as two lanes, A's beat map from its grid, analysis on open and on load, the empty lane and its invalid drops, the `dj` drop target. Step 1 (the clean-up) is on `feat/brief-f-cleanup`; Browse and the mixer (3), the deck (3b) and Hand over and the ends (4) are to come. It supersedes the earlier mixing work as the way to mix in SYNCHRO.S: the Mix tab, Auto-mix and DJ now, and sets as a DJ tool are paused, not deleted (their entries say so).
 
 ### The problem
 
@@ -913,7 +913,7 @@ Brief F in `HANDOFF.md` lists every state. In short: the toggle; the two lanes; 
 
 ### Questions
 
-412–426 in `HANDOFF.md`, from Brief F.
+412–426 in `HANDOFF.md`, from Brief F; Design's for Dev 431–437 (step 2 answers 436 and 437, and part of 435); step 2's for Design 460–464.
 
 ---
 
