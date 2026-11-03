@@ -455,7 +455,7 @@ def dj_cues(track_id: str):
     from core.dj import cues
 
     try:
-        found = cues.get(get_database(), int(get_current_profile_id()), str(track_id)[:64])
+        found = cues.get(get_database(), int(get_current_profile_id()), str(track_id)[:128])
     except Exception as exc:  # noqa: BLE001
         logger.error("DJ cues read failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read the cues"}), 500
@@ -474,7 +474,7 @@ def dj_cues_save(track_id: str):
     from core.dj import cues
 
     try:
-        saved = cues.put(get_database(), int(get_current_profile_id()), str(track_id)[:64],
+        saved = cues.put(get_database(), int(get_current_profile_id()), str(track_id)[:128],
                          (body or {}).get("cues"))
     except cues.CueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400

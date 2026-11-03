@@ -28,6 +28,11 @@ logger = get_logger("dj.cues")
 SLOTS = (1, 2, 3, 4)
 #: the furthest a cue can sit (seconds): a 10-hour file is past any DJ's
 MAX_SECONDS = 36_000.0
+#: a cue's bar on the grid: bars from the first downbeat. Before it (a long
+#: beatless intro, review L1) bars run negative: 1,000 bars is over half an
+#: hour at 120 BPM, past any intro; the client clamps to the same
+MIN_BAR = -1_000.0
+MAX_BAR = 10_000.0
 #: how many tracks' cues one read for an export takes at a time
 _CHUNK = 250
 
@@ -65,7 +70,7 @@ def clean(cues: Any) -> List[Dict[str, Any]]:
         bar = cue.get("bar")
         if bar is not None:
             bar = _number(bar)
-            if bar is None or not -16 <= bar <= 10_000:
+            if bar is None or not MIN_BAR <= bar <= MAX_BAR:
                 raise CueError("A cue's bar is a number on the grid")
         out[int(slot)] = {"slot": int(slot), "bar": bar, "seconds": round(seconds, 4)}
     return [out[s] for s in sorted(out)]

@@ -108,6 +108,8 @@ def test_a_cue_follows_the_grid_and_a_track_without_one_keeps_its_seconds(client
     {"cues": [{"slot": True, "seconds": 1}]},
     {"cues": [{"slot": 1, "bar": "x", "seconds": 1}]},
     {"cues": [{"slot": s, "seconds": 1} for s in (1, 2, 3, 4, 1)]},
+    {"cues": [{"slot": 1, "bar": cues.MIN_BAR - 0.25, "seconds": 1}]},
+    {"cues": [{"slot": 1, "bar": cues.MAX_BAR + 1, "seconds": 1}]},
 ])
 def test_a_body_that_isnt_four_cues_in_range_is_refused(client, bad):
     import json
@@ -115,6 +117,23 @@ def test_a_body_that_isnt_four_cues_in_range_is_refused(client, bad):
     res = client.put(URL + "1", data=json.dumps(bad, allow_nan=True), content_type="application/json")
     assert res.status_code == 400
     assert client.get(URL + "1").get_json()["cues"] == []
+
+
+def test_a_bar_before_the_first_downbeat_is_kept(client):
+    # a long beatless intro: cues 18 and 600 bars before the grid's first downbeat (review L1)
+    body = {"cues": [{"slot": 1, "bar": -18.5, "seconds": 0.0}, {"slot": 2, "bar": cues.MIN_BAR, "seconds": 0.0},
+                     {"slot": 3, "bar": cues.MAX_BAR, "seconds": 5.0}]}
+    res = client.put(URL + "2", json=body)
+    assert res.status_code == 200
+    assert [c["bar"] for c in client.get(URL + "2").get_json()["cues"]] == [-18.5, cues.MIN_BAR, cues.MAX_BAR]
+
+
+def test_a_long_track_id_is_cut_as_the_grid_routes_cut_it(client, db):
+    long_id = "x" * 100
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+             "VALUES (?, '10', '1', 'Long id', '/app/Transfer/long.flac', 300000)", (long_id,))
+    assert client.put(URL + long_id, json={"cues": [{"slot": 1, "bar": None, "seconds": 2.0}]}).status_code == 200
+    assert client.get(URL + long_id).get_json()["cues"] == [{"slot": 1, "bar": None, "seconds": 2.0}]
 
 
 def test_a_big_body_is_refused_unread(client):
