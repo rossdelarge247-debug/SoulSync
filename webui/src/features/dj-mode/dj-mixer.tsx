@@ -61,6 +61,7 @@ export function mixLane(lane: LaneState | null): MixLane | null {
     duration: lane.duration,
     analysing: lane.phase === 'analysing' || lane.phase === 'waiting',
     queue: lane.track.queue ?? null,
+    queueWhy: lane.track.queueWhy ?? null,
   };
 }
 
@@ -72,7 +73,7 @@ function laneKey(lane: LaneState | null): string {
     lane.cue,
     lane.info?.bpm ?? '',
     lane.duration ?? '',
-    lane.track.queue ? 'q' : '',
+    lane.track.queue ? 'q' : lane.track.queueWhy ? 'x' : '',
   ].join('|');
 }
 

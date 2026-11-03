@@ -549,6 +549,11 @@ export class VisualsController {
     // mid-blend it asks first, and Back then ends the blend over a bar
     if (family === 'data' && this.s.djMode) {
       const dj = djModeStore();
+      // Hand over on its way: Back's answer, and Data waits (review L-2)
+      if (dj.snapshot().mix.phase === 'handing') {
+        dj.back();
+        return;
+      }
       if (dj.blending()) {
         let yes = false;
         try {

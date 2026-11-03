@@ -34,13 +34,13 @@ let q: {
   index: number;
   plays: { index: number; handoff: HandoffLike | null; joinedAt: number | null }[];
   removed: number[];
-  result: 'played' | 'failed';
+  result: 'played' | 'failed' | 'busy';
   loadMs: number;
   next: ReturnType<typeof vi.fn<() => void>>;
 };
 
-/** The player's queue and load, as media-player.js's `playQueueItem` with a handoff. */
-function handRig(): Rig {
+/** The session's deps with a fake player: its queue, its load with a handoff (media-player.js `playQueueItem`), Next, move. */
+function handRigDeps(): Partial<import('./dj-mix-session').SessionDeps> {
   q = {
     queue: [NIGHT_FERRY, STATIC_BLOOM],
     index: 0,
@@ -50,10 +50,10 @@ function handRig(): Rig {
     loadMs: 200,
     next: vi.fn<() => void>(),
   };
-  const rr: Rig = rig(vi, {
+  return {
     player: {
-      audio: () => rr.el as never,
-      state: () => ({ ...rr.player, index: q.index, queue: q.queue }),
+      audio: () => r.el as never,
+      state: () => ({ ...r.player, index: q.index, queue: q.queue }),
       seek: () => undefined,
       next: () => q.next(),
       insertNext: (t) => {
@@ -61,24 +61,34 @@ function handRig(): Rig {
         q.queue.splice(at, 0, { ...(t as unknown as Row) });
         return at;
       },
+      moveNext: (index) => {
+        const [row] = q.queue.splice(index, 1);
+        q.queue.splice(q.index + 1, 0, row!);
+        return q.index + 1;
+      },
+      move: (from, to) => {
+        const [row] = q.queue.splice(from, 1);
+        q.queue.splice(to, 0, row!);
+      },
       playIndex: async (index, options) => {
         const handoff = options.handoff ?? null;
         const play = { index, handoff, joinedAt: null as number | null };
         q.plays.push(play);
+        if (q.result === 'busy') return { status: 'busy' };
         // the player's load: pause, empty, then the new source loads
-        rr.el.pause();
-        rr.el.dispatchEvent(new Event('emptied'));
-        rr.el.dispatchEvent(new Event('loadstart'));
+        r.el.pause();
+        r.el.dispatchEvent(new Event('emptied'));
+        r.el.dispatchEvent(new Event('loadstart'));
         await new Promise((res) => setTimeout(res, q.loadMs));
         if (q.result !== 'played') return { status: q.result };
         q.index = index;
         if (handoff) {
           const at = handoff.currentTime + 0.15;
           play.joinedAt = at;
-          rr.el.currentTime = at;
+          r.el.currentTime = at;
         }
-        rr.el.paused = false;
-        rr.el.ended = false;
+        r.el.paused = false;
+        r.el.ended = false;
         handoff?.pause();
         return { status: 'played' };
       },
@@ -87,8 +97,12 @@ function handRig(): Rig {
         q.queue.splice(index, 1);
       },
     },
-  });
-  return rr;
+  };
+}
+
+/** A session on that player. */
+function handRig(): Rig {
+  return rig(vi, handRigDeps());
 }
 
 beforeEach(() => {
@@ -198,15 +212,47 @@ describe('Hand over (414, 37i)', () => {
     expect(r.session.snapshot().handed?.title).toBe('Harbour Lights');
   });
 
-  it('a load that doesn’t play: deck B stops, said once, the player’s own advance stands', async () => {
+  it('a load that doesn’t play (H-2): B plays on, on its own, the queue as it was; nothing goes quiet', async () => {
     await blending();
     q.result = 'failed';
     r.session.handOver();
     await r.advance(2.5);
-    expect(r.session.snapshot().phase).toBe('idle');
-    expect(r.engine.port.stops.B / 48000).toBeLessThan(r.engine.port.time + 0.2);
-    expect(r.said.at(-1)).toBe('Couldn’t hand over to Harbour Lights: the player moved on');
+    expect(r.session.snapshot()).toMatchObject({ phase: 'playing', solo: true, aOnDeck: false });
+    expect(r.engine.port.stops.B).toBe(Infinity);
+    expect(heard()).toBe(true);
+    expect(q.queue.map((row) => row.id)).toEqual(['2', '5']);
+    expect(r.said.at(-1)).toBe(
+      'Couldn’t hand over to Harbour Lights: it plays on here · Hand over again or Back',
+    );
     expect(r.session.snapshot().handed).toBeNull();
+    // the player plays something again: B goes out over a bar under it
+    r.el.paused = false;
+    r.el.dispatchEvent(new Event('play'));
+    expect(r.session.snapshot().solo).toBe(false);
+    await r.advance(1);
+    expect(heard()).toBe(true);
+  });
+
+  it('A’s end handed over and the player busy (H-2): B plays on and the player advances', async () => {
+    r.session.setLanes(laneA(), laneB({ queue: HARBOUR }));
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    q.result = 'busy' as never;
+    r.el.ended = true;
+    r.el.dispatchEvent(new Event('ended'));
+    await r.advance(0.6);
+    expect(r.session.snapshot().solo).toBe(true);
+    expect(q.next).toHaveBeenCalledTimes(1);
+    expect(heard()).toBe(true);
+  });
+
+  it('a handoff read after it’s used or given up is NaN, so a skip never joins deck B (M-4)', async () => {
+    await blending();
+    q.result = 'failed';
+    r.session.handOver();
+    await r.advance(2.5);
+    expect(Number.isNaN(q.plays[0]!.handoff!.currentTime)).toBe(true);
   });
 });
 
@@ -430,5 +476,168 @@ describe('Up next ran out (37j): B on its own, then Hand over', () => {
     await r.advance(2.2);
     expect(done).toHaveBeenCalledTimes(1);
     expect(r.session.snapshot().phase).toBe('idle');
+  });
+});
+
+describe('review round 1 (step 4)', () => {
+  it('H-1: A’s echo and headphones send go to 0 with Hand over; the silent deck A isn’t heard anywhere', async () => {
+    await blending();
+    r.session.setCentre('echoSend', 60);
+    r.session.setPhones('A', true);
+    await r.advance(0.05);
+    expect(r.engine.value('A.echoSend')).toBeCloseTo(0.6, 3);
+    const t = r.engine.port.time + 0.03;
+    r.session.handOver();
+    // out over the bar with the fader
+    expect(r.engine.value('A.echoSend', t + 2)).toBeCloseTo(0, 5);
+    await r.advance(2.6);
+    // deck A runs on for the Undo: no fader, no echo, no headphones
+    expect(r.engine.port.stops.A).toBe(Infinity);
+    for (const dt of [0, 1, 5]) {
+      expect(r.engine.value('A.xf', r.engine.port.time + dt)).toBeCloseTo(0, 5);
+      expect(r.engine.value('A.echoSend', r.engine.port.time + dt)).toBeCloseTo(0, 5);
+    }
+    expect(r.engine.cueSends.A.gain.value).toBe(0);
+    // the next blend has A's headphones as the person set them
+    expect(r.session.snapshot().decks.A.phones).toBe(true);
+  });
+
+  it('M-1: a pause during the bar stops the Hand over, paused; Play carries on with B at the fader; no stuck state', async () => {
+    await blending();
+    r.session.handOver();
+    await r.advance(0.5);
+    r.el.pause();
+    await r.advance(0.1);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.engine.suspended).toBe(1);
+    expect(r.said.at(-1)).toBe('Paused: Hand over stopped · H hands over to Harbour Lights again');
+    // the bar's timer never fires the switch
+    await r.advance(3);
+    expect(q.plays).toHaveLength(0);
+    r.el.paused = false;
+    r.el.dispatchEvent(new Event('play'));
+    await r.advance(0.05);
+    expect(r.engine.resumed).toBe(1);
+    expect(r.engine.paused.at(-1)).toBe(false);
+    // and Hand over again works
+    expect(r.session.handOver()).toBe(true);
+    await r.advance(2.6);
+    expect(q.plays).toHaveLength(1);
+    expect(heard()).toBe(true);
+  });
+
+  it('M-1: a pause in the last moment before the switch (not settled yet) stops it too', async () => {
+    await blending();
+    r.session.handOver();
+    await r.advance(1.99);
+    r.el.pause();
+    await r.advance(0.1);
+    expect(q.plays).toHaveLength(0);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.engine.suspended).toBe(1);
+  });
+
+  it('M-2: a row before A taken out in the 10 s: Undo finds A by itself, not its old place', async () => {
+    q.queue.unshift({ id: '0', title: 'Earlier' });
+    q.index = 1;
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    expect(q.queue.map((row) => row.id)).toEqual(['0', '2', '8', '5']);
+    // the earlier row goes: A's old index (1) now points at B
+    q.queue.shift();
+    q.index -= 1;
+    expect(await Promise.all([r.session.undoHandOver(), r.advance(0.3)]).then(([ok]) => ok)).toBe(
+      true,
+    );
+    expect(q.plays.at(-1)!.index).toBe(0);
+    expect(q.queue.map((row) => row.id)).toEqual(['2', '5']);
+  });
+
+  it('M-2: A’s row gone altogether: no Undo, said so; B plays on', async () => {
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    q.queue.splice(0, 1);
+    q.index = 0;
+    expect(await r.session.undoHandOver()).toBe(false);
+    expect(r.said.at(-1)).toBe('Can’t undo: Night Ferry isn’t in the queue any more');
+    expect(q.plays).toHaveLength(1);
+    expect(r.el.paused).toBe(false);
+  });
+
+  it('M-3: an Undo the player can’t do leaves B’s row and B playing', async () => {
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    q.result = 'busy';
+    const undone = r.session.undoHandOver();
+    await r.advance(0.3);
+    expect(await undone).toBe(false);
+    expect(q.queue.map((row) => row.id)).toEqual(['2', '8', '5']);
+    expect(q.removed).toEqual([]);
+    expect(r.said.at(-1)).toBe('Couldn’t put Night Ferry back: the player carries on');
+  });
+
+  it('L-1: DJ mode let go during the load: auto-mix isn’t left held', async () => {
+    const autoHold = vi.fn();
+    r.session.dispose();
+    r = rig(vi, { ...handRigDeps(), autoHold });
+    r.session.setLanes(laneA(), laneB({ queue: HARBOUR }));
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    r.session.handOver();
+    await r.advance(2.05);
+    r.session.end();
+    await r.advance(0.3);
+    expect(autoHold.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  it('L-3: the player moving on from B in the 10 s drops the Undo', async () => {
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    r.session.setLanes(laneA({ id: '8', title: 'Harbour Lights' }), null);
+    expect(r.session.snapshot().handed?.undo).toBe(true);
+    r.session.setLanes(laneA({ id: '5', title: 'Static Bloom' }), null);
+    expect(r.session.snapshot().handed).toBeNull();
+    expect(await r.session.undoHandOver()).toBe(false);
+  });
+
+  it('L-4: end() takes the notice with it', async () => {
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    expect(r.session.snapshot().handed).not.toBeNull();
+    r.session.end();
+    expect(r.session.snapshot().handed).toBeNull();
+  });
+
+  it('L-5: B’s file missing: Hand over says so, not "a moment"', async () => {
+    r.session.setLanes(
+      laneA(),
+      laneB({
+        queueWhy: 'Harbour Lights’s file isn’t on this computer: it can’t go to the player',
+      }),
+    );
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.handOverWhy()).toBe(
+      'Harbour Lights’s file isn’t on this computer: it can’t go to the player',
+    );
+  });
+
+  it('L-6: B already further on in Up next: that row is moved next, not doubled; Undo puts it back', async () => {
+    q.queue = [NIGHT_FERRY, STATIC_BLOOM, { ...HARBOUR }];
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    expect(q.queue.map((row) => row.id)).toEqual(['2', '8', '5']);
+    const undone = r.session.undoHandOver();
+    await r.advance(0.3);
+    expect(await undone).toBe(true);
+    expect(q.queue.map((row) => row.id)).toEqual(['2', '5', '8']);
   });
 });

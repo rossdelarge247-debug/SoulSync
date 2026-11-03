@@ -713,3 +713,39 @@ describe('the ends and changes, in words (step 4, 37j)', () => {
     expect(f.calls).toContain('GET /api/library/dj/track/8');
   });
 });
+
+describe('review round 1 (step 4)', () => {
+  it('L-2: Back during Hand over says a moment, and nothing ends', () => {
+    const f = fake();
+    f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    const back = vi.fn();
+    f.store.setMixer({
+      blending: () => true,
+      backOverBar: back,
+      end: () => undefined,
+      playB: () => true,
+      positionB: () => null,
+    });
+    f.store.setMix({ phase: 'handing', window: null, rateB: null, sync: false });
+    expect(f.store.back()).toBe(true);
+    expect(back).not.toHaveBeenCalled();
+    expect(f.store.snapshot().on).toBe(true);
+    expect(f.said.at(-1)).toBe('Handing over to Harbour Lights: a moment');
+  });
+
+  it('L-5: B’s file missing: the lane’s track says why the player can’t take it', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fake();
+      f.store.setOn(true);
+      f.store.loadB({ id: '9', title: 'Gone Track', artist: 'X', image: null, duration: 200 });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(f.store.snapshot().b?.track.queueWhy).toBe(
+        'Gone Track’s file isn’t on this computer: it can’t go to the player',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

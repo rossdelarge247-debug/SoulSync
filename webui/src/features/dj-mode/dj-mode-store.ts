@@ -61,6 +61,8 @@ export interface LaneTrack {
   bpm?: number | null;
   /** B: the track as the player's queue takes it (Hand over, 414); fetched when the drag didn't carry it */
   queue?: Record<string, unknown> | null;
+  /** B: why the player can't take it (its file isn't on this computer), once known */
+  queueWhy?: string | null;
 }
 
 export interface LaneInfo {
@@ -511,6 +513,11 @@ export class DjModeStore {
    */
   back(): boolean {
     if (!this.s.on) return false;
+    // Hand over on its way: a moment (review L-2)
+    if (this.s.mix.phase === 'handing') {
+      this.say(`Handing over to ${this.s.b?.track.title || 'B'}: a moment`);
+      return true;
+    }
     if (this.blending()) {
       if (this.s.mix.phase === 'backing') return true;
       this.mixer!.backOverBar(() => {
@@ -720,9 +727,18 @@ export class DjModeStore {
     } | null;
     if (!this.live('b', gen)) return;
     const t = body?.track;
-    if (!t || t.file_missing || typeof t.file_path !== 'string' || !t.file_path) return;
     const lane = this.s.b;
     if (!lane) return;
+    if (!t || t.file_missing || typeof t.file_path !== 'string' || !t.file_path) {
+      // Hand over says why instead of waiting forever (review L-5)
+      this.setLane('b', {
+        track: {
+          ...lane.track,
+          queueWhy: `${lane.track.title || 'B'}’s file isn’t on this computer: it can’t go to the player`,
+        },
+      });
+      return;
+    }
     const duration = Number(t.duration_ms);
     this.setLane('b', {
       track: {

@@ -107,6 +107,8 @@ export interface MixLane {
   analysing?: boolean;
   /** B: the track as the player's queue takes it (Hand over, 414), once known */
   queue?: Record<string, unknown> | null;
+  /** B: why the player can't take it (its file isn't there), when that's known */
+  queueWhy?: string | null;
 }
 
 /** What the last Hand over did, for the lane's notice and its Undo (37i). */
@@ -234,6 +236,10 @@ export interface PlayerPort {
   insertNext?(track: Record<string, unknown>): number;
   /** a queue row out (Undo takes B's row out again) */
   remove?(index: number): void;
+  /** a queued row moved to straight after the playing one; its index */
+  moveNext?(index: number): number;
+  /** a queued row moved from one place to another */
+  move?(from: number, to: number): void;
 }
 
 export interface SessionDeps {
@@ -358,15 +364,18 @@ export class DjMixSession {
   private bStale = false;
   /** the Undo of the last Hand over, while it can be (414) */
   private undo: {
-    aIndex: number;
+    /** A's queue row (found again by itself: rows before it may go, review M-2) */
+    aRow: unknown;
     aTitle: string;
+    bId: string;
     bRow: unknown;
-    /** deck A kept going, silent, so Undo joins it where it is */
-    deckA: boolean;
+    /** where B's row was in Up next before it was moved next, or -1 (inserted) */
+    bFrom: number;
     posA: number;
-    at: number;
     timer: unknown;
   } | null = null;
+  /** the notice after a Hand over with nothing to put back (10 s) */
+  private handedTimer: unknown = null;
   /** a pause or seek of the element waiting to be told from a load (SETTLE_MS) */
   private settleTimer: unknown = null;
   /** the element's events while B plays on its own (37j) */
@@ -483,10 +492,11 @@ export class DjMixSession {
     // B's track, B empties); the decks are the hand-over's until it's done
     if (this.v.phase === 'handing') return;
     if (this.undo) {
-      // the player's track is B's now and lane B is empty: the Undo stands
-      if (!b) return;
-      // B loaded again (or anything else): the Undo has gone
+      // the player's track is B's and lane B is empty: the Undo stands
+      if (!b && a?.id === this.undo.bId) return;
+      // B loaded again, or the player moved on from B (Next, L-3): the Undo has gone
       this.dropUndo();
+      if (!b) return;
     }
     if (this.v.aOnDeck && a && b && was.a?.id === a.id && was.b?.id === b.id) {
       // the same two tracks under a blend: B's grid (and with it its cue)
@@ -1166,6 +1176,7 @@ export class DjMixSession {
     const T = ctx.currentTime + AHEAD_S;
     const from = el.currentTime + AHEAD_S * this.rateA;
     this.applyAll(ctx.currentTime);
+    this.applyPhones();
     engine.mode('A', this.modeFor('A', this.rateA / this.rateA0));
     // the element keeps time with deck A, at deck A's speed (it's muted)
     if (this.rateA !== this.rateA0) el.playbackRate = this.rateA;
@@ -1389,7 +1400,7 @@ export class DjMixSession {
     if (!this.engine) return 'The decks aren’t running';
     const p = this.d.player;
     if (!p.playIndex || !p.insertNext) return 'The player can’t take B here';
-    if (!b.queue) return `Getting ${b.title || 'B'} ready for the player: a moment`;
+    if (!b.queue) return b.queueWhy ?? `Getting ${b.title || 'B'} ready for the player: a moment`;
     return null;
   }
 
@@ -1439,6 +1450,19 @@ export class DjMixSession {
       p.linear(t + bar, to);
       this.applied[key] = to;
     }
+    // A's echo send out over the same bar too (it taps before the fader), and
+    // A out of the headphones: A leaves cleanly (review H-1)
+    const echo = this.param('A.echoSend');
+    if (echo) {
+      echo.hold(t);
+      echo.linear(t + bar, 0);
+      this.applied['A.echoSend'] = 0;
+    }
+    try {
+      engine.graph.decks?.A.cueSend.gain.setTargetAtTime(0, t, bar / 3);
+    } catch {
+      /* a closed context */
+    }
     // B to the player's own speed over the same bar: the element takes it there
     const pB = engine.position('B', t);
     const r0 = rateAt(engine.current('B'), t, sr) ?? 1;
@@ -1451,7 +1475,7 @@ export class DjMixSession {
     this.update({
       phase: 'handing',
       rateB: null,
-      values: { ...this.v.values, xf: 100, B: { ...this.v.values.B, tempo: 0 } },
+      values: { ...this.v.values, xf: 100, echoSend: 0, B: { ...this.v.values.B, tempo: 0 } },
     });
     const gen = this.gen;
     this.later(() => void this.switchToB(gen, reason), (bar + 0.02) * 1000);
@@ -1465,13 +1489,25 @@ export class DjMixSession {
     const player = this.d.player;
     if (gen !== this.gen || this.v.phase !== 'handing' || !engine || !b?.queue) return;
     const el = this.el ?? player.audio();
+    // the listener paused during the bar (and it hasn't settled yet): the
+    // Hand over stops there, paused (review M-1)
+    if (
+      this.settleTimer !== null ||
+      this.suspended ||
+      (el && this.v.aOnDeck && el.paused && !el.ended)
+    ) {
+      this.cancelSettle();
+      this.pauseNow(true);
+      return;
+    }
     const solo = this.v.solo;
     const aTitle = this.handing?.a?.title || 'A';
     this.handing = null;
     const sr = engine.sampleRate;
     const now = engine.context.currentTime;
-    // A's deck goes on, silent and at the player's own speed, while Undo can
-    // put it back (only where its window has the next seconds of it)
+    // A's deck goes on, silent (its fader, echo send and headphones send at
+    // 0, review H-1) and at the player's own speed, while Undo can put it
+    // back (only where its window has the next seconds of it)
     const posA = this.v.aOnDeck ? engine.position('A', now + 0.03) : null;
     const deckA =
       reason === 'press' &&
@@ -1486,8 +1522,20 @@ export class DjMixSession {
     this.unbind();
     this.unbindSolo();
     this.cancelFade();
+    // the queue: B's row straight after the playing one; if B is further on
+    // in Up next already, that row is moved there rather than doubled (L-6)
     const st = player.state();
+    const queue = st?.queue ?? [];
     const aIndex = typeof st?.index === 'number' ? st.index : -1;
+    const aRow = aIndex >= 0 ? (queue[aIndex] ?? null) : null;
+    let bFrom = -1;
+    for (let i = aIndex + 1; i < queue.length; i++) {
+      const id = (queue[i] as { id?: string | number } | null)?.id;
+      if ((typeof id === 'string' || typeof id === 'number') && String(id) === b.id) {
+        bFrom = i;
+        break;
+      }
+    }
     if (el) {
       try {
         el.pause();
@@ -1499,9 +1547,11 @@ export class DjMixSession {
       el.volume = this.level();
     }
     let stopped = false;
+    let used = false;
     const stopB = () => {
       if (stopped) return;
       stopped = true;
+      used = true;
       const t = engine.context.currentTime;
       const p = this.param('B.xf');
       p?.hold(t);
@@ -1510,8 +1560,9 @@ export class DjMixSession {
       engine.stop('B', Math.round((t + JOIN_S + 0.04) * sr));
     };
     const handoff: HandoffLike = {
+      // read once the player's load is ready; NaN once used or given up (review M-4)
       get currentTime() {
-        return engine.position('B') ?? 0;
+        return used ? Number.NaN : (engine.position('B') ?? Number.NaN);
       },
       pause: stopB,
       get src() {
@@ -1533,40 +1584,49 @@ export class DjMixSession {
     let row: unknown = null;
     let result: { status: string };
     try {
-      idx = player.insertNext!(b.queue);
-      row = player.state()?.queue?.[idx] ?? null;
+      if (bFrom >= 0 && player.moveNext) {
+        row = queue[bFrom] ?? null;
+        idx = player.moveNext(bFrom);
+      } else {
+        idx = player.insertNext!(b.queue);
+        row = player.state()?.queue?.[idx] ?? null;
+      }
       result = await player.playIndex!(idx, { handoff });
     } catch {
       result = { status: 'failed' };
     }
-    if (!stopped && result.status !== 'played') stopB();
-    if (gen !== this.gen) return;
+    used = true;
+    // auto-mix is let go whatever happened (review L-1)
     this.hold(false);
-    this.afterHand();
+    if (gen !== this.gen) return;
     if (result.status !== 'played') {
-      // the player moved on another way (a load superseded it, or it failed and skipped)
-      if (deckA) engine.stop('A', Math.round((engine.context.currentTime + 0.05) * sr));
-      this.update({ phase: 'idle', handed: null });
-      this.say(`Couldn’t hand over to ${b.title || 'B'}: the player moved on`);
+      this.handFailed(b, result.status, reason, row, bFrom, deckA);
       return;
     }
-    const undoable = deckA && aIndex >= 0 && !solo;
+    if (this.suspended) {
+      this.suspended = false;
+      engine.setPaused(false);
+    }
+    this.afterHand();
+    const undoable = deckA && aRow !== null && !solo;
     if (undoable) {
       this.undo = {
-        aIndex,
+        aRow,
         aTitle,
+        bId: b.id,
         bRow: row,
-        deckA: true,
+        bFrom,
         posA: posA ?? 0,
-        at: engine.context.currentTime,
         timer: this.d.setTimeout(() => this.dropUndo(), UNDO_MS),
       };
     } else {
       if (posA !== null) engine.stop('A', Math.round((engine.context.currentTime + 0.05) * sr));
-      // nothing to put back: once deck B has faded, the decks go (with no B loaded)
-      this.d.setTimeout(() => {
+      // nothing to put back: the notice for 10 s, then the decks go (with no B loaded)
+      this.handedTimer = this.d.setTimeout(() => {
+        this.handedTimer = null;
+        this.update({ handed: null });
         if (!this.b && !this.undo && this.v.phase === 'idle') this.end();
-      }, 300);
+      }, UNDO_MS);
     }
     this.update({
       phase: 'idle',
@@ -1577,7 +1637,50 @@ export class DjMixSession {
         ? `${aTitle} ended · handed over to ${b.title || 'B'}`
         : `Handed over to ${b.title || 'B'}`,
     );
-    if (!undoable) this.d.setTimeout(() => this.clearHanded(), UNDO_MS);
+  }
+
+  /**
+   * The player didn't take B (its load failed, it was busy, nothing was
+   * there, or another load superseded it; review H-2). Deck B plays on, on
+   * its own, so nothing goes quiet; the queue is as it was; and if A's end
+   * was owed to the player, the player advances (B then goes out over a bar
+   * under what it plays, as with B on its own).
+   */
+  private handFailed(
+    b: MixLane,
+    status: string,
+    reason: 'press' | 'ended',
+    row: unknown,
+    bFrom: number,
+    deckA: boolean,
+  ): void {
+    const engine = this.engine;
+    const player = this.d.player;
+    if (engine && deckA)
+      engine.stop('A', Math.round((engine.context.currentTime + 0.05) * engine.sampleRate));
+    // B's row as it was: taken out again (or back where it was), unless it's playing
+    const st = player.state();
+    const at = st?.queue && row !== null ? st.queue.indexOf(row) : -1;
+    if (at >= 0 && at !== st?.index) {
+      try {
+        if (bFrom >= 0) player.move?.(at, bFrom);
+        else player.remove?.(at);
+      } catch {
+        /* the queue moved on */
+      }
+    }
+    const el = player.audio();
+    if (el) this.bindSolo(el);
+    this.update({ phase: 'playing', solo: true, handed: null, sync: false });
+    this.startWatch();
+    const moving = status === 'skipped' || status === 'superseded';
+    this.say(
+      moving
+        ? `Couldn’t hand over to ${b.title || 'B'}: the player moved on`
+        : `Couldn’t hand over to ${b.title || 'B'}: it plays on here · Hand over again or Back`,
+    );
+    // A's end was left to DJ mode: the player's advance again
+    if (reason === 'ended' && (status === 'busy' || status === 'empty')) player.next?.();
   }
 
   /** After a Hand over: the blend's state goes (A's tempo, Sync's ratio, the cue's start). */
@@ -1599,10 +1702,20 @@ export class DjMixSession {
       sync: true,
       levels: { A: this.v.levels.A, B: null },
     });
+    // every param to those values: A's echo send stays at 0 (review H-1);
+    // B's fader is left to its join fade (deck B stops at the end of it)
+    this.applied['B.xf'] = 1;
+    this.applyAll();
+    this.silenceCueA();
   }
 
-  private clearHanded(): void {
-    if (this.v.handed && !this.undo) this.update({ handed: null });
+  /** Deck A out of the headphones while it runs silent for the Undo (review H-1). */
+  private silenceCueA(): void {
+    try {
+      this.engine?.graph.decks?.A.cueSend.gain.setTargetAtTime(0, this.now(), 0.01);
+    } catch {
+      /* a closed context */
+    }
   }
 
   /** The Undo isn't offered any more: A's silent deck goes; with no B the engine too. */
@@ -1626,14 +1739,22 @@ export class DjMixSession {
   /**
    * Undo (414, 10 s): A is the player's track again where it would be now,
    * joined from its deck (heard again over 80 ms as the player loads it, so
-   * nothing goes quiet), B's row is taken out of the queue again (Up next
-   * untouched, 422). The store puts B back in its lane, cued.
+   * nothing goes quiet); B's row goes back as it was (out again, or back
+   * where it was in Up next), so Up next is untouched (422). The store puts
+   * B back in its lane, cued. A's row is found by itself, not by its old
+   * place (review M-2); if it's gone there's nothing to put back.
    */
   async undoHandOver(): Promise<boolean> {
     const u = this.undo;
     const engine = this.engine;
     const player = this.d.player;
     if (!u || !engine || !player.playIndex) return false;
+    const aIndex = player.state()?.queue?.indexOf(u.aRow) ?? -1;
+    if (aIndex < 0) {
+      this.dropUndo();
+      this.say(`Can’t undo: ${u.aTitle} isn’t in the queue any more`);
+      return false;
+    }
     this.undo = null;
     this.d.clearTimeout(u.timer);
     const sr = engine.sampleRate;
@@ -1651,16 +1772,18 @@ export class DjMixSession {
     }
     this.fadeMaster(this.level(), t, FADE_S);
     let stopped = false;
+    let used = false;
     const stopA = () => {
       if (stopped) return;
       stopped = true;
+      used = true;
       const now = engine.context.currentTime;
       this.fadeMaster(0, now + 0.005, JOIN_S);
       engine.stop('A', Math.round((now + JOIN_S + 0.04) * sr));
     };
     const handoff: HandoffLike = {
       get currentTime() {
-        return engine.position('A') ?? u.posA;
+        return used ? Number.NaN : (engine.position('A') ?? Number.NaN);
       },
       pause: stopA,
       get src() {
@@ -1679,24 +1802,28 @@ export class DjMixSession {
     this.update({ handed: null, values: { ...this.v.values, xf: 0 } });
     let result: { status: string };
     try {
-      result = await player.playIndex(u.aIndex, { handoff });
+      result = await player.playIndex(aIndex, { handoff });
     } catch {
       result = { status: 'failed' };
     }
+    used = true;
     if (!stopped) stopA();
-    // B's row out again: Up next is as it was before the Hand over
-    const queue = player.state()?.queue;
-    const at = queue && u.bRow !== null ? queue.indexOf(u.bRow) : -1;
-    if (at >= 0) {
+    if (result.status !== 'played') {
+      // B carries on as the player's track (review M-3)
+      this.say(`Couldn’t put ${u.aTitle} back: the player carries on`);
+      if (!this.b) this.end();
+      return false;
+    }
+    // B's row as it was, unless it's the one playing
+    const st = player.state();
+    const at = st?.queue && u.bRow !== null ? st.queue.indexOf(u.bRow) : -1;
+    if (at >= 0 && at !== st?.index) {
       try {
-        player.remove?.(at);
+        if (u.bFrom >= 0) player.move?.(at, u.bFrom);
+        else player.remove?.(at);
       } catch {
         /* the queue moved on */
       }
-    }
-    if (result.status !== 'played') {
-      this.say(`Couldn’t put ${u.aTitle} back: the player moved on`);
-      return false;
     }
     return true;
   }
@@ -2117,6 +2244,9 @@ export class DjMixSession {
       this.d.clearTimeout(this.undo.timer);
       this.undo = null;
     }
+    if (this.handedTimer !== null) this.d.clearTimeout(this.handedTimer);
+    this.handedTimer = null;
+    this.hold(false);
     if (this.v.solo) this.soloOut(0, null, false);
     if (this.v.aOnDeck) this.hardStop(null, false);
     this.clearLater();
@@ -2148,6 +2278,7 @@ export class DjMixSession {
       values: defaultMix(),
       sync: true,
       solo: false,
+      handed: null,
     });
     this.applyAll();
   }
@@ -2243,10 +2374,24 @@ export class DjMixSession {
     }, SETTLE_MS);
   }
 
-  private pauseNow(): void {
+  /**
+   * The listener's Pause, settled: both decks pause. During Hand over's bar
+   * it stops the Hand over there (review M-1): the fader and B's speed carry
+   * on to where they were going when Play resumes, B playing at its own
+   * speed with the fader at B, and H hands over again.
+   */
+  private pauseNow(handing = false): void {
     const engine = this.engine;
     const el = this.el;
+    if (this.v.phase === 'handing' && (handing || (el?.paused && !el.ended))) {
+      this.clearLater();
+      this.handing = null;
+      this.update({ phase: 'playing', sync: false });
+      this.say(`Paused: Hand over stopped · H hands over to ${this.b?.title || 'B'} again`);
+      this.startWatch();
+    }
     if (!engine || !this.v.aOnDeck || !el || !el.paused || el.ended) return;
+    if (this.suspended) return;
     this.suspended = true;
     engine.setPaused(true);
     const ctx = engine.context as AudioContext;

@@ -2484,7 +2484,10 @@ async function playQueueItem(index, options = {}) {
         const nextIdx = npQueueIndex + 1;
         const skipping = nextIdx < npQueue.length;
         if (skipping) {
-            setTimeout(() => { if (isCurrent()) void playQueueItem(nextIdx, options); }, 500);
+            // the skip is a load of its own: a hand-off (DJ mode's deck, a
+            // crossfade) was for the track that failed, not for the next one
+            const skipOptions = Object.assign({}, options, { handoff: null });
+            setTimeout(() => { if (isCurrent()) void playQueueItem(nextIdx, skipOptions); }, 500);
         }
         // A queue that is moving on to the next track has not failed. Saying
         // 'failed' here made Discover announce "Playback could not start" and

@@ -64,6 +64,8 @@ export function djMixSession(): DjMixSession {
         player()?.playIndex?.(index, options) ?? Promise.resolve({ status: 'failed' }),
       insertNext: (track) => player()?.insertNext?.(track) ?? -1,
       remove: (index) => player()?.remove?.(index),
+      moveNext: (index) => player()?.moveNext?.(index) ?? -1,
+      move: (from, to) => player()?.move?.(from, to),
     },
     async engine(): Promise<EngineLike | null> {
       if (typeof AudioWorkletNode === 'undefined') return null;
