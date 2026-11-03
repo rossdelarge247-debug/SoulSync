@@ -28,7 +28,7 @@ import { analysisStore, requestAnalysis } from '@/features/dj/analysis.api';
 import { liveSay } from '@/features/dnd/dnd-engine';
 import { appURL } from '@/platform/url-base';
 
-import type { CueSet } from './dj-cues';
+import type { Cue, CueSet } from './dj-cues';
 import type {
   Availability,
   LaneApiGrid,
@@ -36,9 +36,21 @@ import type {
   LanePhase,
   PlayerTrackLike,
 } from './dj-mode.logic';
+import type { DeckPort } from './dj-transport';
 import type { ZoomLevel } from './dj-zoom';
 
-import { CueStore, cueAt, cueSeconds, cueWords, emptyCues, withCue, withoutCue } from './dj-cues';
+import {
+  barWords,
+  CueStore,
+  cueAt,
+  cueSeconds,
+  cueWords,
+  emptyCues,
+  MAIN_SLOT,
+  withCue,
+  withoutCue,
+} from './dj-cues';
+import { cachedLevels, loadLevels, SmoothClock, type Levels } from './dj-levels';
 import {
   cueTime,
   djAvailability,
@@ -47,6 +59,7 @@ import {
   noGridWords,
   PENDING_REASONS,
 } from './dj-mode.logic';
+import { DeckTransport } from './dj-transport';
 import { zoomStep, zoomWords } from './dj-zoom';
 
 export interface LaneTrack {
@@ -82,10 +95,17 @@ export interface LaneState {
   /** why there's no grid to blend on (37d), for `noGridWords` */
   reason: string | null;
   info: LaneInfo | null;
-  /** B: where it's cued (its mix-in), seconds */
+  /**
+   * The deck's cue point, seconds: CUE's (step 4b) when the person set one,
+   * else B's mix-in and A's start. Play B starts B here.
+   */
   cue: number;
   /** the person's cue points 1–4 on this track (3b, 439) */
   cues: CueSet;
+  /** the person's main cue (CUE, slot 0), null for the default */
+  main?: Cue | null;
+  /** the track's level every 10 ms (step 4b), once the server has it */
+  fine?: Levels | null;
 }
 
 export interface DjModeSnapshot {
@@ -130,6 +150,10 @@ export interface MixState {
   handed?: import('./dj-mix-session').Handed | null;
   /** B playing on its own (A finished, 37j) */
   solo?: boolean;
+  /** B playing before the blend, in the headphones (B's Play, step 4b) */
+  previewB?: boolean;
+  /** a hand on a deck's platter */
+  hand?: 'A' | 'B' | null;
 }
 
 /** What the mixer (step 3) lends the store: it lives with the Visuals' pieces. */
@@ -152,6 +176,20 @@ export interface MixerHooks {
   togglePhones?(deck: 'A' | 'B'): void;
   toggleKeyLock?(deck: 'A' | 'B'): void;
   jump?(deck: 'A' | 'B', seconds: number): 'seek' | 'cue' | 'jumped' | 'outside';
+  /** a deck plays (B: in a blend or before it; A: on its deck or the player's element) */
+  deckPlaying?(deck: 'A' | 'B'): boolean;
+  /** B's own Play before the blend, into the headphones (step 4b) */
+  previewB?(on: boolean): boolean;
+  /** B's place while stopped (CUE's return) */
+  parkB?(seconds: number): void;
+  /** a hand on a deck's platter: null when on, else why not */
+  grab?(deck: 'A' | 'B'): string | null;
+  moveHand?(deck: 'A' | 'B', offsetSeconds: number): void;
+  letGo?(deck: 'A' | 'B'): void;
+  /** ← →: a little faster or slower while held (0 lets go) */
+  nudge?(deck: 'A' | 'B', dir: -1 | 0 | 1): boolean;
+  /** A is on its deck (its transport is the player's own then too) */
+  aOnDeck?(): boolean;
   /** Hand over (414, step 4): false (and said why) when it can't */
   handOver?(): boolean;
   /** why Hand over can't happen now, or null */
@@ -234,6 +272,11 @@ export function laneTrackFromPlayer(t: PlayerTrackLike): LaneTrack {
 }
 
 /** A dragged row (or Browse's row, step 3) as lane B loads it. */
+function clockWords(seconds: number): string {
+  const t = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+
 export function laneTrackFromItem(item: DragItem): LaneTrack {
   const q = (item.queue ?? {}) as Record<string, unknown>;
   const duration = Number(q.duration);
@@ -283,6 +326,13 @@ export class DjModeStore {
   private gridFor: Record<Deck, number | null> = { a: null, b: null };
   private readonly now: () => number;
   private readonly cueStore: CueStore;
+  /** the element's time between its steps (step 4b) */
+  private readonly clock = new SmoothClock();
+  /** each deck's Play/Pause and CUE (step 4b, a CDJ's) */
+  private readonly transports = { a: new DeckTransport(), b: new DeckTransport() };
+  private readonly nudging = new Set<Deck>();
+  /** the last "why not" a hand on the platter heard, so it's said once */
+  private handWhy: string | null = null;
   /** the tracks whose failed cue save has been said (once a track, L1) */
   private readonly unsavedSaid = new Set<string>();
   /** B as it was when it was handed over: Undo puts it back in its lane, cued */
@@ -481,6 +531,8 @@ export class DjModeStore {
     this.browseCloser?.();
     this.mixer?.end();
     this.handedB = null;
+    this.transports.a.reset();
+    this.transports.b.reset();
     this.aEnded = null;
     if (this.endedTimer) clearTimeout(this.endedTimer);
     this.endedTimer = null;
@@ -582,7 +634,9 @@ export class DjModeStore {
       was.window?.start === mix.window?.start &&
       was.window?.end === mix.window?.end &&
       was.handed === mix.handed &&
-      Boolean(was.solo) === Boolean(mix.solo)
+      Boolean(was.solo) === Boolean(mix.solo) &&
+      Boolean(was.previewB) === Boolean(mix.previewB) &&
+      (was.hand ?? null) === (mix.hand ?? null)
     )
       return;
     this.set({ mix });
@@ -810,10 +864,190 @@ export class DjModeStore {
 
   // ── cues (3b, 439) ─────────────────────────────────────────────────────
 
+  /** The fine waveform (step 4b): asked for again while the server works it out. */
+  private async loadFine(deck: Deck, gen: number, id: string): Promise<void> {
+    const have = cachedLevels(id);
+    if (have) {
+      this.setLane(deck, { fine: have });
+      return;
+    }
+    const fine = await loadLevels(
+      id,
+      appURL(`/api/library/dj/levels/${encodeURIComponent(id)}`),
+      (url, init) => this.f(url, init),
+      (attempt) => (attempt >= 12 ? null : Math.min(8000, 1000 * 2 ** attempt)),
+    );
+    if (!this.live(deck, gen) || !fine) return;
+    this.setLane(deck, { fine });
+  }
+
   private async loadCues(deck: Deck, gen: number, id: string): Promise<void> {
     const set = await this.cueStore.load(id);
     if (!this.live(deck, gen) || !set) return;
-    this.setLane(deck, { cues: set });
+    const main = this.cueStore.main(id);
+    const lane = this.s[deck]!;
+    this.setLane(deck, {
+      cues: set,
+      main,
+      ...(main ? { cue: cueSeconds(main, lane.grid?.grid ?? null) } : {}),
+    });
+  }
+
+  // ── the transport (step 4b: Play/Pause and CUE, a CDJ's) ──────────────
+
+  /** CUE's point moves (CUE on a stopped deck away from it): snapped to the beat, kept with the cues. */
+  setMainCue(deck: Deck, seconds: number): boolean {
+    const lane = this.s[deck];
+    if (!this.s.on || !lane) return false;
+    const grid = lane.phase === 'ready' && lane.grid ? lane.grid.grid : null;
+    const cue = cueAt(MAIN_SLOT, seconds, grid, lane.duration ?? 0);
+    this.setLane(deck, { main: cue, cue: cue.seconds });
+    this.cueStore.saveMain(lane.track.id, cue, () => this.cuesNotSaved(lane.track.id));
+    const where = barWords(cue);
+    this.say(
+      `Deck ${this.deckName(deck)} cue at ${where ? `bar ${where}` : clockWords(cue.seconds)}`,
+    );
+    return true;
+  }
+
+  /** The deck's Play/Pause and CUE as a port the transport drives. */
+  private port(deck: Deck): DeckPort | null {
+    const lane = this.s[deck];
+    const mixer = this.mixer;
+    if (!lane) return null;
+    if (deck === 'a') {
+      const player = () =>
+        (
+          this.win as Window & {
+            SoulSyncPlayer?: {
+              toggle?: () => void;
+              seek?: (s: number) => void;
+              audio?: () => HTMLMediaElement | null;
+            };
+          }
+        ).SoulSyncPlayer;
+      const el = () => player()?.audio?.() ?? null;
+      return {
+        playing: () => Boolean(el() && !el()!.paused),
+        position: () => this.positionA(),
+        cue: () => this.s.a?.cue ?? 0,
+        setCue: (p) => void this.setMainCue('a', p),
+        play: () => {
+          if (el()?.paused) player()?.toggle?.();
+        },
+        pause: () => {
+          if (el() && !el()!.paused) player()?.toggle?.();
+        },
+        seek: (p) => player()?.seek?.(p),
+      };
+    }
+    if (!mixer) return null;
+    return {
+      playing: () => Boolean(mixer.deckPlaying?.('B')),
+      position: () => this.positionB() ?? this.s.b?.cue ?? null,
+      cue: () => this.s.b?.cue ?? 0,
+      setCue: (p) => void this.setMainCue('b', p),
+      play: () => {
+        const phase = this.s.mix.phase;
+        if (phase === 'ready') mixer.previewB?.(true);
+        else if (phase === 'paused') mixer.playB();
+      },
+      pause: () => {
+        if (this.s.mix.previewB) mixer.previewB?.(false);
+        else if (mixer.deckPlaying?.('B')) mixer.playB();
+      },
+      seek: (p) => mixer.parkB?.(p),
+    };
+  }
+
+  /**
+   * A deck's Play/Pause (`play`) or CUE (`cueDown`, `cueUp`; 4b). Deck A is
+   * the player's own transport while A is on its element; under a blend its
+   * Play pauses both (the player's Pause) and its CUE waits (Back first).
+   * Deck B's plays into the headphones before the blend; Play B is still the
+   * synced start. False when there's nothing to act on.
+   */
+  transport(deck: Deck, action: 'play' | 'cueDown' | 'cueUp'): boolean {
+    if (!this.s.on || !this.s[deck]) return false;
+    const port = this.port(deck);
+    if (!port) return false;
+    const t = this.transports[deck];
+    const name = this.deckName(deck);
+    if (deck === 'a' && this.mixer?.aOnDeck?.() && action !== 'play') {
+      if (action === 'cueDown')
+        this.say('A’s CUE waits while it’s on its deck · cues 1–4 jump, Back ends the blend');
+      return true;
+    }
+    if (
+      deck === 'b' &&
+      ['starting', 'backing', 'handing', 'loading', 'idle', 'failed'].includes(this.s.mix.phase)
+    ) {
+      if (action !== 'cueUp')
+        this.say(
+          `Deck B’s transport waits: ${this.s.mix.phase === 'starting' ? 'B comes in on A’s next bar' : 'a moment'}`,
+        );
+      return true;
+    }
+    if (action === 'cueUp') {
+      if (t.cueUp(port)) this.say(`Deck ${name} back to its cue`);
+      return true;
+    }
+    if (action === 'cueDown') {
+      const out = t.cueDown(port);
+      if (out === 'back') this.say(`Deck ${name} back to its cue, stopped`);
+      else if (out === 'held') this.say(`Deck ${name} playing from its cue while held`);
+      return true;
+    }
+    const out = t.playPress(port);
+    if (out === 'latched') this.say(`Deck ${name} plays on`);
+    else if (deck === 'b')
+      this.say(out === 'play' ? 'Deck B playing in the headphones' : 'Deck B paused');
+    return true;
+  }
+
+  /** Whether a deck plays (its Play/Pause shows Pause then). */
+  deckPlaying(deck: Deck): boolean {
+    try {
+      return Boolean(this.port(deck)?.playing());
+    } catch {
+      return false;
+    }
+  }
+
+  /** A hand on a deck's platter (a press on its waveform): true when it's on. */
+  grab(deck: Deck): boolean {
+    if (!this.s.on || !this.s[deck] || !this.mixer?.grab) return false;
+    const why = this.mixer.grab(this.deckName(deck));
+    if (why) {
+      if (why !== this.handWhy) this.say(why);
+      this.handWhy = why;
+      return false;
+    }
+    this.handWhy = null;
+    return true;
+  }
+
+  moveHand(deck: Deck, offsetSeconds: number): void {
+    this.mixer?.moveHand?.(this.deckName(deck), offsetSeconds);
+  }
+
+  letGo(deck: Deck): void {
+    this.mixer?.letGo?.(this.deckName(deck));
+  }
+
+  /** ← → on a lane (held: -1 / 1; let go: 0). */
+  nudge(deck: Deck, dir: -1 | 0 | 1): boolean {
+    if (!this.s.on || !this.s[deck]) return false;
+    if (dir === 0 && !this.nudging.has(deck)) return false;
+    const ok = Boolean(this.mixer?.nudge?.(this.deckName(deck), dir));
+    if (dir === 0) this.nudging.delete(deck);
+    else if (ok) this.nudging.add(deck);
+    return ok;
+  }
+
+  /** A held arrow is nudging this deck (its repeats are the nudge's, not the player's seek). */
+  isNudging(deck: Deck): boolean {
+    return this.nudging.has(deck);
   }
 
   private deckName(deck: Deck): 'A' | 'B' {
@@ -887,9 +1121,14 @@ export class DjModeStore {
   private audioTime(): number | null {
     try {
       const a = (
-        this.win as Window & { SoulSyncPlayer?: { audio?: () => { currentTime: number } | null } }
+        this.win as Window & {
+          SoulSyncPlayer?: {
+            audio?: () => { currentTime: number; paused?: boolean; playbackRate?: number } | null;
+          };
+        }
       ).SoulSyncPlayer?.audio?.();
-      return a ? a.currentTime : null;
+      // carried on between the element's steps, so lane A scrolls smoothly (step 4b)
+      return a ? this.clock.read(a, this.win.performance?.now?.() ?? Date.now()) : null;
     } catch {
       return null;
     }
@@ -978,6 +1217,7 @@ export class DjModeStore {
 
   private loadLane(deck: Deck, track: LaneTrack): void {
     this.clearLane(deck);
+    this.transports[deck].reset();
     const gen = this.gen[deck];
     const lane: LaneState = {
       track,
@@ -998,6 +1238,7 @@ export class DjModeStore {
     void this.loadInfo(deck, gen, track.id);
     void this.loadGrid(deck, gen, track.id, true);
     void this.loadCues(deck, gen, track.id);
+    void this.loadFine(deck, gen, track.id);
     // a new track on a lane: whole track again (442), nothing picked
     this.set({
       zoom: { ...this.s.zoom, [deck]: 'whole' },
@@ -1102,7 +1343,8 @@ export class DjModeStore {
         grid: g,
         phase: problem ? 'no_grid' : 'ready',
         reason: problem,
-        cue: deck === 'b' ? cueTime(g) : 0,
+        // CUE's point when the person set one (step 4b), else B's mix-in and A's start
+        cue: lane.main ? cueSeconds(lane.main, g.grid) : deck === 'b' ? cueTime(g) : 0,
       });
       this.readiness.set(id, { v: true, at: this.now() });
       this.stopWatching(deck);

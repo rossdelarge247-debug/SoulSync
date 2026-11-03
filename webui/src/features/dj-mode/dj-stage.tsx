@@ -139,6 +139,32 @@ function laneKeys(store: DjModeStore, deck: 'a' | 'b') {
     if (e.key === 'Enter' && store.placeAtPlayhead(deck)) e.preventDefault();
     else if ((e.key === 'Delete' || e.key === 'Backspace') && store.removeCue(deck))
       e.preventDefault();
+    // step 4b on the focused lane: C is CUE (held), G Play/Pause, ← → nudge while held
+    else if ((e.key === 'c' || e.key === 'C') && !e.shiftKey) {
+      e.preventDefault();
+      if (!e.repeat) store.transport(deck, 'cueDown');
+    } else if ((e.key === 'g' || e.key === 'G') && !e.shiftKey) {
+      e.preventDefault();
+      if (!e.repeat) store.transport(deck, 'play');
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      // the player's ±5 s stays the player's where the deck can't be nudged
+      const held = e.repeat
+        ? store.isNudging(deck)
+        : store.nudge(deck, e.key === 'ArrowLeft' ? -1 : 1);
+      if (held) e.preventDefault();
+    }
+  };
+}
+
+function laneKeysUp(store: DjModeStore, deck: 'a' | 'b') {
+  return (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'c' || e.key === 'C') {
+      e.preventDefault();
+      store.transport(deck, 'cueUp');
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      store.nudge(deck, 0);
+    }
   };
 }
 
@@ -340,6 +366,7 @@ function LaneA({
       aria-describedby={lineId}
       tabIndex={0}
       onKeyDown={laneKeys(store, 'a')}
+      onKeyUp={laneKeysUp(store, 'a')}
     >
       <LaneHead
         deck="a"
@@ -540,6 +567,12 @@ function LaneB({
     const ready = lane.phase === 'ready' && lane.grid && duration > 0;
     const mix = s.mix;
     const moving = mix.phase === 'playing' || mix.phase === 'backing';
+    // B's own Play, a hand on it, or parked somewhere: the playhead follows the deck (4b)
+    const follow =
+      moving ||
+      Boolean(mix.previewB) ||
+      mix.hand === 'B' ||
+      ['ready', 'paused'].includes(mix.phase);
     // Sync's speed: as it plays, else as it will (37g, before Play B)
     const planned = mix.sync
       ? (mix.rateB ??
@@ -556,7 +589,9 @@ function LaneB({
           label={
             mix.solo && mix.phase === 'playing'
               ? 'B · playing · on its own'
-              : laneBLabel(mix.phase, mix.sync)
+              : mix.previewB
+                ? 'B · in the headphones · Play B brings it in'
+                : laneBLabel(mix.phase, mix.sync)
           }
           time={`${clock(lane.cue)} · ${clock(duration)}`}
           timeRef={timeB}
@@ -566,6 +601,7 @@ function LaneB({
           lane={lane}
           store={store}
           moving={moving}
+          follow={follow}
           target={ref}
           timeRef={timeB}
           lineRef={lineB}
@@ -619,6 +655,7 @@ function LaneB({
       // with Browse there, it takes the focus in the lane's place (37p)
       tabIndex={lane || !s.browse ? 0 : -1}
       onKeyDown={laneKeys(store, 'b')}
+      onKeyUp={laneKeysUp(store, 'b')}
     >
       {!lane || over ? <p className={styles.label}>B · the second track</p> : null}
       {body}
@@ -672,6 +709,7 @@ function LanePlayheadB({
   lane,
   store,
   moving,
+  follow,
   target,
   timeRef,
   lineRef,
@@ -679,6 +717,8 @@ function LanePlayheadB({
   lane: LaneState;
   store: DjModeStore;
   moving: boolean;
+  /** the playhead follows the deck every frame (it plays, or may be moved) */
+  follow: boolean;
   target: React.RefObject<HTMLElement | null>;
   timeRef: React.RefObject<HTMLSpanElement | null>;
   lineRef: React.RefObject<HTMLParagraphElement | null>;
@@ -691,7 +731,7 @@ function LanePlayheadB({
         '--played',
         d > 0 ? String(Math.min(1, Math.max(0, t / d))) : '0',
       );
-    if (!moving) {
+    if (!follow) {
       put(store.positionB() ?? lane.cue);
       return;
     }
@@ -704,13 +744,14 @@ function LanePlayheadB({
       if (sec !== second) {
         second = sec;
         if (timeRef.current) timeRef.current.textContent = `${clock(t)} · ${clock(d)}`;
-        if (lineRef.current) lineRef.current.textContent = grid ? laneLine(grid, t) : '';
+        // the line in words is the blend's; cued, it's the cued line React draws
+        if (moving && lineRef.current) lineRef.current.textContent = grid ? laneLine(grid, t) : '';
       }
       id = window.requestAnimationFrame(tick);
     };
     tick();
     return () => window.cancelAnimationFrame(id);
-  }, [lane.cue, d, moving, store, target, timeRef, lineRef, grid]);
+  }, [lane.cue, d, moving, follow, store, target, timeRef, lineRef, grid]);
   return null;
 }
 

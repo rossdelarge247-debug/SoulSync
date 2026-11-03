@@ -23,6 +23,8 @@ let devices: OutputDevice[];
 let cuesPut: unknown[];
 /** A's grid can't be had (M4) */
 let noGridA = false;
+/** what the page's player was told (A's transport, step 4b) */
+let playerCalls: string[] = [];
 /** the server refuses the cues' save (L1) */
 let refuseCues = false;
 
@@ -145,9 +147,18 @@ beforeEach(async () => {
     removeEventListener: () => undefined,
   })) as unknown as typeof window.matchMedia;
   r = rig(vi, { say: (w) => store.announce(w) });
+  playerCalls = [];
   (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
     state: () => ({ track: FERRY, kind: 'library', volume: 70 }),
     audio: () => r.el,
+    toggle: () => {
+      playerCalls.push(r.el.paused ? 'play' : 'pause');
+      r.el.paused = !r.el.paused;
+    },
+    seek: (t: number) => {
+      playerCalls.push(`seek ${t}`);
+      r.el.currentTime = t;
+    },
   };
   store = makeStore();
   outputs = makeOutputs();
@@ -429,8 +440,134 @@ describe('the Monitor block and the outputs (37g, 37r)', () => {
     await withB();
     await flush(50);
     expect(document.querySelector('[data-dj-monitor]')).toBeNull();
-    const phones = document.querySelector<HTMLElement>('[data-dj-strip="b"] button')!;
+    const phones = document.querySelector<HTMLElement>(
+      '[data-dj-strip="b"] button[aria-keyshortcuts="M"]',
+    )!;
     expect(phones.dataset.unavailable).toBe('');
     expect(phones.title).toMatch(/No headphones output · Outputs…/);
+  });
+});
+
+describe('the transport (step 4b): Play/Pause and CUE a deck, a CDJ’s', () => {
+  it('each lane has Play and CUE before Headphones', async () => {
+    await withB();
+    // A is playing on the player; B is cued
+    for (const [d, play] of [
+      ['a', 'pause'],
+      ['b', 'play'],
+    ] as const) {
+      const strip = document.querySelector<HTMLElement>(`[data-dj-strip="${d}"]`)!;
+      const buttons = within(strip).getAllByRole('button');
+      expect(buttons[0]).toHaveAttribute('aria-label', `Deck ${d.toUpperCase()} ${play}`);
+      expect(buttons[1]).toHaveAccessibleName(`Deck ${d.toUpperCase()} cue`);
+      expect(buttons[2]).toHaveAttribute('aria-keyshortcuts', 'M');
+    }
+  });
+
+  it('A on the player: CUE stopped sets the cue point on the beat (kept as slot 0); held at it plays, let go goes back', async () => {
+    await withB();
+    r.el.paused = true;
+    r.el.currentTime = 33.1;
+    const cue = screen.getByRole('button', { name: 'Deck A cue' });
+    fireEvent.pointerDown(cue, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(cue, { pointerId: 1 });
+    const a = store.snapshot().a!;
+    // on A's beat (the grid's beats at 0.5 s from its first downbeat)
+    expect(a.main?.slot).toBe(0);
+    expect(a.cue).toBe(a.main!.seconds);
+    expect(said.at(-1)).toMatch(/^Deck A cue at bar /);
+    await flush(700);
+    expect((cuesPut.at(-1) as { cues: { slot: number }[] }).cues[0]!.slot).toBe(0);
+    // held at the cue point: the player plays from it; let go: back to it, paused
+    r.el.currentTime = a.cue;
+    playerCalls.length = 0;
+    fireEvent.pointerDown(cue, { button: 0, pointerId: 1 });
+    expect(playerCalls).toEqual([`seek ${a.cue}`, 'play']);
+    fireEvent.pointerUp(cue, { pointerId: 1 });
+    expect(playerCalls.slice(2)).toEqual(['pause', `seek ${a.cue}`]);
+  });
+
+  it('B before the blend: Play plays it into the headphones only; Play B is still the synced start', async () => {
+    await withB();
+    act(() => {
+      expect(store.transport('b', 'play')).toBe(true);
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    expect(said.at(-1)).toBe('Deck B playing in the headphones');
+    expect(r.engine.master.browser.valueAt(r.engine.port.time)).toBe(0);
+    await flush(1000);
+    act(() => {
+      store.transport('b', 'play');
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    act(() => {
+      store.playB();
+    });
+    expect(r.session.snapshot().phase).toBe('starting');
+  });
+
+  it('A’s CUE waits while A is on its deck; its Play is the player’s (pauses both)', async () => {
+    await withB();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    act(() => {
+      store.transport('a', 'cueDown');
+    });
+    expect(said.at(-1)).toBe(
+      'A’s CUE waits while it’s on its deck · cues 1–4 jump, Back ends the blend',
+    );
+  });
+
+  it('a press and drag on the waveform is the hand, not a cue placed; a click still places', async () => {
+    await withB();
+    fireEvent.click(document.querySelector('[data-dj-strip="b"] [data-dj-cue="3"]')!);
+    const wave = document.querySelector<HTMLElement>('[data-dj-wave="b"]')!;
+    wave.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        width: 288,
+        top: 0,
+        height: 50,
+        right: 288,
+        bottom: 50,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.pointerDown(wave, { button: 0, pointerId: 7, clientX: 100 });
+    fireEvent.pointerMove(wave, { pointerId: 7, clientX: 140 });
+    expect(r.session.snapshot().hand).toBe('B');
+    fireEvent.pointerUp(wave, { pointerId: 7, clientX: 140 });
+    fireEvent.click(wave, { clientX: 140 });
+    expect(store.snapshot().b!.cues[2]).toBeNull();
+    expect(r.session.snapshot().hand).toBeNull();
+    // B moved back by the hand: dragged right is back (40 px of 288 s over 288 px)
+    expect(r.session.snapshot().parkB).not.toBeNull();
+    // a click alone places the picked cue
+    fireEvent.click(wave, { clientX: 100 });
+    expect(store.snapshot().b!.cues[2]?.slot).toBe(3);
+  });
+
+  it('the lane keys: C (held) and G on the focused lane; ← → nudge only a playing deck', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'g' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    expect(said.at(-1)).toBe('Deck B back to its cue, stopped');
+    act(() => {
+      fireEvent.keyUp(laneB, { key: 'c' });
+    });
+    // B stopped: the arrow is the player's
+    const e = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    laneB.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
   });
 });

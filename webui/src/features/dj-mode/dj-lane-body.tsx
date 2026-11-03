@@ -12,15 +12,31 @@
  *   with a cue picked, the pointer over the waveform shows "Cue 4 · bar 80 ·
  *   click to place" on a dashed line, and a click places (or moves) it.
  * - **⌥ scroll** over the waveform zooms.
+ * - **Step 4b:** the waveform is drawn into a canvas every animation frame
+ *   while the lane is on screen, from the track's level every 10 ms
+ *   (dj-levels.ts; the 200 peaks until they come), so at 1 bar each
+ *   transient shows and it scrolls smoothly under the centre playhead. The
+ *   200-peak SVG stays underneath where there's no canvas. A press and drag
+ *   is a hand on the platter (`store.grab`): a playing deck is nudged, a
+ *   stopped one scrubbed; a press without a drag still places a picked cue.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import type { DjModeSnapshot, DjModeStore, LaneState } from './dj-mode-store';
 
 import { cueSeconds, placeLabel } from './dj-cues';
+import { coarseLevels, drawWave, type Levels } from './dj-levels';
 import { beatMap, beatMapWords } from './dj-mode.logic';
 import styles from './dj-mode.module.css';
-import { zoomTicks, zoomTransform, zoomWords } from './dj-zoom';
+import { zoomTicks, zoomTransform, zoomView, zoomWords } from './dj-zoom';
+
+/** A real 2D canvas (not a test page's DOM without one). */
+function canvasOk(): boolean {
+  return typeof navigator === 'undefined' || !/jsdom/i.test(navigator.userAgent);
+}
+
+/** A press that moves this far is a hand on the platter, not a click (CSS px). */
+const DRAG_PX = 4;
 
 export function LaneBody({
   deck,
@@ -48,6 +64,61 @@ export function LaneBody({
   const pick = s.pick[deck];
   const scale = zoomTransform(level, now(), grid?.grid ?? null, duration).scale;
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const press = useRef<{ x: number; id: number; grabbed: boolean; moved: boolean } | null>(null);
+  const dragged = useRef(false);
+  const coarse = useMemo(
+    () => (lane.peaks && duration > 0 ? coarseLevels(lane.peaks, duration) : null),
+    [lane.peaks, duration],
+  );
+  const src: Levels | null = lane.fine ?? coarse;
+  const live = useRef({ now, level, grid: grid?.grid ?? null, duration, src });
+  live.current = { now, level, grid: grid?.grid ?? null, duration, src };
+
+  // the waveform every frame while it's on screen (step 4b)
+  useEffect(() => {
+    const c = canvas.current;
+    const host = wave.current;
+    if (!c || !host || !canvasOk() || typeof requestAnimationFrame !== 'function') return;
+    let ctx: CanvasRenderingContext2D | null = null;
+    try {
+      ctx = c.getContext('2d');
+    } catch {
+      ctx = null;
+    }
+    if (!ctx) return;
+    let colour = '';
+    let last = '';
+    let id = 0;
+    const frame = () => {
+      id = requestAnimationFrame(frame);
+      if (!c.isConnected || c.offsetParent === null || document.hidden) return;
+      const L = live.current;
+      if (!L.src || !(L.duration > 0)) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.round(c.clientWidth * dpr);
+      const h = Math.round(c.clientHeight * dpr);
+      if (w <= 0 || h <= 0) return;
+      if (c.width !== w || c.height !== h) {
+        c.width = w;
+        c.height = h;
+        last = '';
+      }
+      if (!colour) colour = getComputedStyle(c).getPropertyValue('--deck-wave').trim() || '#c4b5fd';
+      const t = L.now();
+      const view =
+        L.level === 'whole'
+          ? { start: 0, end: L.duration }
+          : zoomView(L.level, t, L.grid, L.duration);
+      const key = `${w}|${h}|${view.start.toFixed(4)}|${view.end.toFixed(4)}|${t.toFixed(3)}|${L.src.step}|${L.src.duration}`;
+      if (key === last) return;
+      last = key;
+      drawWave(ctx!, w, h, L.src, view.start, view.end, t, { colour, restAlpha: 0.5 });
+      if (!('drawn' in host.dataset)) host.dataset.drawn = '';
+    };
+    id = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const layout = useMemo(
     () => (grid && duration > 0 ? beatMap(grid, duration) : null),
@@ -140,12 +211,58 @@ export function LaneBody({
         data-picking={pick !== null ? '' : undefined}
         data-dj-wave={deck}
         aria-hidden="true"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          press.current = { x: e.clientX, id: e.pointerId, grabbed: false, moved: false };
+          dragged.current = false;
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            /* not capturable */
+          }
+        }}
         onPointerMove={(e) => {
+          const p = press.current;
+          if (p && p.id === e.pointerId) {
+            const dx = e.clientX - p.x;
+            if (!p.moved && Math.abs(dx) >= DRAG_PX) {
+              p.moved = true;
+              dragged.current = true;
+              p.grabbed = store.grab(deck);
+              setHover(null);
+            }
+            if (p.grabbed) {
+              const r = wave.current?.getBoundingClientRect();
+              if (r && r.width > 0 && duration > 0) {
+                const span = zoomed ? duration / scale : duration;
+                // the hand moves the track with it: dragged left is on, right is back
+                store.moveHand(deck, (-dx * span) / r.width);
+              }
+            }
+            return;
+          }
           if (pick === null) return;
           setHover(timeAtX(e.clientX));
         }}
+        onPointerUp={(e) => {
+          const p = press.current;
+          if (!p || p.id !== e.pointerId) return;
+          press.current = null;
+          if (p.grabbed) store.letGo(deck);
+        }}
+        onPointerCancel={(e) => {
+          const p = press.current;
+          if (!p || p.id !== e.pointerId) return;
+          press.current = null;
+          if (p.grabbed) store.letGo(deck);
+        }}
         onPointerLeave={() => setHover(null)}
         onClick={(e) => {
+          // a drag was the hand on the platter, not a click (step 4b)
+          if (dragged.current) {
+            dragged.current = false;
+            return;
+          }
           if (pick === null) return;
           const at = timeAtX(e.clientX);
           if (at) store.placeCue(deck, at.t);
@@ -180,6 +297,7 @@ export function LaneBody({
           ) : null}
           <span className={styles.played} />
         </div>
+        <canvas ref={canvas} className={styles.canvas} data-dj-canvas={deck} />
         <span className={styles.playhead} data-dj-playhead="" />
         {pick !== null && hover ? (
           <span className={styles.placeCursor} style={{ left: `${hover.x * 100}%` }}>

@@ -34,7 +34,7 @@ let q: {
   index: number;
   plays: { index: number; handoff: HandoffLike | null; joinedAt: number | null }[];
   removed: number[];
-  result: 'played' | 'failed' | 'busy';
+  result: 'played' | 'failed' | 'busy' | 'stopped-then-failed';
   loadMs: number;
   next: ReturnType<typeof vi.fn<() => void>>;
 };
@@ -75,6 +75,11 @@ function handRigDeps(): Partial<import('./dj-mix-session').SessionDeps> {
         const play = { index, handoff, joinedAt: null as number | null };
         q.plays.push(play);
         if (q.result === 'busy') return { status: 'busy' };
+        // a newer load's cancel stops the registered handoff, then this one fails
+        if (q.result === 'stopped-then-failed') {
+          handoff?.pause();
+          return { status: 'failed' };
+        }
         // the player's load: pause, empty, then the new source loads
         r.el.pause();
         r.el.dispatchEvent(new Event('emptied'));
@@ -639,5 +644,51 @@ describe('review round 1 (step 4)', () => {
     await r.advance(0.3);
     expect(await undone).toBe(true);
     expect(q.queue.map((row) => row.id)).toEqual(['2', '5', '8']);
+  });
+});
+
+describe('the step 4 re-review’s Lows (step 4b)', () => {
+  it('N-1: a newer load had already stopped deck B: idle, not B on its own', async () => {
+    await blending();
+    q.result = 'stopped-then-failed';
+    r.session.handOver();
+    await r.advance(2.5);
+    expect(r.session.snapshot()).toMatchObject({ phase: 'idle', solo: false });
+    expect(r.said.at(-1)).toBe('Couldn’t hand over to Harbour Lights: the player moved on');
+  });
+
+  it('N-2: after a failed result the handoff is spent: a later load can’t stop deck B through it', async () => {
+    await blending();
+    q.result = 'failed';
+    r.session.handOver();
+    await r.advance(2.5);
+    expect(r.session.snapshot().solo).toBe(true);
+    q.plays[0]!.handoff!.pause();
+    expect(r.engine.port.stops.B).toBe(Infinity);
+    // lane B still loaded: Hand over again or Back
+    expect(r.said.at(-1)).toBe(
+      'Couldn’t hand over to Harbour Lights: it plays on here · Hand over again or Back',
+    );
+  });
+
+  it('N-2: with lane B gone (the player said it plays B), the words are only Back', async () => {
+    await blending();
+    q.result = 'failed';
+    r.session.handOver();
+    await r.advance(1);
+    r.session.setLanes(laneA({ id: '8', title: 'Harbour Lights' }), null);
+    await r.advance(1.5);
+    expect(r.said.at(-1)).toBe(
+      'Couldn’t hand over to Harbour Lights: it plays on here · Back ends it',
+    );
+  });
+
+  it('N-3: B in Up next without its file isn’t moved: B’s own record is inserted', async () => {
+    q.queue = [NIGHT_FERRY, STATIC_BLOOM, { id: '8', title: 'Harbour Lights' }];
+    await blending();
+    r.session.handOver();
+    await r.advance(2.6);
+    expect(q.queue.map((row) => row.id)).toEqual(['2', '8', '5', '8']);
+    expect(q.queue[1]!.file_path).toBe('/m/8.flac');
   });
 });
