@@ -590,3 +590,367 @@
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
 }
+
+/* ── 3b: the decks as six vertical faders (37g) ── */
+
+.deck[data-layout='faders'] {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.deck[data-layout='faders'] .control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+.deck[data-layout='faders'] .controlLabel {
+  font-size: 12px;
+}
+.deck[data-layout='faders'] .value {
+  text-align: center;
+}
+.deck[data-layout='faders'] .kill {
+  width: 100%;
+  min-width: 0;
+}
+.deck[data-layout='faders'] .killGap {
+  display: none;
+}
+/* a vertical slider: 24px wide, up is more (and faster, on Tempo) */
+.range[data-vertical] {
+  flex: 1;
+  width: 24px;
+  height: auto;
+  min-height: 88px;
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+.range[data-vertical]::-webkit-slider-runnable-track {
+  width: 2px;
+  height: auto;
+}
+.range[data-vertical]::-webkit-slider-thumb {
+  width: 16px;
+  height: 12px;
+  margin-top: 0;
+  margin-left: -7px;
+}
+.range[data-vertical]::-moz-range-track {
+  width: 2px;
+  height: auto;
+}
+.range[data-vertical]::-moz-range-thumb {
+  width: 16px;
+  height: 12px;
+}
+/* B's tempo set by Sync: the value green, the thumb dimmed */
+.control[data-tone='sync'] .value {
+  color: #4ade80;
+}
+.control[data-tone='sync'] .range::-webkit-slider-thumb {
+  opacity: 0.4;
+}
+.control[data-tone='sync'] .range::-moz-range-thumb {
+  opacity: 0.4;
+}
+.range:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tempoLabel {
+  position: relative;
+}
+.tempoBtn {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tempoMenu {
+  position: absolute;
+  z-index: 6;
+  top: 20px;
+  right: 0;
+  width: 190px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: #1a1a1e;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+.tempoItem {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tempoItem[aria-checked='true'],
+.tempoItem:focus-visible {
+  background: rgba(var(--ss-accent-light-rgb), 0.16);
+  outline: none;
+}
+
+/* ── the lane strip (37g) and the zoom pill (37s) ── */
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.phones,
+.keyLock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.phones[aria-pressed='true'] {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.14);
+}
+.phones[data-unavailable] {
+  opacity: 0.55;
+}
+.keyLock {
+  margin-left: auto;
+}
+.keyLock[aria-pressed='true'] {
+  border-color: color-mix(in oklab, #4ade80 60%, transparent);
+  background: color-mix(in oklab, #4ade80 12%, transparent);
+}
+.keyLock[aria-pressed='true'] .syncDot {
+  background: #4ade80;
+}
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.cues {
+  display: inline-flex;
+  gap: 4px;
+}
+.cue {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cue[data-set] {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--deck, #fff) 60%, transparent);
+  background: color-mix(in oklab, var(--deck, #fff) 18%, transparent);
+  color: var(--ss-text);
+}
+.cue[aria-pressed='true'] {
+  box-shadow: 0 0 0 2px #fff;
+}
+.phones:focus-visible,
+.keyLock:focus-visible,
+.cue:focus-visible,
+.zoomBtn:focus-visible,
+.tempoBtn:focus-visible,
+.linkBtn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.zoomBtn {
+  width: 28px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--ss-text);
+  font: inherit;
+  cursor: pointer;
+}
+.zoomBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.zoomLabel {
+  min-width: 64px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ── the Monitor block (37g, 37r) and DJ outputs ── */
+
+.monitor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.monitor[data-state='phonesLost'],
+.monitor[data-state='speakersLost'] {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+.monitorHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.monitorLine {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.linkBtn {
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.monitorRow {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 10px;
+}
+.monitorControl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.monitorControl .value {
+  text-align: left;
+  font-size: 12px;
+}
+.outputsDialog {
+  box-sizing: border-box;
+  width: min(460px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: #17171a;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  color: var(--ss-text);
+}
+.outputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.outputsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 14px;
+}
+.outputsLabel {
+  color: rgba(255, 255, 255, 0.72);
+}
+.outputsValue[data-tone='warn'] {
+  color: #fbbf24;
+}
+.outputsSelect {
+  max-width: 260px;
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: #101012;
+  color: var(--ss-text);
+  font: inherit;
+}
+.outputsNote {
+  margin: 0 0 6px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+}
+
+/* 37m (1280): the centre splits in two (the fader left, the echo and the
+   Monitor right), so the faders are short and the lanes keep their room */
+@container djstage (max-width: 1327px) {
+  .centre {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'buttons echo'
+      'status echo'
+      'fader monitor';
+    align-content: start;
+    gap: 6px 10px;
+  }
+  .buttons {
+    grid-area: buttons;
+  }
+  .status {
+    grid-area: status;
+  }
+  .fader {
+    grid-area: fader;
+  }
+  .echo {
+    grid-area: echo;
+  }
+  .monitor {
+    grid-area: monitor;
+  }
+  .monitorRow {
+    grid-template-columns: 1fr 1fr;
+  }
+  .range[data-vertical] {
+    min-height: 56px;
+  }
+  .deck[data-layout='faders'] .control {
+    padding: 6px 2px;
+    gap: 4px;
+  }
+}

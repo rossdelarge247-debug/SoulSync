@@ -23,20 +23,26 @@ import type { DeckId } from '@/features/engine/score';
 
 import type { DjMixSession, MixLane, MixView } from './dj-mix-session';
 import type { DjModeStore, LaneState } from './dj-mode-store';
+import type { DjOutputs } from './dj-outputs-host';
 
 import {
   clampTo,
   controlName,
   DECK_CONTROLS,
   ECHO_CONTROLS,
+  TEMPO_RANGES,
+  tempoSpan,
   XF_CONTROL,
   type Band,
   type ControlSpec,
   type DeckControlId,
   type DeckValues,
+  type TempoRange,
 } from './dj-mixer.logic';
 import styles from './dj-mixer.module.css';
+import { MonitorBlock } from './dj-monitor';
 import { useDjMode } from './dj-stage';
+import { syncRatioFromBpm } from './dj-sync';
 
 export const HAND_OVER_WAIT = 'Hand over comes in the next update · Back ends the blend for now';
 
@@ -84,6 +90,11 @@ function Slider({
   onChange,
   onKill,
   className,
+  vertical = false,
+  label,
+  title,
+  tone,
+  onReset,
 }: {
   spec: ControlSpec;
   deck: DeckId | null;
@@ -93,10 +104,24 @@ function Slider({
   onChange: (v: number) => void;
   onKill?: () => void;
   className?: string;
+  /** 3b: a vertical fader (37g; up is more) */
+  vertical?: boolean;
+  /** the label as something else (Tempo's menu button) */
+  label?: ReactNode;
+  title?: string;
+  /** "sync": the value set by Sync (green, the thumb dimmed) */
+  tone?: 'sync';
+  /** double-click or Backspace: back to its rest (Tempo's 0) */
+  onReset?: () => void;
 }) {
   const words = spec.words(value, killed);
   const name = controlName(deck, spec);
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (onReset && (e.key === 'Backspace' || e.key === 'Delete')) {
+      e.preventDefault();
+      onReset();
+      return;
+    }
     if ((e.key === 'k' || e.key === 'K') && onKill && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       onKill();
@@ -116,13 +141,23 @@ function Slider({
     }
   };
   return (
-    <div className={`${styles.control} ${className ?? ''}`} data-control={spec.id}>
-      <span className={styles.controlLabel} aria-hidden="true">
-        {spec.label}
-      </span>
+    <div
+      className={`${styles.control} ${className ?? ''}`}
+      data-control={spec.id}
+      data-tone={tone}
+      title={title}
+    >
+      {label ?? (
+        <span className={styles.controlLabel} aria-hidden="true">
+          {spec.label}
+        </span>
+      )}
       <input
         type="range"
         className={styles.range}
+        aria-orientation={vertical ? 'vertical' : undefined}
+        data-vertical={vertical ? '' : undefined}
+        onDoubleClick={onReset}
         min={spec.min}
         max={spec.max}
         step={spec.step}
@@ -164,19 +199,108 @@ function Slider({
 
 /* ── a deck's column ──────────────────────────────────────────────────── */
 
+export interface TempoProps {
+  range: TempoRange;
+  onRange: (r: TempoRange) => void;
+  /** A's BPM, for the menu's spans (438) */
+  bpm: number | null;
+  /** B with Sync on: the speed Sync sets, shown in green (moving it turns Sync off) */
+  sync: number | null;
+  /** why it can't move now (A before it's on its deck) */
+  why: string | null;
+  /** the overlay's Esc closes the open menu first (the store's) */
+  addCloser?: (close: () => void) => () => void;
+}
+
 /**
- * A deck's controls from a list. `layout="rows"` (step 3) is a slider a row;
- * 3b's `faders` draws the same list as 37g's vertical faders and appends
- * Tempo to `controls`.
+ * Tempo's label: its name with a chevron that opens the range menu (438):
+ * ±6, ±8, ±10, ±16%, each with its BPM span at A's tempo.
+ */
+function TempoMenu({ deck, t }: { deck: DeckId; t: TempoProps }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setOpen(false);
+    btn.current?.focus();
+  };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+    return t.addCloser?.(() => closeRef.current());
+  }, [open, t.addCloser]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <span className={styles.tempoLabel}>
+      <button
+        ref={btn}
+        type="button"
+        className={styles.tempoBtn}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Deck ${deck} tempo range, ±${t.range}%`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        Tempo <span aria-hidden="true">⌄</span>
+      </button>
+      {open ? (
+        <div
+          ref={menu}
+          className={styles.tempoMenu}
+          role="menu"
+          aria-label={`Deck ${deck} tempo range`}
+          onKeyDown={(e) => {
+            const items = Array.from(
+              menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [],
+            );
+            const i = items.indexOf(document.activeElement as HTMLElement);
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              close();
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              const n = items.length;
+              items[(i + (e.key === 'ArrowDown' ? 1 : -1) + n) % n]?.focus();
+            }
+          }}
+        >
+          {TEMPO_RANGES.map((r) => (
+            <button
+              key={r}
+              type="button"
+              role="menuitemradio"
+              aria-checked={r === t.range}
+              className={styles.tempoItem}
+              onClick={() => {
+                t.onRange(r);
+                close();
+              }}
+            >
+              <span>±{r}%</span>
+              <span className={styles.mono}>{tempoSpan(r, t.bpm) ?? ''}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * A deck's controls from a list (`DECK_CONTROLS`): 37g's six vertical
+ * faders, Volume · Hi · Mid · Low · Filter · Tempo, KILL under the value on
+ * the EQ bands (`layout="faders"`, 3b); `rows` is step 3's slider a row.
  */
 export function DeckColumn({
   deck,
   values,
   controls = DECK_CONTROLS,
-  layout = 'rows',
+  layout = 'faders',
   onChange,
   onKill,
-  extra,
+  tempo,
 }: {
   deck: DeckId;
   values: DeckValues;
@@ -184,8 +308,7 @@ export function DeckColumn({
   layout?: 'rows' | 'faders';
   onChange: (id: DeckControlId, v: number) => void;
   onKill: (band: Band) => void;
-  /** 3b: what follows the faders (Tempo's menu) */
-  extra?: ReactNode;
+  tempo?: TempoProps;
 }) {
   return (
     <div
@@ -195,25 +318,59 @@ export function DeckColumn({
       role="group"
       aria-label={`Deck ${deck}`}
     >
-      {controls.map((spec) => (
-        <Slider
-          key={spec.id}
-          spec={spec}
-          deck={deck}
-          value={values[spec.id]}
-          killed={spec.kill ? values.kill[spec.kill] : undefined}
-          onChange={(v) => onChange(spec.id, v)}
-          onKill={spec.kill ? () => onKill(spec.kill!) : undefined}
-        />
-      ))}
-      {extra}
+      {controls.map((spec) => {
+        if (spec.id === 'tempo') {
+          if (!tempo) return null;
+          const r = tempo.range;
+          const ranged = { ...spec, min: -r, max: r };
+          const shown = tempo.sync ?? values.tempo;
+          return (
+            <Slider
+              key={spec.id}
+              spec={ranged}
+              deck={deck}
+              value={Math.max(-r, Math.min(r, shown))}
+              vertical={layout === 'faders'}
+              label={<TempoMenu deck={deck} t={tempo} />}
+              tone={tempo.sync !== null ? 'sync' : undefined}
+              disabled={Boolean(tempo.why)}
+              title={
+                tempo.why ??
+                (tempo.sync !== null ? 'Set by Sync · moving it turns Sync off' : undefined)
+              }
+              onChange={(v) => onChange('tempo', v)}
+              onReset={() => onChange('tempo', 0)}
+            />
+          );
+        }
+        return (
+          <Slider
+            key={spec.id}
+            spec={spec}
+            deck={deck}
+            value={values[spec.id]}
+            vertical={layout === 'faders'}
+            killed={spec.kill ? values.kill[spec.kill] : undefined}
+            onChange={(v) => onChange(spec.id, v)}
+            onKill={spec.kill ? () => onKill(spec.kill!) : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
 
 /* ── the mixer ────────────────────────────────────────────────────────── */
 
-export function DjMixer({ store, session }: { store: DjModeStore; session: DjMixSession }) {
+export function DjMixer({
+  store,
+  session,
+  outputs,
+}: {
+  store: DjModeStore;
+  session: DjMixSession;
+  outputs?: DjOutputs;
+}) {
   const s = useDjMode(store);
   const v = useMixView(session);
   const [reduce] = useState(prefersReducedMotion);
@@ -232,12 +389,18 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
       },
       positionB: () => session.positionB(),
       holdsTrack: () => session.snapshot().aOnDeck,
+      togglePhones: (d) => session.setPhones(d, !session.snapshot().decks[d].phones),
+      toggleKeyLock: (d) => session.setKeyLock(d, !session.snapshot().decks[d].keyLock),
+      jump: (d, seconds) => session.jump(d, seconds),
     });
+    // the outputs are watched while DJ mode is on (37r)
+    outputs?.start();
     return () => {
       session.end();
+      outputs?.stop();
       store.setMixer(null);
     };
-  }, [store, session]);
+  }, [store, session, outputs]);
 
   // the decks follow the lanes (B's cue and grid, A's track)
   const lanes = useRef({ a: s.a, b: s.b });
@@ -254,8 +417,9 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
       window: v.window,
       rateB: v.rateB,
       sync: v.sync && v.syncable,
+      levels: v.levels,
     });
-  }, [store, v.phase, v.window, v.rateB, v.sync, v.syncable]);
+  }, [store, v.phase, v.window, v.rateB, v.sync, v.syncable, v.levels]);
 
   const aTitle = s.a?.track.title || 'A';
   const bTitle = s.b?.track.title || 'B';
@@ -267,6 +431,11 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
   const canPlay = ['ready', 'paused', 'playing'].includes(v.phase);
   const syncOn = v.sync && v.syncable;
   const backing = v.phase === 'backing';
+  // B's tempo as Sync sets it (37g: "−1.6%" in green): as it plays, else as it will
+  const aBpm = s.a?.info?.bpm ?? s.a?.grid?.bpm ?? null;
+  const bBpm = s.b?.info?.bpm ?? s.b?.grid?.bpm ?? null;
+  const syncRate = v.rateB ?? syncRatioFromBpm(aBpm, bBpm)?.rate ?? 1;
+  const syncPct = Math.round((syncRate - 1) * 1000) / 10;
   const playWhy = canPlay ? null : status;
 
   return (
@@ -363,6 +532,9 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
             />
           ))}
         </div>
+        {outputs ? (
+          <MonitorBlock session={session} outputs={outputs} addCloser={(c) => store.addCloser(c)} />
+        ) : null}
       </div>
       {(['A', 'B'] as const).map((deck) => (
         <DeckColumn
@@ -371,6 +543,17 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
           values={v.values[deck]}
           onChange={(id, x) => session.setDeck(deck, id, x)}
           onKill={(band) => session.setKill(deck, band, !v.values[deck].kill[band])}
+          tempo={{
+            range: v.decks[deck].range,
+            onRange: (r: TempoRange) => session.setRange(deck, r),
+            bpm: aBpm,
+            sync: deck === 'B' && syncOn ? syncPct : null,
+            addCloser: (c: () => void) => store.addCloser(c),
+            why:
+              deck === 'A' && !v.aOnDeck
+                ? 'A’s tempo moves once A is on its deck (Play B): the player’s own speed is untouched'
+                : null,
+          }}
         />
       ))}
     </section>

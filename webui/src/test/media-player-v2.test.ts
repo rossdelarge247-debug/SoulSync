@@ -2126,6 +2126,24 @@ describe('the Visuals keys (HANDOFF 60)', () => {
     expect(html).toMatch(/id="np-v2-visuals-dj-btn"[^>]*aria-keyshortcuts="D"[^>]*hidden/);
   });
 
+  it('L asks DJ mode first (3b key lock), then is the A–B loop', () => {
+    const v2src = readFileSync(resolve(process.cwd(), 'static/media-player-v2.js'), 'utf8');
+    const body = v2src.slice(
+      v2src.indexOf("case 'L':"),
+      v2src.indexOf('npv2AbToggle();', v2src.indexOf("case 'L':")),
+    );
+    expect(body).toContain("window.SoulSyncDj.key('L')");
+  });
+
+  it('the shortcuts list has DJ mode’s 3b keys', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toContain(
+      "<dt>DJ mode: a lane's headphones · key lock</dt><dd><kbd>M</kbd> <kbd>L</kbd></dd>",
+    );
+    expect(html).toContain('<kbd>1</kbd>–<kbd>4</kbd>');
+    expect(html).toContain('<kbd>−</kbd> <kbd>+</kbd> <kbd>Z</kbd>');
+  });
+
   it('the shortcuts list has DJ mode’s B, ⇧P and K (step 3, 37p)', () => {
     const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
     expect(html).toContain('<dt>DJ mode: Browse for the second track</dt><dd><kbd>B</kbd></dd>');

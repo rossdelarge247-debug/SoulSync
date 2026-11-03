@@ -12,6 +12,7 @@ import type { EngineLike, PlayerPort } from './dj-mix-session';
 
 import { DjMixSession } from './dj-mix-session';
 import { djModeStore } from './dj-mode-store';
+import { browserOutputsEnv, DjOutputs } from './dj-outputs-host';
 
 interface PlayerApi extends PlayerPort {
   audioGraph?: () => { context: AudioContext; analyser: AnalyserNode } | null;
@@ -41,12 +42,22 @@ export function djDeckSupport(
 }
 
 let shared: DjMixSession | null = null;
+let sharedOutputs: DjOutputs | null = null;
+
+/** The outputs (37r) for the page's session. */
+export function djOutputs(): DjOutputs {
+  sharedOutputs ??= new DjOutputs(browserOutputsEnv(), djMixSession(), (w) =>
+    djModeStore().announce(w),
+  );
+  return sharedOutputs;
+}
 
 export function djMixSession(): DjMixSession {
   shared ??= new DjMixSession({
     player: {
       audio: () => player()?.audio?.() ?? null,
       state: () => player()?.state?.() ?? null,
+      seek: (seconds) => player()?.seek?.(seconds),
     },
     async engine(): Promise<EngineLike | null> {
       if (typeof AudioWorkletNode === 'undefined') return null;
@@ -74,6 +85,8 @@ export function djMixSession(): DjMixSession {
 
 /** @internal tests */
 export function resetDjMixSession(): void {
+  sharedOutputs?.stop();
+  sharedOutputs = null;
   shared?.dispose();
   shared = null;
 }

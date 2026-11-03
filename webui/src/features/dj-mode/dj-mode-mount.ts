@@ -12,6 +12,9 @@
  * - **B** opens Browse while DJ mode is on (step 3 registers it).
  * - **⇧P** is Play B (or Pause B) while DJ mode is on with B loaded; else
  *   P and ⇧P stay the player's Previous.
+ * - **M** (headphones), **L** (key lock) and **1–4** (cues) act on the
+ *   focused lane, else on B when it's loaded; **Z**, **−** and **+** zoom
+ *   the focused lane (3b, 37p). Otherwise M mutes and L is the A–B loop.
  * - **T** while DJ mode is on says "Lyrics come back when DJ mode is off".
  * - **Esc** (static/media-player-v2.js) closes Browse first; mid-blend it
  *   only says "Back ends it over a bar" (413: a stray key never ends a
@@ -223,6 +226,16 @@ export function mountDjMode(win: Window = window): DjModeStore {
       if (!s.on || !open) return false;
       if (k === 'B') return store.openBrowse();
       if (k === '⇧P') return store.playB();
+      // 3b (37p): M headphones, L key lock and 1–4 cues on the focused lane
+      // (else B, when it's loaded); Z, − and + zoom the focused lane. Without
+      // a lane to act on the key stays the player's (M mutes, L is the A–B loop)
+      if (['M', 'L', '1', '2', '3', '4', 'Z', '-', '+'].includes(k)) {
+        const lane = (doc.activeElement as HTMLElement | null)?.closest?.<HTMLElement>(
+          '[data-dj-lane]',
+        );
+        const focused = (lane?.dataset.djLane as 'a' | 'b' | undefined) ?? null;
+        return store.laneKey(k, focused);
+      }
       if (k === 'T') {
         say(LYRICS_WAIT);
         return true;

@@ -28,6 +28,7 @@ import { analysisStore, requestAnalysis } from '@/features/dj/analysis.api';
 import { liveSay } from '@/features/dnd/dnd-engine';
 import { appURL } from '@/platform/url-base';
 
+import type { CueSet } from './dj-cues';
 import type {
   Availability,
   LaneApiGrid,
@@ -35,7 +36,9 @@ import type {
   LanePhase,
   PlayerTrackLike,
 } from './dj-mode.logic';
+import type { ZoomLevel } from './dj-zoom';
 
+import { CueStore, cueAt, cueSeconds, cueWords, emptyCues, withCue, withoutCue } from './dj-cues';
 import {
   cueTime,
   djAvailability,
@@ -44,6 +47,7 @@ import {
   noGridWords,
   PENDING_REASONS,
 } from './dj-mode.logic';
+import { zoomStep, zoomWords } from './dj-zoom';
 
 export interface LaneTrack {
   id: string;
@@ -76,6 +80,8 @@ export interface LaneState {
   info: LaneInfo | null;
   /** B: where it's cued (its mix-in), seconds */
   cue: number;
+  /** the person's cue points 1–4 on this track (3b, 439) */
+  cues: CueSet;
 }
 
 export interface DjModeSnapshot {
@@ -89,6 +95,10 @@ export interface DjModeSnapshot {
   browse: boolean;
   /** the mixer's phase (step 3): what the header says, what Back and Esc do */
   mix: MixState;
+  /** the cue picked on each lane (a white ring; a click on the waveform places it) */
+  pick: Record<Deck, number | null>;
+  /** each lane's zoom (442), kept for the session */
+  zoom: Record<Deck, ZoomLevel>;
 }
 
 export type MixPhaseLike =
@@ -109,6 +119,8 @@ export interface MixState {
   rateB: number | null;
   /** Sync is on and can work */
   sync: boolean;
+  /** the decks' windows as levels (3b: a zoomed lane's detail) */
+  levels?: Record<'A' | 'B', import('./dj-mix-session').DeckLevels | null>;
 }
 
 /** What the mixer (step 3) lends the store: it lives with the Visuals' pieces. */
@@ -125,6 +137,10 @@ export interface MixerHooks {
   positionB(): number | null;
   /** A is playing on DJ mode's deck (its element muted under it) */
   holdsTrack?(): boolean;
+  /** A deck's Headphones, Key lock and jumps (3b); the session's */
+  togglePhones?(deck: 'A' | 'B'): void;
+  toggleKeyLock?(deck: 'A' | 'B'): void;
+  jump?(deck: 'A' | 'B', seconds: number): 'seek' | 'cue' | 'jumped' | 'outside';
 }
 
 export const IDLE_MIX: MixState = { phase: 'idle', window: null, rateB: null, sync: false };
@@ -233,6 +249,8 @@ export class DjModeStore {
   private browseOpener: (() => void) | null = null;
   private browseCloser: (() => boolean) | null = null;
   private mixer: MixerHooks | null = null;
+  /** popups open over the stage (Tempo's menu, DJ outputs): Esc closes the latest first */
+  private closers: (() => void)[] = [];
   private offAnalysis: (() => void) | null = null;
   /** the grid lookups for a drag's drop line (37c): true has a grid, false not yet */
   private readiness = new Map<string, { v: boolean | 'asking'; at: number }>();
@@ -241,6 +259,7 @@ export class DjModeStore {
   /** a grid read on its way, per deck, by load generation (review L1) */
   private gridFor: Record<Deck, number | null> = { a: null, b: null };
   private readonly now: () => number;
+  private readonly cueStore: CueStore;
 
   constructor(deps: DjModeDeps = {}) {
     this.win = deps.win ?? window;
@@ -253,6 +272,7 @@ export class DjModeStore {
         return requestAnalysis(ids, { force: true, reason: 'asked', source: 'dj_now' });
       });
     this.analysis = deps.analysis ?? analysisStore;
+    this.cueStore = new CueStore((url, init) => this.f(url, init));
     this.phone = deps.phone ?? (() => isPhone(this.win));
     this.now = deps.now ?? (() => Date.now());
     this.libraryAway = deps.libraryAway ?? (() => false);
@@ -265,6 +285,8 @@ export class DjModeStore {
       b: null,
       browse: false,
       mix: IDLE_MIX,
+      pick: { a: null, b: null },
+      zoom: { a: 'whole', b: 'whole' },
     };
     this.s.availability = this.availabilityNow();
   }
@@ -379,6 +401,9 @@ export class DjModeStore {
     }
     this.browseCloser?.();
     this.mixer?.end();
+    // the cues waiting to be saved go now; picks and zoom are this visit's
+    this.cueStore.flush();
+    this.set({ pick: { a: null, b: null }, zoom: { a: 'whole', b: 'whole' } });
     this.clearLane('a');
     this.clearLane('b');
     this.readiness.clear();
@@ -425,6 +450,18 @@ export class DjModeStore {
   escape(): boolean {
     if (!this.s.on) return false;
     if (this.browseCloser?.()) return true;
+    const popup = this.closers.pop();
+    if (popup) {
+      popup();
+      return true;
+    }
+    // a picked cue is cleared first (439): Esc falls through to Back only when nothing is picked
+    for (const deck of ['b', 'a'] as const) {
+      if (this.s.pick[deck] !== null) {
+        this.clearPick(deck);
+        return true;
+      }
+    }
     if (this.blending()) {
       this.say('Blending · Back ends it over a bar');
       return true;
@@ -446,6 +483,8 @@ export class DjModeStore {
       was.phase === mix.phase &&
       was.rateB === mix.rateB &&
       was.sync === mix.sync &&
+      was.levels?.A === mix.levels?.A &&
+      was.levels?.B === mix.levels?.B &&
       was.window?.start === mix.window?.start &&
       was.window?.end === mix.window?.end
     )
@@ -562,6 +601,162 @@ export class DjModeStore {
 
   // ── loading a lane ─────────────────────────────────────────────────────
 
+  /** A popup over the stage (3b: Tempo's menu, DJ outputs): Esc closes it before anything else. */
+  addCloser(close: () => void): () => void {
+    this.closers.push(close);
+    return () => {
+      this.closers = this.closers.filter((c) => c !== close);
+    };
+  }
+
+  // ── cues (3b, 439) ─────────────────────────────────────────────────────
+
+  private async loadCues(deck: Deck, gen: number, id: string): Promise<void> {
+    const set = await this.cueStore.load(id);
+    if (!this.live(deck, gen) || !set) return;
+    this.setLane(deck, { cues: set });
+  }
+
+  private deckName(deck: Deck): 'A' | 'B' {
+    return deck === 'a' ? 'A' : 'B';
+  }
+
+  /**
+   * A cue pressed (or 1–4): an empty one is picked (a click on the waveform
+   * then places it; pressed again, the pick goes); a set one jumps its deck
+   * there and is picked, so a click moves it.
+   */
+  pressCue(deck: Deck, slot: number): void {
+    const lane = this.s[deck];
+    if (!this.s.on || !lane || slot < 1 || slot > 4) return;
+    const cue = lane.cues[slot - 1] ?? null;
+    if (!cue) {
+      if (this.s.pick[deck] === slot) {
+        this.clearPick(deck);
+        return;
+      }
+      this.set({ pick: { ...this.s.pick, [deck]: slot } });
+      this.say(cueWords('picked', this.deckName(deck), { slot }));
+      return;
+    }
+    this.set({ pick: { ...this.s.pick, [deck]: slot } });
+    const grid = lane.phase === 'ready' ? (lane.grid?.grid ?? null) : null;
+    const at = cueSeconds(cue, grid);
+    const how = this.mixer?.jump?.(this.deckName(deck), at) ?? (deck === 'a' ? 'seek' : 'cue');
+    if (how === 'outside') {
+      this.say(`Cue ${slot} is outside deck ${this.deckName(deck)}’s 3 minutes`);
+      return;
+    }
+    if (deck === 'b' && how === 'cue') this.setLane('b', { cue: at });
+    this.say(cueWords('jumped', this.deckName(deck), cue));
+  }
+
+  /** The picked cue placed (or moved) where the waveform was clicked: on the nearest beat. */
+  placeCue(deck: Deck, seconds: number): boolean {
+    const lane = this.s[deck];
+    const slot = this.s.pick[deck];
+    if (!this.s.on || !lane || slot === null) return false;
+    const grid = lane.phase === 'ready' ? (lane.grid?.grid ?? null) : null;
+    const had = lane.cues[slot - 1];
+    const cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
+    const cues = withCue(lane.cues, cue);
+    this.setLane(deck, { cues });
+    this.cueStore.save(lane.track.id, cues, () => this.say('The cues couldn’t be saved'));
+    this.say(cueWords(had ? 'moved' : 'placed', this.deckName(deck), cue));
+    return true;
+  }
+
+  /** The picked cue at the playhead (Enter on the lane: placing without a pointer). */
+  placeAtPlayhead(deck: Deck): boolean {
+    if (this.s.pick[deck] === null) return false;
+    let t: number | null;
+    if (deck === 'a') t = this.player().track ? this.audioTime() : null;
+    else t = this.positionB() ?? this.s.b?.cue ?? null;
+    return t === null ? false : this.placeCue(deck, t);
+  }
+
+  private audioTime(): number | null {
+    try {
+      const a = (
+        this.win as Window & { SoulSyncPlayer?: { audio?: () => { currentTime: number } | null } }
+      ).SoulSyncPlayer?.audio?.();
+      return a ? a.currentTime : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The picked cue taken off (Delete with it picked). */
+  removeCue(deck: Deck): boolean {
+    const lane = this.s[deck];
+    const slot = this.s.pick[deck];
+    if (!lane || slot === null || !lane.cues[slot - 1]) return false;
+    const cues = withoutCue(lane.cues, slot);
+    this.setLane(deck, { cues });
+    this.cueStore.save(lane.track.id, cues, () => this.say('The cues couldn’t be saved'));
+    this.say(`Cue ${slot} on deck ${this.deckName(deck)} removed`);
+    return true;
+  }
+
+  clearPick(deck: Deck): void {
+    const slot = this.s.pick[deck];
+    if (slot === null) return;
+    this.set({ pick: { ...this.s.pick, [deck]: null } });
+    this.say(cueWords('cleared', this.deckName(deck), { slot }));
+  }
+
+  // ── zoom (3b, 442) ─────────────────────────────────────────────────────
+
+  zoom(deck: Deck, dir: 1 | -1 | 'whole'): void {
+    if (!this.s.on || !this.s[deck]) return;
+    const was = this.s.zoom[deck];
+    const next = dir === 'whole' ? 'whole' : zoomStep(was, dir);
+    if (next === was) return;
+    this.set({ zoom: { ...this.s.zoom, [deck]: next } });
+    this.say(`Deck ${this.deckName(deck)}: ${zoomWords(next)}`);
+  }
+
+  zoomOf(deck: Deck): ZoomLevel {
+    return this.s.zoom[deck];
+  }
+
+  // ── the lane keys (3b, 37p) ────────────────────────────────────────────
+
+  /**
+   * The lane a key acts on: the focused lane (its strip included); M, L and
+   * 1–4 fall back to B when B is loaded. Without either the key is the page's
+   * (M mutes, L is the A–B loop).
+   */
+  keyDeck(focused: Deck | null, fallbackToB: boolean): Deck | null {
+    if (!this.s.on) return null;
+    if (focused && this.s[focused]) return focused;
+    return fallbackToB && this.s.b ? 'b' : null;
+  }
+
+  laneKey(k: string, focused: Deck | null): boolean {
+    if (!this.s.on) return false;
+    if (k === 'M' || k === 'L') {
+      const deck = this.keyDeck(focused, true);
+      if (!deck || !this.mixer) return false;
+      if (k === 'M') this.mixer.togglePhones?.(this.deckName(deck));
+      else this.mixer.toggleKeyLock?.(this.deckName(deck));
+      return true;
+    }
+    if (/^[1-4]$/.test(k)) {
+      const deck = this.keyDeck(focused, true);
+      if (!deck) return false;
+      this.pressCue(deck, Number(k));
+      return true;
+    }
+    if (k === 'Z' || k === '-' || k === '+') {
+      const deck = this.keyDeck(focused, false);
+      if (!deck) return false;
+      this.zoom(deck, k === 'Z' ? 'whole' : k === '+' ? 1 : -1);
+      return true;
+    }
+    return false;
+  }
+
   private clearLane(deck: Deck): void {
     this.gen[deck] += 1;
     this.unwatch[deck]?.();
@@ -587,11 +782,18 @@ export class DjModeStore {
           ? { key: track.key ?? null, bpm: track.bpm ?? null, keyUncertain: false }
           : null,
       cue: 0,
+      cues: emptyCues(),
     };
     this.set(deck === 'a' ? { a: lane } : { b: lane });
     void this.loadPeaks(deck, gen, track.id, 0);
     void this.loadInfo(deck, gen, track.id);
     void this.loadGrid(deck, gen, track.id, true);
+    void this.loadCues(deck, gen, track.id);
+    // a new track on a lane: whole track again (442), nothing picked
+    this.set({
+      zoom: { ...this.s.zoom, [deck]: 'whole' },
+      pick: { ...this.s.pick, [deck]: null },
+    });
   }
 
   private live(deck: Deck, gen: number): boolean {
@@ -768,6 +970,7 @@ export class DjModeStore {
   }
 
   dispose(): void {
+    this.cueStore.flush();
     this.clearLane('a');
     this.clearLane('b');
   }

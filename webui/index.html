@@ -12836,6 +12836,8 @@
                         <label class="ss-player-setting"><span>Keep the screen awake<small>While music plays with the tray or the visuals open.</small></span>
                             <input type="checkbox" class="ss-player-check" id="np-v2-wake-toggle">
                         </label>
+                        <!-- DJ mode's outputs (Brief F 3b, 37r): src/features/dj-mode/dj-monitor.tsx, laptops and desktops only -->
+                        <div id="ss-dj-outputs-settings"></div>
 
                         <p class="ss-player-section">Equalizer</p>
                         <label class="ss-player-setting"><span>Equalizer<small>Ten bands, on this device.</small></span>
@@ -13195,6 +13197,10 @@
                 <div><dt>DJ mode: Browse for the second track</dt><dd><kbd>B</kbd></dd></div>
                 <div><dt>DJ mode: Play or pause B, on the next bar</dt><dd><kbd>Shift P</kbd></dd></div>
                 <div><dt>DJ mode: kill the focused EQ band</dt><dd><kbd>K</kbd></dd></div>
+                <!-- 3b: on the focused lane (or B, when it's loaded); otherwise M mutes and L is the A–B loop -->
+                <div><dt>DJ mode: a lane's headphones · key lock</dt><dd><kbd>M</kbd> <kbd>L</kbd></dd></div>
+                <div><dt>DJ mode: pick a cue (a set one jumps); Enter places it at the playhead</dt><dd><kbd>1</kbd>–<kbd>4</kbd></dd></div>
+                <div><dt>DJ mode: zoom the focused lane · whole track</dt><dd><kbd>−</kbd> <kbd>+</kbd> <kbd>Z</kbd></dd></div>
                 <div><dt>Close the panel, then the visuals, then collapse the tray</dt><dd><kbd>Esc</kbd></dd></div>
             </dl>
         </div>

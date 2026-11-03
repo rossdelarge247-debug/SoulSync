@@ -44,7 +44,32 @@ export class FakeEngine {
       this.state = 'running';
     },
   } as unknown as BaseAudioContext;
-  readonly graph = { master: { gain: this.master as unknown as AudioParam } };
+  /** each deck's cue send (the headphones), as a value the test reads */
+  readonly cueSends = {
+    A: {
+      gain: {
+        value: 0,
+        setTargetAtTime(v: number) {
+          this.value = v;
+        },
+      },
+    },
+    B: {
+      gain: {
+        value: 0,
+        setTargetAtTime(v: number) {
+          this.value = v;
+        },
+      },
+    },
+  };
+  readonly graph = {
+    master: { gain: this.master as unknown as AudioParam },
+    decks: {
+      A: { cueSend: this.cueSends.A },
+      B: { cueSend: this.cueSends.B },
+    } as unknown as Record<DeckId, { cueSend: { gain: AudioParam } }>,
+  };
 
   constructor() {
     const port = this.port;
@@ -114,7 +139,16 @@ export class FakeEngine {
 
 /** The player's `<audio>` element, as far as the decks use it. */
 export class FakeAudio extends EventTarget {
-  currentTime = 121;
+  private t = 121;
+  get currentTime(): number {
+    return this.t;
+  }
+  /** a seek (the session's own, for a cue): the element says so, as a browser does */
+  set currentTime(v: number) {
+    const jumped = Math.abs(v - this.t) > 0.05;
+    this.t = v;
+    if (jumped) this.dispatchEvent(new Event('seeking'));
+  }
   duration = 286;
   paused = false;
   ended = false;

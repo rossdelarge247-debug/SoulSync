@@ -3827,6 +3827,11 @@ function npv2HandleKeys(event) {
     switch (event.key) {
         case 'l':
         case 'L':
+            // DJ mode's key lock on the focused lane, or B's (3b, 37p); else the A–B loop
+            if (window.SoulSyncDj && window.SoulSyncDj.key && window.SoulSyncDj.key('L')) {
+                event.preventDefault();
+                break;
+            }
             event.preventDefault();
             npv2AbToggle();
             break;

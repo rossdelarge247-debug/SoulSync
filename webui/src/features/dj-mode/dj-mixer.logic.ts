@@ -26,6 +26,8 @@ export interface DeckValues {
   low: number;
   /** −100 (low-pass all the way) … 0 (off) … +100 (high-pass all the way) */
   filter: number;
+  /** the deck's speed against its own tempo, percent (438; within its range) */
+  tempo: number;
   kill: Record<Band, boolean>;
 }
 
@@ -42,7 +44,7 @@ export interface MixValues {
   echoFeedback: number;
 }
 
-export type DeckControlId = 'volume' | 'high' | 'mid' | 'low' | 'filter';
+export type DeckControlId = 'volume' | 'high' | 'mid' | 'low' | 'filter' | 'tempo';
 export type CentreControlId = 'xf' | 'echoSend' | 'echoTime' | 'echoFeedback';
 
 export interface ControlSpec<Id extends string = string> {
@@ -151,6 +153,29 @@ export function pctWords(v: number, zero = '0%'): string {
   return n <= 0 ? zero : `${n}%`;
 }
 
+/** Tempo's ranges (438): ±8% by default. */
+export const TEMPO_RANGES = [6, 8, 10, 16] as const;
+export type TempoRange = (typeof TEMPO_RANGES)[number];
+export const DEFAULT_TEMPO_RANGE: TempoRange = 8;
+
+/** "0.0%", "+1.6%", "−3.2%" */
+export function tempoWords(v: number): string {
+  const r = Math.round(v * 10) / 10;
+  if (r === 0) return '0.0%';
+  return `${r > 0 ? '+' : '−'}${Math.abs(r).toFixed(1)}%`;
+}
+
+/** A range's BPM span at a tempo (438's menu): ±8 at 124 → "114.1–133.9 BPM". */
+export function tempoSpan(range: number, bpm: number | null): string | null {
+  if (!bpm || !(bpm > 0)) return null;
+  return `${(bpm * (1 - range / 100)).toFixed(1)}–${(bpm * (1 + range / 100)).toFixed(1)} BPM`;
+}
+
+/** The deck's speed from its tempo fader. */
+export function tempoRate(tempo: number): number {
+  return 1 + tempo / 100;
+}
+
 /* ── the controls ───────────────────────────────────────────────────── */
 
 const EQ_MIN = -26;
@@ -190,6 +215,8 @@ export const DECK_CONTROLS: readonly ControlSpec<DeckControlId>[] = [
     words: eqWords,
   },
   { id: 'filter', label: 'Filter', min: -100, max: 100, step: 2, bigStep: 10, words: filterWords },
+  // its range is the deck's (±6/8/10/16, the menu on its label); ↑↓ 0.1%, ⇧ 1%
+  { id: 'tempo', label: 'Tempo', min: -8, max: 8, step: 0.1, bigStep: 1, words: tempoWords },
 ];
 
 export const XF_CONTROL: ControlSpec<'xf'> = {
@@ -239,6 +266,7 @@ export function defaultDeck(): DeckValues {
     mid: 0,
     low: 0,
     filter: 0,
+    tempo: 0,
     kill: { high: false, mid: false, low: false },
   };
 }
@@ -257,7 +285,9 @@ export function defaultMix(): MixValues {
 
 export function clampTo(spec: ControlSpec, v: number): number {
   const stepped = Math.round((v - spec.min) / spec.step) * spec.step + spec.min;
-  return Math.max(spec.min, Math.min(spec.max, stepped));
+  const out = Math.max(spec.min, Math.min(spec.max, stepped));
+  // no 0.30000000000000004 from a 0.1 step
+  return Math.round(out * 1e6) / 1e6;
 }
 
 /* ── the engine's params ────────────────────────────────────────────── */

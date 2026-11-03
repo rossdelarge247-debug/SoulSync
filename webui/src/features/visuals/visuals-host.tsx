@@ -12,7 +12,10 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 
 import { Button, LabelledSwitch, Select } from '@/components/form';
+import { djOutputs } from '@/features/dj-mode/dj-mix-host';
 import { DjModeStage } from '@/features/dj-mode/dj-mode-stage';
+import { isPhone } from '@/features/dj-mode/dj-mode-store';
+import { OutputsPanel } from '@/features/dj-mode/dj-monitor';
 
 import type { VisualsSnapshot } from './visuals-controller';
 import type { OverlayKey } from './visuals.logic';
@@ -241,11 +244,32 @@ function SettingsPortal() {
   return target ? createPortal(<PlayerSettingsGroup />, target) : null;
 }
 
+/**
+ * Player settings → Playback → DJ outputs (3b, 37r): the speakers (the
+ * player's own output), the headphones and split cue. Laptops and desktops
+ * only, as DJ mode is (417).
+ */
+function DjOutputsPortal() {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setTarget(document.getElementById('ss-dj-outputs-settings'));
+  }, []);
+  if (!target || isPhone(window)) return null;
+  return createPortal(
+    <>
+      <p className="ss-player-section">DJ outputs</p>
+      <OutputsPanel outputs={djOutputs()} />
+    </>,
+    target,
+  );
+}
+
 function Root({ controller }: { controller: VisualsController }) {
   return (
     <VisualsContext.Provider value={controller}>
       <OverlayPieces />
       <SettingsPortal />
+      <DjOutputsPortal />
     </VisualsContext.Provider>
   );
 }
