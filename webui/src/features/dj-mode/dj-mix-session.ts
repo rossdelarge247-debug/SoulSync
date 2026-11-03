@@ -1588,7 +1588,7 @@ export class DjMixSession {
     this.started = null;
     this.pausedAt = null;
     this.ratio = null;
-    this.aWin = this.undo ? this.aWin : null;
+    // A's window stays with A's deck while the Undo can join it; it isn't read again
     this.bWin = null;
     this.bStale = false;
     this.gen += 1;
