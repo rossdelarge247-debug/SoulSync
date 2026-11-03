@@ -987,25 +987,33 @@ describe('EQ toggle button', () => {
 });
 
 describe('speed stepping ([ and ])', () => {
-  const build = () => {
+  const build = (dj: { holdsTrack?: () => boolean } | null = null) => {
     const btn = npv2FakeEl('np-v2-speed-btn');
     const doc = npv2FakeDocument({ 'np-v2-speed-btn': btn });
+    const saved: [string, string][] = [];
+    const toasts: string[] = [];
+    const el = { playbackRate: 1 };
     const factory = new Function(
       'document',
+      'window',
+      'stubs',
       [
         extractConst('NPV2', v2),
         extractConst('NPV2_SPEED_PRESETS', v2),
+        extractConst('NPV2_SPEED_DJ_WAIT', v2),
         extractFunction('npv2ClampSpeed', v2),
         extractFunction('npv2FormatSpeed', v2),
-        'function npv2Set(k, v) {}',
-        'function npv2AudioEl() { return null; }',
-        'function npv2Toast() {}',
+        'function npv2Set(k, v) { stubs.saved.push([k, v]); }',
+        'function npv2AudioEl() { return stubs.el; }',
+        'function npv2Toast(w) { stubs.toasts.push(w); }',
+        extractFunction('npv2DjHoldsTrack', v2),
         extractFunction('npv2SetSpeed', v2),
         extractFunction('npv2CycleSpeed', v2),
         'return { npv2SetSpeed, npv2CycleSpeed, NPV2 };',
       ].join('\n'),
     );
-    return { api: factory(doc) as any, btn };
+    const win = dj ? { SoulSyncDj: dj } : {};
+    return { api: factory(doc, win, { saved, toasts, el }) as any, btn, saved, toasts, el };
   };
 
   it('steps through presets and clamps at the endpoints', () => {
@@ -1026,6 +1034,30 @@ describe('speed stepping ([ and ])', () => {
     api.npv2SetSpeed(0.5, { silent: true });
     api.npv2CycleSpeed(-1);
     expect(api.NPV2.speed).toBe(0.5);
+  });
+
+  it('waits while DJ mode holds the track: nothing changes or is saved, a toast says why (step 4, L-new-1)', () => {
+    let holds = true;
+    const { api, saved, toasts, el } = build({ holdsTrack: () => holds });
+    expect(api.npv2SetSpeed(1.5)).toBe(false);
+    api.npv2CycleSpeed(1);
+    api.npv2CycleSpeed(-1);
+    expect(api.NPV2.speed).toBe(1);
+    expect(el.playbackRate).toBe(1);
+    expect(saved).toEqual([]);
+    expect(toasts).toEqual([
+      "Speed waits while DJ mode has the track: use deck A's Tempo",
+      "Speed waits while DJ mode has the track: use deck A's Tempo",
+      "Speed waits while DJ mode has the track: use deck A's Tempo",
+    ]);
+    // a silent re-stamp says nothing
+    api.npv2SetSpeed(1.25, { silent: true });
+    expect(toasts).toHaveLength(3);
+    // let go: the person's speed again
+    holds = false;
+    expect(api.npv2SetSpeed(1.25)).toBe(true);
+    expect(el.playbackRate).toBe(1.25);
+    expect(saved).toEqual([['speed', '1.25']]);
   });
 
   it('marks the button active only when speed differs from 1x', () => {
@@ -2167,6 +2199,7 @@ describe('the Visuals keys (HANDOFF 60)', () => {
         'stubs',
         'window',
         `const { NPV2, npv2ClampSpeed, npv2Set, npv2SetSpeed, npv2AudioEl } = stubs;
+        ${extractFunction('npv2DjHoldsTrack', v2)}
         ${extractFunction('npv2OnRateChange', v2)}
         return { npv2OnRateChange };`,
       );

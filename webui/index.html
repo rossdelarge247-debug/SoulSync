@@ -12578,6 +12578,15 @@
                 <div class="ss-player-action-slot" data-player-action-slot hidden></div>
             </div>
             <div class="ss-player-side">
+                <!-- DJ mode on with the Visuals closed (Brief F step 4, 37o): one line,
+                     "DJ mode · blending into Harbour Lights · Open", only while DJ mode is
+                     on with B loaded; src/features/dj-mode/dj-mode-mount.ts -->
+                <span class="ss-player-dj-line" id="ss-player-dj-line" hidden>
+                    <span class="ss-player-dj-dot" aria-hidden="true"></span>
+                    <span class="ss-player-dj-text" id="ss-player-dj-text"></span>
+                    <span class="ss-player-dj-sep" aria-hidden="true">·</span>
+                    <button type="button" class="ss-player-dj-open" id="ss-player-dj-open" aria-keyshortcuts="D" aria-describedby="ss-player-dj-text">Open</button>
+                </span>
                 <button type="button" class="ss-player-btn ss-player-mute" data-player-action="mute" aria-label="Mute" aria-pressed="false">
                     <svg class="ss-player-icon-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>
                     <svg class="ss-player-icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
@@ -13197,6 +13206,8 @@
                 <div><dt>DJ mode: Browse for the second track</dt><dd><kbd>B</kbd></dd></div>
                 <div><dt>DJ mode: Play or pause B, on the next bar</dt><dd><kbd>Shift P</kbd></dd></div>
                 <div><dt>DJ mode: kill the focused EQ band</dt><dd><kbd>K</kbd></dd></div>
+                <!-- step 4: Hand over (414) while B plays; Undo is the lane's button for 10 s -->
+                <div><dt>DJ mode: Hand over to B (while B plays)</dt><dd><kbd>H</kbd></dd></div>
                 <!-- 3b: on the focused lane (or B, when it's loaded); otherwise M mutes and L is the A–B loop -->
                 <div><dt>DJ mode: a lane's headphones · key lock</dt><dd><kbd>M</kbd> <kbd>L</kbd></dd></div>
                 <div><dt>DJ mode: pick a cue (a set one jumps); Enter places it at the playhead</dt><dd><kbd>1</kbd>–<kbd>4</kbd></dd></div>

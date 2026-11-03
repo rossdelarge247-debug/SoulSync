@@ -597,3 +597,47 @@
     padding-right: 520px;
   }
 }
+
+/* ── after Hand over (37i): a line at the foot of the empty lane, Undo for 10 s ── */
+.dot[data-tone='ok'] {
+  background: #4ade80;
+}
+.handed {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  min-height: 44px;
+  padding: 6px 8px 6px 16px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #141416;
+  color: var(--ss-text);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+}
+.handedText {
+  flex: 1;
+  min-width: 0;
+}
+.undo {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.undo:hover {
+  background: var(--ss-hover-wash);
+}

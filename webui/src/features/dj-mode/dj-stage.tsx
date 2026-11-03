@@ -470,6 +470,17 @@ function LaneB({
   const aTitle = s.a?.track.title || 'the playing track';
   const browse = s.browse ? () => store.openBrowse() : null;
   const lineId = useId();
+  // after Hand over the focus goes to lane B's Browse (37p), else the lane
+  const handed = s.mix.handed;
+  useEffect(() => {
+    if (!handed) return;
+    const el = ref.current;
+    const active = document.activeElement as HTMLElement | null;
+    // only when the focus was on the mixer (now gone) or nowhere
+    if (active && active !== document.body && active.isConnected && active.offsetParent !== null)
+      return;
+    (el?.querySelector<HTMLElement>('[data-dj-browse-b]') ?? el)?.focus();
+  }, [handed]);
   // the Remove button goes with the track: the focus stays in the lane (review L3)
   const remove = () => {
     store.removeB();
@@ -509,12 +520,19 @@ function LaneB({
         </p>
         {browse ? (
           <span className={styles.browseRow}>
-            <button type="button" className={styles.browse} aria-keyshortcuts="B" onClick={browse}>
+            <button
+              type="button"
+              className={styles.browse}
+              aria-keyshortcuts="B"
+              onClick={browse}
+              data-dj-browse-b=""
+            >
               Browse…
             </button>
             or press B
           </span>
         ) : null}
+        {s.mix.handed ? <HandedNotice store={store} s={s} /> : null}
       </div>
     );
   } else {
@@ -535,7 +553,11 @@ function LaneB({
         <LaneHead
           deck="b"
           lane={lane}
-          label={laneBLabel(mix.phase, mix.sync)}
+          label={
+            mix.solo && mix.phase === 'playing'
+              ? 'B · playing · on its own'
+              : laneBLabel(mix.phase, mix.sync)
+          }
           time={`${clock(lane.cue)} · ${clock(duration)}`}
           timeRef={timeB}
           rate={planned}
@@ -601,6 +623,34 @@ function LaneB({
       {!lane || over ? <p className={styles.label}>B · the second track</p> : null}
       {body}
     </section>
+  );
+}
+
+/**
+ * After Hand over (37i): one line at the foot of the empty lane, with Undo
+ * for 10 s. Not a live region: the session says it once ("Handed over to …").
+ */
+function HandedNotice({ store, s }: { store: DjModeStore; s: DjModeSnapshot }) {
+  const h = s.mix.handed!;
+  return (
+    <p className={styles.handed} data-dj-handed="">
+      <span className={styles.dot} data-tone="ok" aria-hidden="true" />
+      <span className={styles.handedText}>
+        {h.ended
+          ? `${h.from} ended · ${h.title} is the player’s track now. Up next follows it.`
+          : `${h.title} is the player’s track now, at its own tempo. Up next follows it.`}
+      </span>
+      {h.undo ? (
+        <button
+          type="button"
+          className={styles.undo}
+          data-dj-undo=""
+          onClick={() => void store.undoHandOver()}
+        >
+          Undo
+        </button>
+      ) : null}
+    </p>
   );
 }
 

@@ -1999,7 +1999,11 @@ const NP_PLAYING_NOW = "Can't undo: it's playing now";
 const NP_INCOMING = "Can't replace the incoming track · drop after it";
 
 function npAutomixOwnsAdvance() {
-    try { const a = npAutomix(); return Boolean(a && a.ownsAdvance && a.ownsAdvance()); } catch (e) { return false; }
+    try { const a = npAutomix(); if (a && a.ownsAdvance && a.ownsAdvance()) return true; } catch (e) { /* the player's own then */ }
+    // DJ mode (Brief F step 4, 37j): A running out while B plays is a Hand
+    // over, so the end of A's muted element isn't the queue's advance; the
+    // owed advance is the player's again if the Hand over can't happen
+    try { return Boolean(window.SoulSyncDj && window.SoulSyncDj.ownsAdvance && window.SoulSyncDj.ownsAdvance()); } catch (e) { return false; }
 }
 
 // No crossfade (Ross, 27 October): Between tracks is Off or Auto mix, and
@@ -2480,7 +2484,10 @@ async function playQueueItem(index, options = {}) {
         const nextIdx = npQueueIndex + 1;
         const skipping = nextIdx < npQueue.length;
         if (skipping) {
-            setTimeout(() => { if (isCurrent()) void playQueueItem(nextIdx, options); }, 500);
+            // the skip is a load of its own: a hand-off (DJ mode's deck, a
+            // crossfade) was for the track that failed, not for the next one
+            const skipOptions = Object.assign({}, options, { handoff: null });
+            setTimeout(() => { if (isCurrent()) void playQueueItem(nextIdx, skipOptions); }, 500);
         }
         // A queue that is moving on to the next track has not failed. Saying
         // 'failed' here made Discover announce "Playback could not start" and
@@ -3137,6 +3144,8 @@ function handlePlayerKeyboardShortcuts(event) {
         case 'X':
         case 't':
         case 'T':
+        case 'h':
+        case 'H':
         case '1':
         case '2':
         case '3':
@@ -3202,8 +3211,9 @@ function handlePlayerKeyboardShortcuts(event) {
 // opens them in DJ mode; only for a library track on a laptop or desktop, else
 // the key is the page's. B is Browse while DJ mode is on, ⇧P is Play B (or
 // Pause B) while it's on with B loaded (else Previous, as P), and while DJ
-// mode is on T says the lyrics come back when it's off. H stays free for
-// step 4's Hand over.
+// mode is on T says the lyrics come back when it's off. H is Hand over
+// (step 4, 37p): it acts only in the Visuals with DJ mode on and B playing,
+// else the key is nobody's.
 const NP_LETTER_KEYS = {
     'M': ['dj:M', 'mix:M', 'mute'],
     '⇧M': ['mute'],
@@ -3215,6 +3225,7 @@ const NP_LETTER_KEYS = {
     'D': ['dj:D'],
     'B': ['dj:B'],
     '⇧P': ['dj:⇧P'],
+    'H': ['dj:H'],
     // DJ mode's lane keys (3b, 37p): M, 1–4, Z, − and + act only with a lane
     // focused (or, for M and 1–4, B loaded); otherwise M mutes as before and
     // the rest are nobody's

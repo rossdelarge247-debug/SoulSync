@@ -51,6 +51,11 @@ PUT  /api/library/dj/cues/<track_id>
     own, four at most, ``{cues: [{slot: 1-4, bar, seconds}]}``; a cue's
     seconds follow the track's grid when it has a bar. PUT replaces them
     (``[]`` clears), body at most 2 KB. 404 outside the caller's library.
+GET  /api/library/dj/track/<track_id>
+    DJ mode's Hand over (Brief F step 4, 414): one library track as the
+    player's queue takes it (Tracks' row shape: id, title, artist_name,
+    album_title, file_path, image_url, duration_ms, ``file_missing``), so B
+    can become the player's track. 404 outside the caller's library.
 GET  /api/library/dj/grid/<track_id>
     Auto-mix stage A: the track's beat grid (BPM, the first beat and the
     period, or its beats when the tempo drifts), downbeats, phrases,
@@ -484,6 +489,22 @@ def dj_cues_save(track_id: str):
     if saved is None:
         return jsonify({"success": False, "error": "Not in your library"}), 404
     return _no_store({"success": True, "cues": saved})
+
+
+@bp.route("/api/library/dj/track/<track_id>", methods=["GET"])
+def dj_player_track(track_id: str):
+    if get_current_profile_id() is None:
+        return _no_profile()
+    from core.dj import store
+
+    try:
+        track = store.player_track(get_database(), str(track_id)[:128], fix_art=fix_art_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ track read failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    if track is None:
+        return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+    return _no_store({"success": True, "track": track})
 
 
 @bp.route("/api/library/dj/grid/<track_id>", methods=["GET"])

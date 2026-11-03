@@ -16,9 +16,13 @@
  *   focused lane, else on B when it's loaded; **Z**, **−** and **+** zoom
  *   the focused lane (3b, 37p). Otherwise M mutes and L is the A–B loop.
  * - **T** while DJ mode is on says "Lyrics come back when DJ mode is off".
+ * - **H** is Hand over while DJ mode is on with B loaded (step 4, 37p).
  * - **Esc** (static/media-player-v2.js) closes Browse first; mid-blend it
  *   only says "Back ends it over a bar" (413: a stray key never ends a
- *   blend); otherwise it's Back.
+ *   blend); otherwise it's Back. D mid-blend says the same.
+ * - **The player bar** (37o): with DJ mode on, the Visuals closed and B
+ *   loaded, one line, "DJ mode · blending into Harbour Lights · Open";
+ *   nothing with DJ mode off. Closing the Visuals keeps DJ mode on (37j).
  *
  * The lanes themselves are dj-stage.tsx, mounted with the Visuals' pieces.
  */
@@ -27,7 +31,7 @@ import { useDriveStatusStore } from '@/features/drives/drive-status';
 import type { DjModeStore } from './dj-mode-store';
 
 import { djModeStore, PHONE_LANDSCAPE_QUERY, PHONE_QUERY } from './dj-mode-store';
-import { headerLine, LYRICS_WAIT } from './dj-mode.logic';
+import { barLine, headerLine, LYRICS_WAIT } from './dj-mode.logic';
 
 export interface SoulSyncDjBridge {
   /** a letter key (D, B, T): true when it acted, else the key is the page's */
@@ -37,6 +41,8 @@ export interface SoulSyncDjBridge {
   on(): boolean;
   /** A is on DJ mode's deck: auto-mix, starting now, holds (Brief F step 3) */
   holdsTrack(): boolean;
+  /** A's end is DJ mode's (A ran out while B plays: a Hand over, 37j) */
+  ownsAdvance(): boolean;
   store: DjModeStore;
 }
 
@@ -89,9 +95,18 @@ export function syncDjChrome(doc: Document, store: DjModeStore): void {
           bPhase: s.b?.phase ?? null,
           browse: s.browse,
           mix: s.mix.phase,
+          solo: Boolean(s.mix.solo),
         })
       : '';
     if (line.textContent !== words) line.textContent = words;
+  }
+  // the player bar's one line with the Visuals closed (37o)
+  const bar = doc.getElementById('ss-player-dj-line');
+  if (bar) {
+    const words = barLine({ on, open: s.open, b: s.b?.track.title || null, mix: s.mix.phase });
+    bar.hidden = words === null;
+    const text = doc.getElementById('ss-player-dj-text');
+    if (text && text.textContent !== (words ?? '')) text.textContent = words ?? '';
   }
   const overlay = overlayOf(doc);
   overlay?.toggleAttribute('data-dj-mode', on);
@@ -190,6 +205,10 @@ export function mountDjMode(win: Window = window): DjModeStore {
     store.back();
     doc.getElementById('np-v2-visuals-dj-btn')?.focus();
   });
+  // the bar's Open (37o): the Visuals again, in DJ mode as they were
+  doc.getElementById('ss-player-dj-open')?.addEventListener('click', () => {
+    (win as Window & { npV2?: NpV2Like }).npV2?.openVisuals?.();
+  });
   doc.getElementById('np-v2-visuals-dj-close')?.addEventListener('click', () => {
     doc.getElementById('np-v2-visuals-exit')?.click();
   });
@@ -226,6 +245,8 @@ export function mountDjMode(win: Window = window): DjModeStore {
       if (!s.on || !open) return false;
       if (k === 'B') return store.openBrowse();
       if (k === '⇧P') return store.playB();
+      // H (37p): Hand over to B; with no B the key is nobody's
+      if (k === 'H') return store.handOver();
       // 3b (37p): M headphones, L key lock and 1–4 cues on the focused lane
       // (else B, when it's loaded); Z, − and + zoom the focused lane. Without
       // a lane to act on the key stays the player's (M mutes, L is the A–B loop)
@@ -247,6 +268,7 @@ export function mountDjMode(win: Window = window): DjModeStore {
     },
     on: () => store.snapshot().on,
     holdsTrack: () => store.holdsTrack(),
+    ownsAdvance: () => store.ownsAdvance(),
     store,
   };
 

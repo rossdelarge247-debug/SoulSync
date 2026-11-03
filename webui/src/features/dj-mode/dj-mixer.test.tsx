@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KILL_DB } from '@/features/engine/score';
 
 import { laneA, rig, type Rig } from './dj-mix.fixtures';
-import { HAND_OVER_WAIT } from './dj-mixer';
 import { DjModeStage } from './dj-mode-stage';
 import { DjModeStore } from './dj-mode-store';
 import { apiGrid } from './dj-mode.fixtures';
@@ -227,13 +226,14 @@ describe('the mixer (37g)', () => {
     expect(r.engine.value('A.echoSend')).toBeCloseTo(0.4);
   });
 
-  it('Hand over is drawn and says it waits (step 4)', async () => {
+  it('Hand over waits for B to play, and says why when pressed (step 4)', async () => {
     await withB();
     const btn = screen.getByRole('button', { name: 'Hand over to B' });
     expect(btn).toHaveAttribute('aria-disabled', 'true');
-    expect(btn).toHaveAttribute('title', HAND_OVER_WAIT);
+    expect(btn).toHaveAttribute('aria-keyshortcuts', 'H');
+    expect(btn.getAttribute('title')).toMatch(/^Hand over once .* is playing \(Play B\)$/);
     fireEvent.click(btn);
-    expect(said.at(-1)).toBe(HAND_OVER_WAIT);
+    expect(said.at(-1)).toMatch(/^Hand over once .* is playing \(Play B\)$/);
   });
 
   it('Sync is on by default; pressed off and on, it says so once each', async () => {
@@ -325,7 +325,7 @@ describe('Play B and the blend (37g, 37h)', () => {
     ]);
   });
 
-  it('Esc with B cued is Back at once; closing the overlay mid-blend is the hard stop', async () => {
+  it('Esc with B cued is Back at once; closing the overlay mid-blend keeps the blend going (37j)', async () => {
     await withB();
     expect(store.escape()).toBe(true);
     expect(store.snapshot().on).toBe(false);
@@ -341,9 +341,15 @@ describe('Play B and the blend (37g, 37h)', () => {
       store.setOpen(true);
       store.setOpen(false);
     });
-    expect(store.snapshot().on).toBe(false);
-    expect(r.el.muted).toBe(false);
-    expect(r.el.volume).toBeCloseTo(0.7);
+    expect(store.snapshot().on).toBe(true);
+    expect(r.session.blending).toBe(true);
+    expect(r.el.muted).toBe(true);
+    // D mid-blend doesn't turn it off (37p): Back ends a blend, over a bar
+    act(() => {
+      expect(store.toggle()).toBe(true);
+    });
+    expect(store.snapshot().on).toBe(true);
+    expect(said.at(-1)).toBe('Blending · Back ends it over a bar');
   });
 
   it('A moves onto its deck and back without the player’s position moving', async () => {

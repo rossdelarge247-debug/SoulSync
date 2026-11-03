@@ -420,6 +420,25 @@ def _shape_track(row, fix_art=None) -> Dict[str, Any]:
     }
 
 
+def player_track(database, track_id: str, fix_art=None) -> Optional[Dict[str, Any]]:
+    """One library track as the player's queue takes it (DJ mode's Hand
+    over, 414: B becomes the player's track), in the caller's library scope
+    only; None outside it or unknown. Same shape as Tracks' rows."""
+    tid = str(track_id)[:128]
+    if not tid:
+        return None
+    where, params = _scope(database)
+    with closing(database._get_connection()) as conn:
+        # ``where`` is the library scope's fixed SQL (_scope); the id is bound
+        row = conn.execute(f"{_track_select()} WHERE t.id = ? AND {where}",  # nosemgrep: sqlalchemy-execute-raw-query
+                           [tid, *params]).fetchone()
+    if row is None:
+        return None
+    track = _shape_track(row, fix_art)
+    track["file_missing"] = not track.get("file_path")
+    return track
+
+
 def _key_step_sql(code: Optional[Dict[str, Any]]) -> Optional[Tuple[str, List[Any]]]:
     """Steps on the Camelot wheel from ``code`` to the row's key, in SQL
     (dnd-model.ts ``wheelSteps``: the numbers apart round the wheel, plus one

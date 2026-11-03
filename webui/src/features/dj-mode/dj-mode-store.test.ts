@@ -197,13 +197,12 @@ describe('on and off', () => {
     expect(f.store.back()).toBe(false);
   });
 
-  it('closing the overlay is Back; the player moving to radio turns it off; the phone turning too', async () => {
+  it('closing the overlay keeps it on (37j); the player moving to radio turns it off; the phone turning too', async () => {
     f.store.setOpen(true);
     f.store.setOn(true);
     f.store.setOpen(false);
-    expect(f.store.snapshot().on).toBe(false);
+    expect(f.store.snapshot().on).toBe(true);
     f.store.setOpen(true);
-    f.store.setOn(true);
     f.play({ title: 'NTS 1', is_library: false, kind: 'radio' }, 'radio');
     f.store.refresh();
     expect(f.store.snapshot().on).toBe(false);
@@ -288,7 +287,11 @@ describe('lane B', () => {
       duration: null,
       key: null,
       bpm: null,
+      queue: null,
     });
+    // a drag that carries the player's queue record: Hand over plays it (414)
+    const q = { title: 'Q', file_path: '/m/8.flac' };
+    expect(laneTrackFromItem({ id: '8', title: 'Q', queue: q }).queue).toBe(q);
   });
 
   it('Browse is there only once step 3 registers it', () => {
@@ -592,13 +595,13 @@ describe('a grid read on its way (review L1 and the test gaps)', () => {
     expect(f.subs.size).toBe(0);
   });
 
-  it('closing the overlay mid-analysis releases them too', async () => {
+  it('DJ mode off mid-analysis releases them too', async () => {
     const f = pending({ id: '1' });
     f.store.setOpen(true);
     f.store.setOn(true);
     f.answer(NOT_YET('1'));
     await flush();
-    f.store.setOpen(false);
+    f.store.setOn(false);
     expect(f.watching).toEqual([]);
     expect(f.subs.size).toBe(0);
   });
@@ -641,5 +644,108 @@ describe('a grid read on its way (review L1 and the test gaps)', () => {
     expect(f.store.snapshot().a).toMatchObject({ phase: 'no_grid', reason: 'error' });
     expect(f.watching).toEqual([]);
     expect(f.subs.size).toBe(0);
+  });
+});
+
+describe('the ends and changes, in words (step 4, 37j)', () => {
+  let f: Fake;
+  let el: EventTarget;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    f = fake();
+    el = new EventTarget();
+    (window as unknown as { SoulSyncPlayer: { audio?: () => EventTarget } }).SoulSyncPlayer.audio =
+      () => el;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('Next with B loaded: the new A is playing, B still cued', () => {
+    f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    f.said.length = 0;
+    f.play({ ...FERRY, id: '5', title: 'Copper Sky' });
+    f.store.refresh();
+    expect(f.store.snapshot().b?.track.id).toBe('8');
+    expect(f.said).toEqual(['Copper Sky is playing · Harbour Lights still cued']);
+  });
+
+  it('A ended into Up next: said so, B still cued', () => {
+    f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    f.said.length = 0;
+    el.dispatchEvent(new Event('ended'));
+    f.play({ ...FERRY, id: '5', title: 'Static Bloom' });
+    f.store.refresh();
+    expect(f.said).toEqual([
+      'Night Ferry ended · Static Bloom is playing · Harbour Lights still cued',
+    ]);
+  });
+
+  it('A ended with nothing in Up next: the player stops, Play B carries on', () => {
+    f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    f.said.length = 0;
+    el.dispatchEvent(new Event('ended'));
+    vi.advanceTimersByTime(500);
+    expect(f.said).toEqual(['Night Ferry ended · nothing in Up next · Play B to carry on']);
+  });
+
+  it('with DJ mode off the element isn’t watched', () => {
+    f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    f.store.setOn(false);
+    f.said.length = 0;
+    el.dispatchEvent(new Event('ended'));
+    vi.advanceTimersByTime(500);
+    expect(f.said).toEqual([]);
+  });
+
+  it('B as a Browse row: its player record is fetched for Hand over', async () => {
+    f.store.setOn(true);
+    f.store.loadB({
+      id: '8',
+      title: 'Harbour Lights',
+      artist: 'Marram',
+      image: null,
+      duration: 288,
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(f.calls).toContain('GET /api/library/dj/track/8');
+  });
+});
+
+describe('review round 1 (step 4)', () => {
+  it('L-2: Back during Hand over says a moment, and nothing ends', () => {
+    const f = fake();
+    f.store.setOn(true);
+    f.store.loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    const back = vi.fn();
+    f.store.setMixer({
+      blending: () => true,
+      backOverBar: back,
+      end: () => undefined,
+      playB: () => true,
+      positionB: () => null,
+    });
+    f.store.setMix({ phase: 'handing', window: null, rateB: null, sync: false });
+    expect(f.store.back()).toBe(true);
+    expect(back).not.toHaveBeenCalled();
+    expect(f.store.snapshot().on).toBe(true);
+    expect(f.said.at(-1)).toBe('Handing over to Harbour Lights: a moment');
+  });
+
+  it('L-5: B’s file missing: the lane’s track says why the player can’t take it', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fake();
+      f.store.setOn(true);
+      f.store.loadB({ id: '9', title: 'Gone Track', artist: 'X', image: null, duration: 200 });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(f.store.snapshot().b?.track.queueWhy).toBe(
+        'Gone Track’s file isn’t on this computer: it can’t go to the player',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
