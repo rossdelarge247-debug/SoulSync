@@ -190,8 +190,10 @@ export function stepBetween(
 }
 
 function bpmShort(step: PreviewStep): string {
-  if (step.how === 'half') return 'half time';
-  if (step.how === 'double') return 'double time';
+  // tempoStep's "double" is the next track doubled to meet: it runs at half
+  // the tempo, which core/dj/camelot.py's bpm_relation (and 37f) call half time
+  if (step.how === 'double') return 'half time';
+  if (step.how === 'half') return 'double time';
   const n = step.bpmWhole ?? pyRound(step.bpmDiff);
   return n === 0 ? 'same BPM' : `${n > 0 ? '+' : '−'}${Math.abs(n)} BPM`;
 }

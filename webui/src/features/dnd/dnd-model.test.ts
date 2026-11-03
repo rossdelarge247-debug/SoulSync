@@ -100,6 +100,14 @@ describe('the step, by Sets’ rules (core/sets/steps.py)', () => {
     // half time is the same tempo
     expect(stepBetween({ key: '8A', bpm: 87 }, { key: '8A', bpm: 174 })?.kind).toBe('smooth');
   });
+  it('says half and double time as core/dj/camelot.py does (DJ mode review L4)', () => {
+    const step = (how: 'half' | 'double') =>
+      stepLine({ kind: 'jump', from: '8A', to: '8A', turns: 0, bpmDiff: 0, how, clash: 'tempo' });
+    // "double": the next track doubled to meet, so it runs at half the tempo
+    expect(step('double')).toBe('Jump · 8A → 8A, same key, half time');
+    expect(step('half')).toBe('Jump · 8A → 8A, same key, double time');
+    expect(stepBetween({ key: '8A', bpm: 124 }, { key: '8A', bpm: 62 })?.how).toBe('double');
+  });
   it('is not guessed when a BPM or a key is missing (327)', () => {
     expect(stepBetween({ key: '8A', bpm: null }, { key: '9A', bpm: 124 })).toBeNull();
     expect(stepBetween({ key: null, bpm: 120 }, { key: '9A', bpm: 124 })).toBeNull();
