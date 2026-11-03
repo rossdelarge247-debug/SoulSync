@@ -169,3 +169,73 @@ describe('← → nudges', () => {
     expect(r.session.nudge('A', 1)).toBe(false);
   });
 });
+
+describe('review round 1 (step 4b)', () => {
+  it('M-3: a scrub held on B, then Play B: the blend has B, and the late let-go does nothing', async () => {
+    await cued();
+    expect(r.session.grab('B')).toBeNull();
+    r.session.moveHand('B', 1);
+    await r.advance(0.2);
+    r.session.playB();
+    expect(r.session.snapshot().hand).toBeNull();
+    await r.advance(3);
+    expect(r.session.snapshot().phase).toBe('playing');
+    const before = r.engine.port.rate('B', r.engine.port.time);
+    r.session.letGo('B');
+    await r.advance(0.5);
+    expect(r.engine.port.stops.B).toBe(Infinity);
+    expect(r.engine.port.rate('B', r.engine.port.time)).toBeCloseTo(before, 2);
+  });
+
+  it('M-3: a hand on B during Hand over gives way to the glide', async () => {
+    r.session.setLanes(
+      laneA(),
+      laneB({ queue: { id: '8', title: 'Harbour Lights', file_path: '/m/8.flac' } }),
+    );
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    r.session.grab('B');
+    r.session.moveHand('B', 0.5);
+    await r.advance(0.1);
+    const t = r.engine.port.time + 0.03;
+    // the player here can't take B (no playIndex): the glide is what's checked
+    (r.session as unknown as { d: { player: Record<string, unknown> } }).d.player.playIndex =
+      async () => ({ status: 'superseded' });
+    (r.session as unknown as { d: { player: Record<string, unknown> } }).d.player.insertNext = () =>
+      1;
+    expect(r.session.handOver()).toBe(true);
+    expect(r.session.snapshot().hand).toBeNull();
+    await r.advance(0.5);
+    // B on its glide towards its own speed, not rewritten by the hand's timer
+    expect(r.engine.port.rate('B', t + 2.01)).toBeCloseTo(1, 3);
+  });
+
+  it('L-1: lane A changing while B plays in the headphones stops B', async () => {
+    await cued();
+    r.session.previewB(true);
+    await r.advance(0.5);
+    r.session.setLanes(laneA({ id: '5', title: 'Static Bloom' }), laneB());
+    expect(r.session.snapshot().previewB).toBe(false);
+    expect(r.engine.port.stops.B / 48000).toBeLessThan(r.engine.port.time + 0.05);
+  });
+
+  it('L-2: a nudge on B held by Sync is locked again at the moved phase', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.snapshot().rateB).not.toBeNull();
+    r.session.nudge('B', 1);
+    await r.advance(0.3);
+    r.session.nudge('B', 0);
+    // still Sync's lock (its rate), not a constant left by the nudge
+    expect(r.session.snapshot().rateB).not.toBeNull();
+    expect(r.engine.port.rate('B', r.engine.port.time + 0.5)).toBeCloseTo(0.96, 2);
+    r.session.grab('B');
+    r.session.moveHand('B', 0.1);
+    await r.advance(0.3);
+    r.session.letGo('B');
+    expect(r.session.snapshot().rateB).not.toBeNull();
+    expect(r.engine.port.rate('B', r.engine.port.time + 0.5)).toBeCloseTo(0.96, 2);
+  });
+});

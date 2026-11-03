@@ -27,6 +27,8 @@ let noGridA = false;
 let playerCalls: string[] = [];
 /** the server refuses the cues' save (L1) */
 let refuseCues = false;
+/** the cues can't be read (step 4b review L-5) */
+let unreadCues = false;
 
 function makeOutputs(): DjOutputs {
   return new DjOutputs(
@@ -103,6 +105,7 @@ function makeStore(): DjModeStore {
           cuesPut.push(JSON.parse(init.body as string));
           return new Response('{}', { status: refuseCues ? 400 : 200 });
         }
+        if (unreadCues) return new Response('{}', { status: 500 });
         return new Response(
           JSON.stringify({ cues: url.endsWith('/8') ? [{ slot: 2, bar: 4, seconds: 8.18 }] : [] }),
         );
@@ -138,6 +141,7 @@ beforeEach(async () => {
   cuesPut = [];
   noGridA = false;
   refuseCues = false;
+  unreadCues = false;
   said = [];
   reduce = false;
   window.matchMedia = ((q: string) => ({
@@ -478,8 +482,8 @@ describe('the transport (step 4b): Play/Pause and CUE a deck, a CDJ’s', () => 
     expect(said.at(-1)).toMatch(/^Deck A cue at bar /);
     await flush(700);
     expect((cuesPut.at(-1) as { cues: { slot: number }[] }).cues[0]!.slot).toBe(0);
-    // held at the cue point: the player plays from it; let go: back to it, paused
-    r.el.currentTime = a.cue;
+    // the deck went to the cue point as set (review M-4): holding CUE plays from it
+    expect(r.el.currentTime).toBe(a.cue);
     playerCalls.length = 0;
     fireEvent.pointerDown(cue, { button: 0, pointerId: 1 });
     expect(playerCalls).toEqual([`seek ${a.cue}`, 'play']);
@@ -569,5 +573,151 @@ describe('the transport (step 4b): Play/Pause and CUE a deck, a CDJ’s', () => 
     const e = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
     laneB.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(false);
+  });
+});
+
+describe('review round 1 (step 4b)', () => {
+  it('M-2: a held nudge lets go when the window loses focus', async () => {
+    await withB();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    const laneA = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
+    const base = r.engine.port.rate('A', r.engine.port.time);
+    act(() => {
+      fireEvent.keyDown(laneA, { key: 'ArrowRight' });
+    });
+    expect(store.isNudging('a')).toBe(true);
+    act(() => {
+      window.dispatchEvent(new Event('blur'));
+    });
+    expect(store.isNudging('a')).toBe(false);
+    expect(r.engine.port.rate('A', r.engine.port.time + 0.2)).toBeCloseTo(base, 3);
+  });
+
+  it('M-2: a C held on lane B (B in the headphones) lets go when the page hides, and when the lane loses focus', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // held again, then the lane loses focus
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.blur(laneB);
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // and the next C works again (nothing left held)
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+  });
+
+  it('M-3: a lost pointer capture lets the hand go; Play B then plays B', async () => {
+    await withB();
+    const wave = document.querySelector<HTMLElement>('[data-dj-wave="b"]')!;
+    wave.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        width: 288,
+        top: 0,
+        height: 50,
+        right: 288,
+        bottom: 50,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.pointerDown(wave, { button: 0, pointerId: 9, clientX: 100 });
+    fireEvent.pointerMove(wave, { pointerId: 9, clientX: 130 });
+    expect(r.session.snapshot().hand).toBe('B');
+    fireEvent(wave, new PointerEvent('lostpointercapture', { pointerId: 9, bubbles: true }));
+    expect(r.session.snapshot().hand).toBeNull();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.engine.port.rate('B', r.engine.port.time)).toBeGreaterThan(0.5);
+  });
+
+  it('M-3: closing the overlay lets the hand go', async () => {
+    await withB();
+    act(() => {
+      store.setOpen(true);
+    });
+    expect(store.grab('b')).toBe(true);
+    act(() => {
+      store.setOpen(false);
+    });
+    expect(r.session.snapshot().hand).toBeNull();
+  });
+
+  it('L-5: cues that couldn’t be read aren’t saved over, said once', async () => {
+    unreadCues = true;
+    await withB();
+    act(() => {
+      store.pressCue('b', 1);
+      store.placeCue('b', 20);
+      store.pressCue('b', 2);
+      store.placeCue('b', 30);
+    });
+    await flush(700);
+    expect(cuesPut).toEqual([]);
+    expect(said.filter((w) => w.startsWith('This track’s cues couldn’t be read'))).toHaveLength(1);
+  });
+
+  it('L-7: under a blend an arrow that can’t nudge is swallowed (the player’s seek would end it), said once', async () => {
+    await withB();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    act(() => {
+      store.playB(); // Pause B
+    });
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    for (let i = 0; i < 2; i++) {
+      const e = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+      act(() => {
+        laneB.dispatchEvent(e);
+      });
+      expect(e.defaultPrevented).toBe(true);
+    }
+    expect(
+      said.filter(
+        (w) => w === 'The arrows nudge a playing deck · the player’s seek would end the blend',
+      ),
+    ).toHaveLength(1);
+    expect(r.session.snapshot().aOnDeck).toBe(true);
+  });
+
+  it('L-6: the transport stops looking at the decks while the overlay is hidden', async () => {
+    await withB();
+    act(() => {
+      store.setOpen(true);
+    });
+    const spy = vi.spyOn(store, 'deckPlaying');
+    await flush(500);
+    expect(spy).toHaveBeenCalled();
+    act(() => {
+      store.setOpen(false);
+    });
+    spy.mockClear();
+    await flush(1000);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

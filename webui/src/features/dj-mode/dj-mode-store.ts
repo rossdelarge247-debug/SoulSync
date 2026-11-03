@@ -186,6 +186,8 @@ export interface MixerHooks {
   grab?(deck: 'A' | 'B'): string | null;
   moveHand?(deck: 'A' | 'B', offsetSeconds: number): void;
   letGo?(deck: 'A' | 'B'): void;
+  /** whoever has a hand on a deck lets go (the overlay closed) */
+  releaseHand?(): void;
   /** ← →: a little faster or slower while held (0 lets go) */
   nudge?(deck: 'A' | 'B', dir: -1 | 0 | 1): boolean;
   /** A is on its deck (its transport is the player's own then too) */
@@ -331,6 +333,13 @@ export class DjModeStore {
   /** each deck's Play/Pause and CUE (step 4b, a CDJ's) */
   private readonly transports = { a: new DeckTransport(), b: new DeckTransport() };
   private readonly nudging = new Set<Deck>();
+  /** tracks whose cues couldn't be read: nothing is saved over them (review L-5) */
+  private readonly unreadCues = new Set<string>();
+  private readonly unreadSaid = new Set<string>();
+  /** a nudge refused under a blend has been said (review L-7) */
+  private arrowSaid = false;
+  /** window blur and visibility: held keys let go (review M-2) */
+  private offHeld: (() => void) | null = null;
   /** the last "why not" a hand on the platter heard, so it's said once */
   private handWhy: string | null = null;
   /** the tracks whose failed cue save has been said (once a track, L1) */
@@ -510,6 +519,11 @@ export class DjModeStore {
   setOpen(open: boolean): void {
     if (open === this.s.open) return;
     this.set({ open });
+    if (!open) {
+      // the lanes are hidden: no hand on a platter, nothing held (review M-3, M-2)
+      this.mixer?.releaseHand?.();
+      this.releaseHeld();
+    }
   }
 
   // ── on and off ─────────────────────────────────────────────────────────
@@ -525,10 +539,13 @@ export class DjModeStore {
       this.set({ on: true });
       if (track) this.loadLane('a', laneTrackFromPlayer(track));
       this.watchEnded();
+      this.watchHeld(true);
       this.say('DJ mode on');
       return true;
     }
     this.browseCloser?.();
+    this.releaseHeld();
+    this.watchHeld(false);
     this.mixer?.end();
     this.handedB = null;
     this.transports.a.reset();
@@ -883,7 +900,12 @@ export class DjModeStore {
 
   private async loadCues(deck: Deck, gen: number, id: string): Promise<void> {
     const set = await this.cueStore.load(id);
-    if (!this.live(deck, gen) || !set) return;
+    if (!this.live(deck, gen)) return;
+    if (!set) {
+      this.unreadCues.add(id);
+      return;
+    }
+    this.unreadCues.delete(id);
     const main = this.cueStore.main(id);
     const lane = this.s[deck]!;
     this.setLane(deck, {
@@ -902,7 +924,8 @@ export class DjModeStore {
     const grid = lane.phase === 'ready' && lane.grid ? lane.grid.grid : null;
     const cue = cueAt(MAIN_SLOT, seconds, grid, lane.duration ?? 0);
     this.setLane(deck, { main: cue, cue: cue.seconds });
-    this.cueStore.saveMain(lane.track.id, cue, () => this.cuesNotSaved(lane.track.id));
+    if (this.cuesReadable(lane.track.id))
+      this.cueStore.saveMain(lane.track.id, cue, () => this.cuesNotSaved(lane.track.id));
     const where = barWords(cue);
     this.say(
       `Deck ${this.deckName(deck)} cue at ${where ? `bar ${where}` : clockWords(cue.seconds)}`,
@@ -982,7 +1005,8 @@ export class DjModeStore {
       deck === 'b' &&
       ['starting', 'backing', 'handing', 'loading', 'idle', 'failed'].includes(this.s.mix.phase)
     ) {
-      if (action !== 'cueUp')
+      if (action === 'cueUp') t.reset();
+      else
         this.say(
           `Deck B’s transport waits: ${this.s.mix.phase === 'starting' ? 'B comes in on A’s next bar' : 'a moment'}`,
         );
@@ -1045,6 +1069,51 @@ export class DjModeStore {
     return ok;
   }
 
+  /**
+   * Anything held lets go (review M-2): a nudge (← →) and a held CUE, for
+   * one lane (its focus left) or both (the window lost focus, the page
+   * hid), so a lost keyup never leaves a deck 4% off or playing.
+   */
+  releaseHeld(deck?: Deck): void {
+    for (const d of deck ? [deck] : (['a', 'b'] as const)) {
+      if (this.nudging.has(d)) this.nudge(d, 0);
+      if (this.transports[d].held) this.transport(d, 'cueUp');
+    }
+  }
+
+  private watchHeld(on: boolean): void {
+    this.offHeld?.();
+    this.offHeld = null;
+    if (!on) return;
+    const win = this.win;
+    const doc = win.document;
+    const all = () => this.releaseHeld();
+    const hidden = () => {
+      if (doc.hidden) this.releaseHeld();
+    };
+    win.addEventListener('blur', all);
+    doc.addEventListener('visibilitychange', hidden);
+    this.offHeld = () => {
+      win.removeEventListener('blur', all);
+      doc.removeEventListener('visibilitychange', hidden);
+    };
+  }
+
+  /**
+   * ← → on a focused lane: the nudge, or (under a blend, where the player's
+   * ±5 s would end it) swallowed with its reason once (review L-7); outside
+   * a blend the key stays the player's. True: the key was DJ mode's.
+   */
+  arrowKey(deck: Deck, dir: -1 | 1, repeat: boolean): boolean {
+    if (repeat ? this.isNudging(deck) : this.nudge(deck, dir)) return true;
+    if (!this.blending() && !this.mixer?.aOnDeck?.()) return false;
+    if (!this.arrowSaid) {
+      this.arrowSaid = true;
+      this.say('The arrows nudge a playing deck · the player’s seek would end the blend');
+    }
+    return true;
+  }
+
   /** A held arrow is nudging this deck (its repeats are the nudge's, not the player's seek). */
   isNudging(deck: Deck): boolean {
     return this.nudging.has(deck);
@@ -1094,7 +1163,7 @@ export class DjModeStore {
     const cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
     const cues = withCue(lane.cues, cue);
     this.setLane(deck, { cues });
-    this.cueStore.save(lane.track.id, cues, () => this.cuesNotSaved(lane.track.id));
+    this.saveCues(lane.track.id, cues);
     this.say(cueWords(had ? 'moved' : 'placed', this.deckName(deck), cue));
     return true;
   }
@@ -1103,6 +1172,25 @@ export class DjModeStore {
    * A refused or failed save (L1): the cues stay as placed for this visit,
    * and that's said once a track, not at every move.
    */
+  /**
+   * A track's cues are saved only when they were read: a save replaces all
+   * of them, so one made after a failed read would lose what's stored
+   * (review L-5). Said once a track.
+   */
+  private cuesReadable(trackId: string): boolean {
+    if (!this.unreadCues.has(trackId)) return true;
+    if (!this.unreadSaid.has(trackId)) {
+      this.unreadSaid.add(trackId);
+      this.say('This track’s cues couldn’t be read: changes here aren’t kept');
+    }
+    return false;
+  }
+
+  private saveCues(trackId: string, cues: CueSet): void {
+    if (this.cuesReadable(trackId))
+      this.cueStore.save(trackId, cues, () => this.cuesNotSaved(trackId));
+  }
+
   private cuesNotSaved(trackId: string): void {
     if (this.unsavedSaid.has(trackId)) return;
     this.unsavedSaid.add(trackId);
@@ -1141,7 +1229,7 @@ export class DjModeStore {
     if (!lane || slot === null || !lane.cues[slot - 1]) return false;
     const cues = withoutCue(lane.cues, slot);
     this.setLane(deck, { cues });
-    this.cueStore.save(lane.track.id, cues, () => this.cuesNotSaved(lane.track.id));
+    this.saveCues(lane.track.id, cues);
     this.say(`Cue ${slot} on deck ${this.deckName(deck)} removed`);
     return true;
   }

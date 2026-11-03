@@ -404,6 +404,8 @@ export class DjMixSession {
     offset: number;
     stopped: boolean;
     timer: unknown;
+    /** the session's phase when grabbed: a let-go after it changed does nothing (review M-3) */
+    phase: MixPhase;
   } | null = null;
   /** the end of B's preview (its window runs out) */
   private previewTimer: unknown = null;
@@ -756,6 +758,15 @@ export class DjMixSession {
       return;
     }
     this.endPreviewTimer();
+    // B's own play stops with it: the lanes changed (review L-1)
+    this.dropHand();
+    if (this.v.previewB && this.engine) {
+      try {
+        this.engine.stop('B', Math.round((this.now() + 0.01) * this.engine.sampleRate));
+      } catch {
+        /* a closed context */
+      }
+    }
     this.update({
       phase: 'loading',
       error: null,
@@ -1264,6 +1275,8 @@ export class DjMixSession {
       aBeat = a.grid.barBeat(nb.bar);
     }
     this.started = { T, posA, bFrom, Tb };
+    // a hand on B gives way to the blend (review M-3)
+    this.dropHand();
     // B's own play before the blend gives way to the synced start (step 4b)
     this.endPreviewTimer();
     if (this.v.previewB || this.v.parkB !== null) this.update({ previewB: false, parkB: null });
@@ -1481,6 +1494,7 @@ export class DjMixSession {
     const engine = this.engine!;
     this.clearLater();
     this.cancelSettle();
+    this.dropHand();
     const sr = engine.sampleRate;
     const t = this.now() + 0.03;
     let bar = this.barSeconds();
@@ -2168,7 +2182,16 @@ export class DjMixSession {
       engine.stop(deck, Infinity);
       engine.map(deck, 0, [{ f: t * engine.sampleRate, p, r: 0 }], true);
     }
-    this.handOn = { deck, base, p0: p, t0: t, offset: 0, stopped, timer: null };
+    this.handOn = {
+      deck,
+      base,
+      p0: p,
+      t0: t,
+      offset: 0,
+      stopped,
+      timer: null,
+      phase: this.v.phase,
+    };
     this.update({ hand: deck });
     const tick = () => {
       const h = this.handOn;
@@ -2209,13 +2232,29 @@ export class DjMixSession {
     engine.map(h.deck, t * sr, [{ f: t * sr, p: pNow, r }]);
   }
 
+  /** B held to A's beat by Sync right now. */
+  private lockedB(): boolean {
+    return (
+      this.v.rateB !== null &&
+      this.ratio !== null &&
+      this.v.aOnDeck &&
+      (this.v.phase === 'playing' || this.v.phase === 'backing')
+    );
+  }
+
+  /** Whoever had a hand on a deck lets go (the overlay closed). */
+  releaseHand(): void {
+    if (this.handOn) this.letGo(this.handOn.deck);
+  }
+
   /** The hand lets go: a nudged deck carries on at its speed from where it is; a scrubbed one stays put. */
   letGo(deck: DeckId): void {
     const h = this.handOn;
     const engine = this.engine;
     if (!h || h.deck !== deck) return;
     this.dropHand();
-    if (!engine) return;
+    // the deck has moved on since (Play B, Hand over, Back): it's not the hand's any more
+    if (!engine || h.phase !== this.v.phase) return;
     const sr = engine.sampleRate;
     const t = this.now() + 0.03;
     const p = engine.position(deck, t) ?? h.p0;
@@ -2225,6 +2264,9 @@ export class DjMixSession {
         if (this.v.phase === 'paused') this.pausedAt = p;
         else if (this.v.phase === 'ready') this.update({ parkB: p });
       }
+    } else if (deck === 'B' && this.lockedB()) {
+      // held to A by Sync: locked again where the hand moved it (review L-2)
+      this.lockInPlace(t);
     } else {
       engine.map(deck, t * sr, [{ f: t * sr, p, r: h.base }]);
     }
@@ -2260,7 +2302,8 @@ export class DjMixSession {
     const base =
       deck === 'A' ? this.rateA : (this.nudgeBase ?? rateAt(engine.current('B'), t, sr) ?? 1);
     if (dir === 0) {
-      engine.map(deck, t * sr, [{ f: t * sr, p, r: base }]);
+      if (deck === 'B' && this.lockedB()) this.lockInPlace(t);
+      else engine.map(deck, t * sr, [{ f: t * sr, p, r: base }]);
       this.nudgeBase = null;
       return true;
     }
@@ -2357,6 +2400,7 @@ export class DjMixSession {
    */
   backOverBar(done: (() => void) | null): void {
     const engine = this.engine;
+    this.dropHand();
     if (this.v.solo && this.v.phase === 'playing') {
       // B on its own: it goes out over a bar (A had finished)
       this.soloOut(
@@ -2421,6 +2465,7 @@ export class DjMixSession {
     const engine = this.engine;
     const el = this.el;
     this.clearLater();
+    this.dropHand();
     if (engine && this.v.aOnDeck) {
       const now = engine.context.currentTime;
       const level = this.level();
@@ -2468,6 +2513,7 @@ export class DjMixSession {
   private hardStop(words: string | null, keep = true, align = true): void {
     const engine = this.engine;
     this.clearLater();
+    this.dropHand();
     if (align) this.alignElement();
     if (this.v.aOnDeck) {
       if (engine) this.silence(engine, this.el, this.level());

@@ -36,14 +36,16 @@ function deck(at = 10, cue = 10) {
 }
 
 describe('CUE', () => {
-  it('stopped away from the cue point: the cue point moves there, still stopped', () => {
+  it('stopped away from the cue point: the cue point moves there and the deck to it, still stopped', () => {
     const t = new DeckTransport();
     const { d, port } = deck(42, 10);
     expect(t.cueDown(port)).toBe('set');
     expect(d.cuePoint).toBe(42);
     expect(d.playing).toBe(false);
     expect(t.cueUp(port)).toBe(false);
-    expect(d.log).toEqual(['cue 42']);
+    // the deck goes to the cue point as set (review M-4)
+    expect(d.log).toEqual(['cue 42', 'seek 42']);
+    expect(d.pos).toBe(42);
   });
 
   it('held at the cue point: plays from it; let go, back to it and stopped', () => {

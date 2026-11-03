@@ -2,8 +2,8 @@
  * A deck's Play/Pause and CUE (Brief F step 4b), as a Pioneer CDJ's:
  *
  * - **CUE while stopped**, away from the cue point: the cue point moves to
- *   where the deck is (snapped to the beat by whoever keeps it), and it stays
- *   stopped.
+ *   where the deck is (snapped to the beat by whoever keeps it), the deck
+ *   goes to it, and it stays stopped.
  * - **CUE held while stopped at the cue point:** it plays from the cue point
  *   while held; let go, it goes back to the cue point and stops.
  * - **Play while CUE is held:** it keeps playing when CUE is let go.
@@ -51,6 +51,9 @@ export class DeckTransport {
     const pos = port.position();
     if (pos !== null && Math.abs(pos - port.cue()) > AT_CUE_S) {
       port.setCue(pos);
+      // the deck goes to the cue point as set (snapped to the beat), as a
+      // CDJ's does, so holding CUE next plays from it (review M-4)
+      port.seek(port.cue());
       return 'set';
     }
     this.holding = true;

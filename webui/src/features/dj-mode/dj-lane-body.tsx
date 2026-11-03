@@ -79,7 +79,8 @@ export function LaneBody({
   useEffect(() => {
     const c = canvas.current;
     const host = wave.current;
-    if (!c || !host || !canvasOk() || typeof requestAnimationFrame !== 'function') return;
+    if (!s.open || !c || !host || !canvasOk() || typeof requestAnimationFrame !== 'function')
+      return;
     let ctx: CanvasRenderingContext2D | null = null;
     try {
       ctx = c.getContext('2d');
@@ -118,7 +119,8 @@ export function LaneBody({
     };
     id = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(id);
-  }, []);
+    // the loop runs only while the overlay shows (review L-6)
+  }, [s.open]);
 
   const layout = useMemo(
     () => (grid && duration > 0 ? beatMap(grid, duration) : null),
@@ -251,6 +253,13 @@ export function LaneBody({
           if (p.grabbed) store.letGo(deck);
         }}
         onPointerCancel={(e) => {
+          const p = press.current;
+          if (!p || p.id !== e.pointerId) return;
+          press.current = null;
+          if (p.grabbed) store.letGo(deck);
+        }}
+        onLostPointerCapture={(e) => {
+          // the pointer went without its up (another window, a touch taken): the hand lets go (review M-3)
           const p = press.current;
           if (!p || p.id !== e.pointerId) return;
           press.current = null;

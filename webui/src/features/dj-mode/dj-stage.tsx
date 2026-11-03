@@ -147,12 +147,18 @@ function laneKeys(store: DjModeStore, deck: 'a' | 'b') {
       e.preventDefault();
       if (!e.repeat) store.transport(deck, 'play');
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      // the player's ±5 s stays the player's where the deck can't be nudged
-      const held = e.repeat
-        ? store.isNudging(deck)
-        : store.nudge(deck, e.key === 'ArrowLeft' ? -1 : 1);
-      if (held) e.preventDefault();
+      // the player's ±5 s stays the player's where the deck can't be nudged,
+      // except under a blend, where it would end it (review L-7)
+      if (store.arrowKey(deck, e.key === 'ArrowLeft' ? -1 : 1, e.repeat)) e.preventDefault();
     }
+  };
+}
+
+/** The focus left the lane: whatever its keys held lets go (review M-2). */
+function laneLeft(store: DjModeStore, deck: 'a' | 'b') {
+  return (e: React.FocusEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    store.releaseHeld(deck);
   };
 }
 
@@ -367,6 +373,7 @@ function LaneA({
       tabIndex={0}
       onKeyDown={laneKeys(store, 'a')}
       onKeyUp={laneKeysUp(store, 'a')}
+      onBlur={laneLeft(store, 'a')}
     >
       <LaneHead
         deck="a"
@@ -568,11 +575,13 @@ function LaneB({
     const mix = s.mix;
     const moving = mix.phase === 'playing' || mix.phase === 'backing';
     // B's own Play, a hand on it, or parked somewhere: the playhead follows the deck (4b)
+    // (only while the overlay shows: hidden, nothing draws, review L-6)
     const follow =
-      moving ||
-      Boolean(mix.previewB) ||
-      mix.hand === 'B' ||
-      ['ready', 'paused'].includes(mix.phase);
+      s.open &&
+      (moving ||
+        Boolean(mix.previewB) ||
+        mix.hand === 'B' ||
+        ['ready', 'paused'].includes(mix.phase));
     // Sync's speed: as it plays, else as it will (37g, before Play B)
     const planned = mix.sync
       ? (mix.rateB ??
@@ -656,6 +665,7 @@ function LaneB({
       tabIndex={lane || !s.browse ? 0 : -1}
       onKeyDown={laneKeys(store, 'b')}
       onKeyUp={laneKeysUp(store, 'b')}
+      onBlur={laneLeft(store, 'b')}
     >
       {!lane || over ? <p className={styles.label}>B · the second track</p> : null}
       {body}

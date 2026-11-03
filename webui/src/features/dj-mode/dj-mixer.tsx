@@ -406,6 +406,7 @@ export function DjMixer({
       grab: (d) => session.grab(d),
       moveHand: (d, offset) => session.moveHand(d, offset),
       letGo: (d) => session.letGo(d),
+      releaseHand: () => session.releaseHand(),
       nudge: (d, dir) => session.nudge(d, dir),
       aOnDeck: () => session.snapshot().aOnDeck,
       handOver: () => session.handOver('press'),

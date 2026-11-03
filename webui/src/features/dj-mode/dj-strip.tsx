@@ -113,12 +113,15 @@ export function LaneStrip({
 }
 
 /** Whether a deck plays, looked at a few times a second (the player's element doesn't say through the store). */
-function useDeckPlaying(store: DjModeStore, deck: 'a' | 'b'): boolean {
+function useDeckPlaying(store: DjModeStore, deck: 'a' | 'b', open: boolean): boolean {
   const [playing, setPlaying] = useState(() => store.deckPlaying(deck));
   useEffect(() => {
+    // only while the overlay shows (review L-6); looked at again as it opens
+    if (!open) return;
+    setPlaying(store.deckPlaying(deck));
     const id = window.setInterval(() => setPlaying(store.deckPlaying(deck)), 200);
     return () => window.clearInterval(id);
-  }, [store, deck]);
+  }, [store, deck, open]);
   return playing;
 }
 
@@ -131,7 +134,8 @@ function useDeckPlaying(store: DjModeStore, deck: 'a' | 'b'): boolean {
  */
 function Transport({ deck, store }: { deck: 'a' | 'b'; store: DjModeStore }) {
   const D = deck === 'a' ? 'A' : 'B';
-  const playing = useDeckPlaying(store, deck);
+  const open = useDjMode(store).open;
+  const playing = useDeckPlaying(store, deck, open);
   const [held, setHeld] = useState(false);
   const down = () => {
     if (held) return;
