@@ -153,6 +153,23 @@ def test_a_changed_file_is_worked_out_again(client, db, tmp_path):
     assert abs(len(base64.b64decode(body["levels"])) - 300) <= 1
 
 
+def test_a_failed_decode_is_tried_again_after_an_hour(db, client, monkeypatch, tmp_path):
+    import time
+
+    from core.playback import peaks
+
+    sig = peaks.file_signature(str(tmp_path / "beat.wav"))
+    levels.write_cached(db, "1", sig, None, error="decoder hiccup")
+    assert client.get(URL + "1").get_json() == {"success": True, "state": "failed", "reason": "unreadable"}
+    assert client.queue.keys == []
+    # an hour on: worked out again
+    later = time.time() + levels.RETRY_FAILED_S + 1
+    assert levels.read_cached(db, "1", sig, now=later) is None
+    monkeypatch.setattr(levels.time, "time", lambda: later)
+    assert client.get(URL + "1").status_code == 202
+    assert client.get(URL + "1").get_json()["state"] == "ready"
+
+
 def test_files_that_cant_be_drawn_say_why(client):
     assert client.get(URL + "2").get_json() == {"success": True, "state": "failed", "reason": "not_on_disk"}
     assert client.get(URL + "4").get_json()["reason"] == "not_audio"

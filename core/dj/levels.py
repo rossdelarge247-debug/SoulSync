@@ -33,6 +33,8 @@ LEVELS_VERSION = 1
 STEP_S = 0.01
 #: at most this many levels a track (25 minutes at 10 ms; longer files get a coarser step)
 MAX_LEVELS = 150_000
+#: a file that couldn't be read is tried again after this long (a passing decode error, review L-4)
+RETRY_FAILED_S = 3600
 
 
 def step_for(duration_s: Optional[float]) -> float:
@@ -80,17 +82,21 @@ def compute(path: str, duration_s: Optional[float] = None) -> Dict[str, Any]:
 
 # ── the cache ────────────────────────────────────────────────────────────────
 
-def read_cached(db, track_id: str, sig: str) -> Optional[Dict[str, Any]]:
-    """The cached answer for this exact file, or None (none, an older file, an older version)."""
+def read_cached(db, track_id: str, sig: str, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """The cached answer for this exact file, or None (none, an older file, an
+    older version, or a failure older than RETRY_FAILED_S, tried again)."""
     with closing(db._get_connection()) as conn:
         row = conn.execute(
-            "SELECT file_sig, version, step, duration_s, levels, error FROM track_dj_levels WHERE track_id = ?",
+            "SELECT file_sig, version, step, duration_s, levels, error, computed_at FROM track_dj_levels "
+            "WHERE track_id = ?",
             (track_id,),
         ).fetchone()
     if row is None or row[0] != sig or int(row[1] or 0) != LEVELS_VERSION:
         return None
     if row[4] is not None:
         return {"levels": bytes(row[4]), "step": float(row[2]), "duration_s": row[3]}
+    if (now if now is not None else time.time()) - float(row[6] or 0) >= RETRY_FAILED_S:
+        return None
     return {"levels": None, "duration_s": row[3], "error": row[5] or "unreadable"}
 
 

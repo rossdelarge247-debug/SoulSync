@@ -167,4 +167,5 @@ def for_export(database, profile_id: int, track_ids: Iterable[Any]) -> Dict[str,
                     [int(profile_id), *chunk]).fetchall():
                 found.setdefault(str(tid), []).append({"slot": slot, "bar": bar, "seconds": sec})
     grids = _grids(database, list(found))
-    return {tid: [_placed(r, grids.get(tid)) for r in rows][:4] for tid, rows in found.items()}
+    # the main cue (slot 0) and hot cues 1–4: five at most (review M-1)
+    return {tid: [_placed(r, grids.get(tid)) for r in rows][:len(ALL_SLOTS)] for tid, rows in found.items()}
