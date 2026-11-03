@@ -60,7 +60,16 @@ A track the person starred (core/stars) is written with Traktor's top
 rating, ``INFO RANKING="255"`` (Traktor keeps a rating as 0–255 in steps of
 51; 255 is five stars). Others carry no RANKING, so Traktor keeps its own.
 
-Never written: cue points, beat grids (``CUE_V2``), ``LOCK``.
+DJ mode's cue points (core/dj/cues.py, the exporting profile's own) are
+written as hot cues 1–4: ``CUE_V2 TYPE="0" HOTCUE="0"…"3" START`` in
+milliseconds from the file's start, ``LEN="0"``, named "Cue 1"…"Cue 4".
+Each cue's place is worked out from the track's grid now, so a re-analysis
+that moved the grid moves it. Assumed: Traktor counts START from the same
+first sample the analysis decoded (true of FLAC and WAV; an MP3's encoder
+delay can put it a few tens of milliseconds out).
+
+Never written: beat grids (``CUE_V2 TYPE="4"``, Traktor's own analysis
+places its grid), ``LOCK``.
 
 Mac paths
 =========
@@ -501,7 +510,27 @@ def plan(items: Iterable[Tuple[Optional[Dict[str, Any]], str, str]], paths: MacP
 STARRED_RANKING = "255"
 
 
-def _entry(track: Dict[str, Any], location: Dict[str, str], *, starred: bool = False) -> ET.Element:
+#: the most hot cues an entry gets (DJ mode's four, 439)
+MAX_HOT_CUES = 4
+
+
+def _hot_cues(entry: ET.Element, cues: Optional[Sequence[Dict[str, Any]]]) -> None:
+    for cue in list(cues or [])[:MAX_HOT_CUES]:
+        try:
+            slot = int(cue["slot"])
+            seconds = float(cue["seconds"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if slot not in (1, 2, 3, 4) or not 0 <= seconds < 36_000:
+            continue
+        ET.SubElement(entry, "CUE_V2", {
+            "NAME": f"Cue {slot}", "DISPL_ORDER": "0", "TYPE": "0",
+            "START": f"{seconds * 1000:.6f}", "LEN": "0.000000", "REPEATS": "-1",
+            "HOTCUE": str(slot - 1)})
+
+
+def _entry(track: Dict[str, Any], location: Dict[str, str], *, starred: bool = False,
+           cues: Optional[Sequence[Dict[str, Any]]] = None) -> ET.Element:
     attrs = {}
     if track.get("title"):
         attrs["TITLE"] = xml_text(track["title"])
@@ -542,10 +571,12 @@ def _entry(track: Dict[str, Any], location: Dict[str, str], *, starred: bool = F
     value = traktor_key_value(key) if key else None
     if value is not None:
         ET.SubElement(entry, "MUSICAL_KEY", {"VALUE": str(value)})
+    _hot_cues(entry, cues)
     return entry
 
 
-def build_nml(name: str, entries: Sequence[Dict[str, Any]], *, starred: Optional[Iterable[Any]] = None) -> bytes:
+def build_nml(name: str, entries: Sequence[Dict[str, Any]], *, starred: Optional[Iterable[Any]] = None,
+              cues: Optional[Dict[str, Sequence[Dict[str, Any]]]] = None) -> bytes:
     """The playlist file: every entry once in COLLECTION, the playlist in
     order (a track twice is listed twice). Built with ElementTree, so every
     name and path is escaped; characters XML can't hold are dropped first.
@@ -563,7 +594,9 @@ def build_nml(name: str, entries: Sequence[Dict[str, Any]], *, starred: Optional
             unique.append(e)
     collection = ET.SubElement(root, "COLLECTION", {"ENTRIES": str(len(unique))})
     for e in unique:
-        collection.append(_entry(e["track"], e["location"], starred=str(e["track"].get("id")) in stars))
+        tid = str(e["track"].get("id"))
+        collection.append(_entry(e["track"], e["location"], starred=tid in stars,
+                                 cues=(cues or {}).get(tid)))
     playlists = ET.SubElement(root, "PLAYLISTS")
     folder = ET.SubElement(playlists, "NODE", {"TYPE": "FOLDER", "NAME": "$ROOT"})
     subnodes = ET.SubElement(folder, "SUBNODES", {"COUNT": "1"})
