@@ -227,6 +227,14 @@ describe('the keys (37p)', () => {
     store.loadB({ id: '8', title: 'Harbour Lights', artist: 'Marram', image: null, duration: 288 });
     expect(window.SoulSyncDj!.key('⇧P')).toBe(true);
     expect(playB).toHaveBeenCalledTimes(1);
+    // review H4: with B loaded ⇧P is DJ mode's even when Play B can't act
+    // (getting ready, A paused, a second press): never Previous
+    playB.mockImplementationOnce(() => false);
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(true);
+    playB.mockImplementationOnce(() => {
+      throw new Error('not now');
+    });
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(true);
     store.setMix({ phase: 'playing', window: null, rateB: 0.98, sync: true });
     await tick();
     expect($('np-v2-visuals-dj-line').textContent).toBe('Blending · Back ends it over a bar');

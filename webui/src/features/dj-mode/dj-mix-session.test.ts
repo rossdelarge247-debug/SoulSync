@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KILL_DB } from '@/features/engine/score';
 
 import { AHEAD_S, FADE_S } from './dj-mix-session';
-import { laneA, laneB, rig, type Rig } from './dj-mix.fixtures';
+import { constantWindow, laneA, laneB, rig, WorkletEngine, type Rig } from './dj-mix.fixtures';
 import { xfGains } from './dj-mixer.logic';
 
 let r: Rig;
@@ -184,16 +184,16 @@ describe('Play B (421, 432)', () => {
   });
 
   it('asks for A to play first, and auto-mix lets go', async () => {
-    const autoStop = vi.fn();
+    const autoHold = vi.fn();
     r.session.dispose();
-    r = rig(vi, { autoStop });
+    r = rig(vi, { autoHold });
     await cued();
     r.el.paused = true;
     expect(r.session.playB()).toBe(false);
     expect(r.said).toEqual(['Play Night Ferry first: B comes in on its beat']);
     r.el.paused = false;
     r.session.playB();
-    expect(autoStop).toHaveBeenCalledTimes(1);
+    expect(autoHold).toHaveBeenCalledTimes(1);
   });
 
   it('Pause B stops B where it is, and Play B carries on from its next bar on A’s next bar', async () => {
@@ -205,8 +205,9 @@ describe('Play B (421, 432)', () => {
     expect(r.engine.port.stops.B).toBeLessThan(Infinity);
     expect(r.session.snapshot().phase).toBe('paused');
     r.session.playB();
-    const jump = r.engine.port.jumps.filter((j) => j.deck === 'B').at(-1)!;
-    const first = r.engine.port.maps.B.find((k) => k.f === jump.from)!;
+    // B's whole map is replaced from frame 0 (review H3): its first knot is the restart
+    const first = r.engine.port.maps.B[0]!;
+    expect(first.f / 48000).toBeGreaterThan(r.engine.port.time);
     // B's next bar after where it paused (0.5 + n × 1.92)
     const bars = (first.p - 0.5) / 1.92;
     expect(Math.abs(bars - Math.round(bars))).toBeLessThan(1e-6);
@@ -272,7 +273,7 @@ describe('Sync mid-blend (433)', () => {
     expect(r.session.snapshot().rateB).toBeNull();
   });
 
-  it('on again: B lands on one of A’s beats at A’s next bar and stays locked', async () => {
+  it('on again: B lands on its nearest bar at A’s next bar and stays locked (review L7)', async () => {
     await cued();
     r.session.setSync(false);
     r.session.playB();
@@ -283,9 +284,9 @@ describe('Sync mid-blend (433)', () => {
       knots[
         knots.length > 2 ? knots.findIndex((k, i) => i > 0 && Math.abs(k.r - 0.96) < 1e-6) : 1
       ]!;
-    // at that knot B is on one of its beats (0.5 + n × 0.48)
-    const beats = (locked.p - 0.5) / 0.48;
-    expect(Math.abs(beats - Math.round(beats))).toBeLessThan(1e-6);
+    // at that knot B is on one of its bars (0.5 + n × 1.92), not just a beat
+    const bars = (locked.p - 0.5) / 1.92;
+    expect(Math.abs(bars - Math.round(bars))).toBeLessThan(1e-6);
     expect(r.session.snapshot().rateB).toBeCloseTo(0.96, 4);
   });
 });
@@ -411,5 +412,222 @@ describe('the hard stops: never silent, never "playing" while silent', () => {
     await r.advance(0.3);
     expect(r.engine.unloads.sort()).toEqual(['A', 'B']);
     expect(r.session.snapshot()).toMatchObject({ phase: 'idle', aOnDeck: false, window: null });
+  });
+});
+
+describe('review round 1', () => {
+  it('H1: auto-mix is held while A is on DJ mode’s deck, and let go after', async () => {
+    const autoHold = vi.fn();
+    r.session.dispose();
+    r = rig(vi, { autoHold });
+    await cued();
+    expect(autoHold).not.toHaveBeenCalled();
+    r.session.playB();
+    expect(autoHold.mock.calls).toEqual([[true]]);
+    await r.advance(2.5);
+    r.session.backOverBar(() => undefined);
+    await r.advance(2.3);
+    expect(autoHold.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('H2: the context stopping under the decks is the hard stop at once', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(1);
+    expect(r.el.muted).toBe(true);
+    r.engine.interrupt('interrupted');
+    expect(r.el.muted).toBe(false);
+    expect(r.el.volume).toBeCloseTo(0.7);
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    expect(r.said.at(-1)).toBe(
+      'The decks stopped (interrupted): Night Ferry is back on the player',
+    );
+  });
+
+  it('H2: a worklet error ends the blend and lets the engine go', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(1);
+    r.engine.node.onprocessorerror!(new Event('processorerror'));
+    expect(r.el.muted).toBe(false);
+    expect(r.engine.disposed).toBe(1);
+    expect(r.engine.listening).toBe(0);
+    expect(r.said.at(-1)).toBe('The decks failed: the blend stopped');
+  });
+
+  it('H2: Play B on a suspended context resumes it first, or says it can’t', async () => {
+    await cued();
+    r.engine.state = 'suspended';
+    expect(r.session.playB()).toBe(true);
+    expect(r.engine.port.maps.A).toEqual([]);
+    await r.advance(0.01);
+    expect(r.engine.resumed).toBe(1);
+    expect(r.session.snapshot().aOnDeck).toBe(true);
+    r.session.end();
+    await r.advance(0.3);
+    r.session.setLanes(laneA(), laneB());
+    await r.advance(0.01);
+    r.engine.state = 'suspended';
+    const resume = r.engine.context as unknown as { resume: () => Promise<void> };
+    resume.resume = async () => undefined; // the browser won't
+    r.session.playB();
+    await r.advance(0.01);
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    expect(r.said.at(-1)).toBe('The browser has stopped the audio: press Play B again');
+  });
+
+  it('H3 (on the real worklet): B is silent from a pause until it comes back in on the bar', async () => {
+    r.session.dispose();
+    r = rig(vi, {}, { worklet: true });
+    const w = r.engine as WorkletEngine;
+    await cued();
+    r.session.playB();
+    await r.advance(1.5);
+    expect(w.peaks().B).toBe(0); // before A's next bar
+    await r.advance(2);
+    expect(w.peaks().B).toBeGreaterThan(0.4); // B in
+    r.session.pauseB();
+    await r.advance(0.1);
+    w.peaks();
+    await r.advance(2);
+    expect(w.peaks().B).toBe(0); // paused
+    r.session.playB();
+    const Tb = r.engine.port.maps.B[0]!.f / 48000;
+    await r.advance(Tb - r.engine.port.time - 0.01);
+    // between the press and the bar: nothing of the old place, no click
+    expect(w.peaks().B).toBe(0);
+    await r.advance(0.5);
+    expect(w.peaks().B).toBeGreaterThan(0.4);
+  });
+
+  it('H3 (on the real worklet): Play B again after a seek starts silent until its bar', async () => {
+    r.session.dispose();
+    r = rig(vi, {}, { worklet: true });
+    const w = r.engine as WorkletEngine;
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    r.el.dispatchEvent(new Event('seeking')); // the hard stop
+    await r.advance(0.2);
+    expect(r.session.snapshot().phase).toBe('ready');
+    w.peaks();
+    r.session.playB();
+    // A's window is fetched again first (review M3), then the decks start
+    await r.advance(0.01);
+    expect(r.session.snapshot().aOnDeck).toBe(true);
+    const Tb = r.engine.port.maps.B[0]!.f / 48000;
+    expect(Tb).toBeGreaterThan(r.engine.port.time);
+    await r.advance(Tb - r.engine.port.time - 0.01);
+    expect(w.peaks().B).toBe(0);
+    await r.advance(0.5);
+    expect(w.peaks().B).toBeGreaterThan(0.4);
+  });
+
+  it('M1: a new B while B is paused stops the decks and cues the new one', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    r.session.pauseB();
+    r.session.setLanes(laneA(), laneB({ id: '9', title: 'Copper Sky', cue: 4 }));
+    expect(r.el.muted).toBe(false);
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    await r.advance(0.01);
+    expect(r.windows.at(-2)).toEqual({ id: '9', start: 3.5, dur: 180 });
+    expect(r.session.snapshot().phase).toBe('ready');
+  });
+
+  it('M2: Sync changed while B is starting starts it again on the same bar', async () => {
+    await cued();
+    r.session.playB();
+    const Tb = r.engine.port.maps.B[0]!.f;
+    expect(r.engine.port.maps.B[0]!.r).toBeCloseTo(0.96);
+    expect(r.session.setSync(false)).toBe(true);
+    expect(r.engine.port.maps.B).toEqual([{ f: Tb, p: 0.5, r: 1 }]);
+    expect(r.engine.port.modes.B).toBe('resample');
+    await r.advance(2.2);
+    // said once, as it is now
+    expect(r.said.filter((w) => w.includes('playing'))).toEqual([
+      'Harbour Lights playing: blend by ear',
+    ]);
+  });
+
+  it('M3: at Play B, A’s window is fetched again unless it holds the whole blend', async () => {
+    r.session.setLanes(laneA({ duration: 600 }), laneB());
+    await r.advance(0.01);
+    r.el.currentTime = 230; // 70 s of A's window left: enough to wait on, not to blend on
+    await r.advance(2.1);
+    const before = r.windows.length;
+    r.session.playB();
+    await r.advance(0.01);
+    expect(r.windows.length).toBe(before + 1);
+    expect(r.windows.at(-1)!.start).toBeGreaterThan(229);
+    expect(r.session.snapshot().aOnDeck).toBe(true);
+  });
+
+  it('M4: when B goes the engine is disposed; a new B makes it again', async () => {
+    const engine = vi.fn(async () => r.engine as never);
+    r.session.dispose();
+    r = rig(vi, {});
+    r.session.dispose();
+    const made = rig(vi, { engine });
+    r = made;
+    await cued();
+    expect(r.engine.listening).toBe(1);
+    r.session.setLanes(laneA(), null);
+    await r.advance(0.3);
+    expect(r.engine.disposed).toBe(1);
+    expect(r.engine.listening).toBe(0);
+    r.session.setLanes(laneA(), laneB());
+    await r.advance(0.01);
+    expect(engine).toHaveBeenCalledTimes(2);
+  });
+
+  it('M5: a failure while taking over is the hard stop, not a half-made blend', async () => {
+    await cued();
+    const map = r.engine.map.bind(r.engine);
+    r.engine.map = () => {
+      throw new Error('boom');
+    };
+    r.session.playB();
+    r.engine.map = map;
+    expect(r.el.muted).toBe(false);
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    expect(r.said.at(-1)).toBe('The blend stopped: the decks couldn’t start');
+  });
+
+  it('L1: the fader starts back with a bar and a margin left (a late timer still fits)', async () => {
+    r.session.dispose();
+    r = rig(vi, {
+      fetchWindow: async (_c, id, start, dur) => ({
+        channels: [],
+        mono4: new Float32Array(0),
+        sampleRate: 48000,
+        offset: start,
+        duration: id === '8' ? 8 : dur,
+      }),
+    });
+    await cued();
+    r.session.playB();
+    while (r.session.snapshot().phase !== 'backing') await r.advance(0.05);
+    const left = (8 - r.engine.position('B')!) / 0.96;
+    // one bar of A is 2 s: a second and more to spare
+    expect(left).toBeGreaterThan(3);
+  });
+
+  it('L2: a lane changing aborts the windows still on their way', async () => {
+    const signals: AbortSignal[] = [];
+    r.session.dispose();
+    r = rig(vi, {
+      fetchWindow: (_c, _id, start, dur, signal) => {
+        signals.push(signal!);
+        return new Promise((res) => setTimeout(() => res(constantWindow(start, dur, 0.1)), 500));
+      },
+    });
+    r.session.setLanes(laneA(), laneB());
+    await r.advance(0.01);
+    r.session.setLanes(laneA(), laneB({ id: '9', title: 'Copper Sky' }));
+    expect(signals[0]!.aborted).toBe(true);
+    r.session.end();
+    expect(signals.at(-1)!.aborted).toBe(true);
   });
 });

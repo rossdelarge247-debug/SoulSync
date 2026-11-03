@@ -1,4 +1,8 @@
 /** Test doubles for DJ mode's decks (the tests and nothing else import it). */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
+
 import type { DeckData } from '@/features/engine/engine';
 import type { DeckId } from '@/features/engine/score';
 
@@ -19,6 +23,13 @@ export class FakeEngine {
   readonly master = new FakeParam(1);
   suspended = 0;
   resumed = 0;
+  disposed = 0;
+  /** the context's state ('running', 'suspended', …); resume() makes it running */
+  state = 'running';
+  readonly node = { onprocessorerror: null as ((e: Event) => void) | null };
+  private readonly lifecycle = new Set<
+    (e: { kind: 'interrupted' | 'resumed'; reason: string }) => void
+  >();
   readonly context = {
     sampleRate: 48000,
     get currentTime(): number {
@@ -29,6 +40,7 @@ export class FakeEngine {
     },
     resume: async () => {
       this.resumed += 1;
+      this.state = 'running';
     },
   } as unknown as BaseAudioContext;
   readonly graph = { master: { gain: this.master as unknown as AudioParam } };
@@ -36,6 +48,22 @@ export class FakeEngine {
   constructor() {
     const port = this.port;
     Object.defineProperty(this.context, 'currentTime', { get: () => port.time });
+    Object.defineProperty(this.context, 'state', { get: () => this.state });
+  }
+
+  onLifecycle(fn: (e: { kind: 'interrupted' | 'resumed'; reason: string }) => void) {
+    this.lifecycle.add(fn);
+    return () => this.lifecycle.delete(fn);
+  }
+  /** what lifecycle.ts would say */
+  interrupt(reason: string) {
+    for (const fn of this.lifecycle) fn({ kind: 'interrupted', reason });
+  }
+  get listening() {
+    return this.lifecycle.size;
+  }
+  dispose() {
+    this.disposed += 1;
   }
 
   params(deck: DeckId) {
@@ -133,8 +161,9 @@ export interface Rig {
 export function rig(
   vi: { advanceTimersByTimeAsync(ms: number): Promise<unknown> },
   over: Partial<SessionDeps> = {},
+  { worklet = false }: { worklet?: boolean } = {},
 ): Rig {
-  const engine = new FakeEngine();
+  const engine = worklet ? new WorkletEngine() : new FakeEngine();
   const el = new FakeAudio();
   const said: string[] = [];
   const windows: Rig['windows'] = [];
@@ -147,6 +176,7 @@ export function rig(
     engine: async () => engine as unknown as EngineLike,
     fetchWindow: async (_ctx, id, start, dur) => {
       windows.push({ id, start, dur });
+      if (worklet) return constantWindow(start, dur);
       return {
         channels: [],
         mono4: new Float32Array(0),
@@ -170,9 +200,131 @@ export function rig(
       for (let i = 0; i < steps; i++) {
         const dt = seconds / steps;
         engine.port.time += dt;
+        if (engine instanceof WorkletEngine) engine.renderTo(engine.port.time);
         el.currentTime += el.paused ? 0 : dt;
         await vi.advanceTimersByTimeAsync(dt * 1000);
       }
     },
+  };
+}
+
+const SR = 48000;
+
+interface Processor {
+  port: { onmessage: ((e: { data: unknown }) => void) | null };
+  process(i: unknown[], o: Float32Array[][]): boolean;
+}
+
+/**
+ * The engine's decks on the real worklet (worklet/deck-processor.js, run in
+ * a VM as the review's ghost.mjs does): every message the session sends goes
+ * to the processor too, and `renderTo` renders up to the clock, keeping each
+ * deck's peak since the last `peaks()`. The params (EQ, fader) are the fake
+ * port's; the peaks are the decks' own outputs, before them.
+ */
+export class WorkletEngine extends FakeEngine {
+  private readonly proc: Processor;
+  private readonly scope: { currentFrame: number };
+  private frame = 0;
+  private peak = { A: 0, B: 0 };
+
+  constructor() {
+    super();
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/features/engine/worklet/deck-processor.js'),
+      'utf8',
+    );
+    let Proc: (new () => Processor) | null = null;
+    class Port {
+      onmessage: ((e: { data: unknown }) => void) | null = null;
+      postMessage() {}
+    }
+    class AudioWorkletProcessor {
+      port = new Port();
+    }
+    const scope = {
+      sampleRate: SR,
+      currentFrame: 0,
+      AudioWorkletProcessor,
+      registerProcessor: (_n: string, c: new () => Processor) => {
+        Proc = c;
+      },
+    };
+    runInNewContext(src, scope);
+    this.scope = scope;
+    this.proc = new (Proc as unknown as new () => Processor)();
+  }
+
+  private send(msg: unknown) {
+    this.proc.port.onmessage?.({ data: msg });
+  }
+  private idx(deck: DeckId) {
+    return deck === 'A' ? 0 : 1;
+  }
+
+  override load(deck: DeckId, data: DeckData) {
+    super.load(deck, data);
+    this.send({
+      type: 'load',
+      deck: this.idx(deck),
+      channels: data.channels,
+      mono4: data.mono4,
+      rate: data.sampleRate,
+      offset: data.offset,
+    });
+  }
+  override unload(deck: DeckId) {
+    super.unload(deck);
+    this.send({ type: 'unload', deck: this.idx(deck) });
+  }
+  override map(...a: Parameters<FakePort['map']>) {
+    super.map(...a);
+    const [deck, from, knots, jump] = a;
+    const flat = new Float64Array(knots.flatMap((k) => [k.f, k.p, k.r]));
+    this.send({ type: 'map', deck: this.idx(deck), from, knots: flat, jump: Boolean(jump) });
+  }
+  override stop(deck: DeckId, at: number) {
+    super.stop(deck, at);
+    this.send({ type: 'stop', deck: this.idx(deck), at });
+  }
+  override mode(deck: DeckId, m: 'resample' | 'stretch') {
+    super.mode(deck, m);
+    this.send({ type: 'mode', deck: this.idx(deck), mode: m });
+  }
+
+  /** Render the decks up to the clock. */
+  renderTo(time: number) {
+    const end = Math.floor(time * SR);
+    while (this.frame + 128 <= end) {
+      const out = [
+        [new Float32Array(128), new Float32Array(128)],
+        [new Float32Array(128), new Float32Array(128)],
+      ];
+      this.scope.currentFrame = this.frame;
+      this.proc.process([], out);
+      for (const v of out[0]![0]!) this.peak.A = Math.max(this.peak.A, Math.abs(v));
+      for (const v of out[1]![0]!) this.peak.B = Math.max(this.peak.B, Math.abs(v));
+      this.frame += 128;
+    }
+  }
+
+  /** Each deck's peak since the last call. */
+  peaks() {
+    const p = { ...this.peak };
+    this.peak = { A: 0, B: 0 };
+    return p;
+  }
+}
+
+/** A window of constant 0.5 (easy to see), at most `cap` seconds. */
+export function constantWindow(start: number, dur: number, cap = 20): DeckData {
+  const n = Math.round(Math.min(dur, cap) * SR);
+  const ch = new Float32Array(n).fill(0.5);
+  return {
+    channels: [ch, ch.slice()],
+    mono4: new Float32Array(Math.floor(n / 4)).fill(0.5),
+    sampleRate: SR,
+    offset: start,
+    duration: n / SR,
   };
 }

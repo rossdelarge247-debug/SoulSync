@@ -58,13 +58,15 @@ export function djMixSession(): DjMixSession {
         tap: g.analyser,
       })) as unknown as EngineLike;
     },
-    fetchWindow: (ctx, id, start, dur) => fetchWindow(ctx, id, start, dur),
+    fetchWindow: (ctx, id, start, dur, signal) => fetchWindow(ctx, id, start, dur, { signal }),
     // one voice for DJ mode: the store's (one announcement per change, 37p)
     say: (words) => djModeStore().announce(words),
     support: () => djDeckSupport(),
-    // auto-mix (with the mixing features shown) lets its decks go: it can't mix over these
-    autoStop: () => {
-      (window as Window & { SoulSyncAutomix?: { stop?: () => void } }).SoulSyncAutomix?.stop?.();
+    // auto-mix (with the mixing features shown) is held while A is on DJ mode's deck (review H1)
+    autoHold: (on) => {
+      (
+        window as Window & { SoulSyncAutomix?: { hold?: (on: boolean) => void } }
+      ).SoulSyncAutomix?.hold?.(on);
     },
   });
   return shared;

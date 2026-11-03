@@ -104,22 +104,29 @@ export interface FetchWindowOptions {
   now?: () => number;
   /** each request's deadline (FETCH_TIMEOUT_MS) */
   timeoutMs?: number;
+  /** the caller no longer wants it (DJ mode's lanes changed) */
+  signal?: AbortSignal;
 }
 
 /** One window's bytes, asking again while the server is busy (another tab, another deck), for up to 10 s. */
 async function fetchBytes(
   url: string,
-  o: Required<FetchWindowOptions>,
+  o: Required<Omit<FetchWindowOptions, 'signal'>> & { signal?: AbortSignal },
 ): Promise<{ bytes: ArrayBuffer; res: Response }> {
   const started = o.now();
   for (let attempt = 0; ; attempt++) {
+    o.signal?.throwIfAborted();
     // its own deadline each time it's asked, the body's reading included
-    const signal = timeoutSignal(o.timeoutMs);
+    const signal = withCaller(timeoutSignal(o.timeoutMs), o.signal);
     let res: Response;
     try {
       res = await o.fetchImpl(url, { credentials: 'same-origin', signal });
     } catch (e) {
-      throw signal.aborted ? new Error(TIMED_OUT) : e;
+      throw o.signal?.aborted
+        ? new DOMException('The window is no longer wanted', 'AbortError')
+        : signal.aborted
+          ? new Error(TIMED_OUT)
+          : e;
     }
     if (res.status === 429) {
       const wait = busyDelayMs(res, attempt);
@@ -142,12 +149,28 @@ async function fetchBytes(
     try {
       return { bytes: await res.arrayBuffer(), res };
     } catch (e) {
-      throw signal.aborted ? new Error(TIMED_OUT) : e;
+      throw o.signal?.aborted
+        ? new DOMException('The window is no longer wanted', 'AbortError')
+        : signal.aborted
+          ? new Error(TIMED_OUT)
+          : e;
     }
   }
 }
 
 const TIMED_OUT = 'The server took too long to send the track: try again in a moment.';
+
+/** The deadline's signal, aborted too when the caller's is. */
+function withCaller(deadline: AbortSignal, caller?: AbortSignal): AbortSignal {
+  if (!caller) return deadline;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([deadline, caller]);
+  const c = new AbortController();
+  const stop = (s: AbortSignal) => () => c.abort(s.reason);
+  if (deadline.aborted || caller.aborted) c.abort();
+  deadline.addEventListener('abort', stop(deadline), { once: true });
+  caller.addEventListener('abort', stop(caller), { once: true });
+  return c.signal;
+}
 
 /**
  * Fetch and decode a window, in this tab's line (above). The browser
@@ -162,15 +185,17 @@ export async function fetchWindow(
   options: FetchWindowOptions | typeof fetch = {},
 ): Promise<DeckData> {
   const o = typeof options === 'function' ? { fetchImpl: options } : options;
-  const opts: Required<FetchWindowOptions> = {
+  const opts: Required<Omit<FetchWindowOptions, 'signal'>> & { signal?: AbortSignal } = {
     fetchImpl: o.fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a)),
     sleep: o.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms))),
     now: o.now ?? (() => Date.now()),
     timeoutMs: o.timeoutMs ?? FETCH_TIMEOUT_MS,
+    signal: o.signal,
   };
   const s = Math.max(0, start);
   const url = windowUrl(trackId, s, dur, ctx.sampleRate);
   const { bytes, res } = await inLine(() => fetchBytes(url, opts));
+  opts.signal?.throwIfAborted();
   const buffer = await ctx.decodeAudioData(bytes);
   const offset = Number(res.headers.get('X-Window-Start') ?? s);
   return prepareDeck(buffer, Number.isFinite(offset) ? offset : s);

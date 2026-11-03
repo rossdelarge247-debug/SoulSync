@@ -451,10 +451,19 @@ export class DjModeStore {
     this.set({ mix });
   }
 
-  /** ⇧P: Play B (or Pause B while it plays). */
+  /**
+   * ⇧P: Play B (or Pause B while it plays). With B loaded the key is DJ
+   * mode's whatever the mixer answers (getting ready, A paused, a second
+   * press): it never falls through to Previous (review H4).
+   */
   playB(): boolean {
-    if (!this.s.on || !this.s.b || !this.mixer) return false;
-    return this.mixer.playB();
+    if (!this.s.on || !this.s.b) return false;
+    try {
+      this.mixer?.playB();
+    } catch {
+      /* the mixer says why itself */
+    }
+    return true;
   }
 
   positionB(): number | null {

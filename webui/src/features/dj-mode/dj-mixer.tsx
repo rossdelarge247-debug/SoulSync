@@ -226,7 +226,9 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
       end: () => session.end(),
       playB: () => {
         const phase = session.snapshot().phase;
-        return phase === 'playing' || phase === 'starting' ? session.pauseB() : session.playB();
+        // a second press while B is about to come in does nothing (review L5)
+        if (phase === 'starting') return true;
+        return phase === 'playing' ? session.pauseB() : session.playB();
       },
       positionB: () => session.positionB(),
     });
@@ -260,7 +262,8 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
   if (!s.on || !s.b) return null;
 
   const playing = v.phase === 'playing' || v.phase === 'starting';
-  const canPlay = ['ready', 'paused', 'playing', 'starting'].includes(v.phase);
+  // while B is about to come in the button waits (a second press does nothing, review L5)
+  const canPlay = ['ready', 'paused', 'playing'].includes(v.phase);
   const syncOn = v.sync && v.syncable;
   const backing = v.phase === 'backing';
   const playWhy = canPlay ? null : status;

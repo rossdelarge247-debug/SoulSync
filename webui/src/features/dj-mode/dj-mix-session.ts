@@ -7,8 +7,13 @@ import type { Knot } from '@/features/engine/clock';
  * - **The engine is made lazily**, the first time B is loaded, on the
  *   player's AudioContext and into its analyser (as auto-mix's is), never
  *   behind the mixing setting (425), and auto-mix's controller and planner
- *   never run for it. With DJ mode off nothing here exists, so normal
- *   playback never changes.
+ *   never run for it (while A is on DJ mode's deck auto-mix is held:
+ *   `SoulSyncAutomix.hold`). When B goes (DJ mode off, the overlay closed,
+ *   B removed) the decks let their windows go and the engine is disposed,
+ *   so with DJ mode off nothing of it runs and normal playback never
+ *   changes. A context that stops under the decks (suspended, interrupted,
+ *   closed, stalled) or a worklet error ends the blend at once with A back
+ *   on its element.
  * - **Cued:** B's window is fetched from its own mix-in (434), 3 minutes,
  *   and loaded on deck B; A's window from where the player is, kept fresh
  *   while B waits (A has a minute of its window left: fetched again).
@@ -113,6 +118,11 @@ export interface EngineLike {
   mode(deck: DeckId, mode: 'resample' | 'stretch'): void;
   position(deck: DeckId, at?: number): number | null;
   setPaused(on: boolean): void;
+  /** the context stopping under the decks (lifecycle.ts), not the listener's own pause */
+  onLifecycle?(fn: (e: { kind: 'interrupted' | 'resumed'; reason: string }) => void): () => void;
+  /** the worklet node: its processor's errors end a blend */
+  node?: { onprocessorerror: ((e: Event) => void) | null };
+  dispose?(): void;
 }
 
 export interface PlayerPort {
@@ -124,10 +134,19 @@ export interface SessionDeps {
   player: PlayerPort;
   /** the engine, made once (null: this browser can't) */
   engine: () => Promise<EngineLike | null>;
-  fetchWindow: (ctx: BaseAudioContext, id: string, start: number, dur: number) => Promise<DeckData>;
+  fetchWindow: (
+    ctx: BaseAudioContext,
+    id: string,
+    start: number,
+    dur: number,
+    signal?: AbortSignal,
+  ) => Promise<DeckData>;
   say: (words: string) => void;
-  /** auto-mix lets its decks go (it can't mix over DJ mode's) */
-  autoStop?: () => void;
+  /**
+   * auto-mix (with the mixing features shown) is held while A is on DJ
+   * mode's deck: no plans, no countdowns, the element left muted (review H1)
+   */
+  autoHold?: (on: boolean) => void;
   /** why this page can't run the decks (plain http on another machine's address), or null */
   support?: () => string | null;
   setTimeout?: (fn: () => void, ms: number) => unknown;
@@ -150,6 +169,12 @@ const PRE_S = 0.5;
 const A_FRESH_S = 60;
 /** How often the windows' ends are watched while A is on its deck (ms). */
 const WATCH_MS = 250;
+/**
+ * Margin past a bar before a window's end when the fader starts back: the
+ * watch is a timer, and a background tab's timers can run a second late
+ * (review L1).
+ */
+const END_MARGIN_S = 1.5;
 const FRESH_MS = 2000;
 
 function covers(
@@ -163,8 +188,8 @@ function covers(
 export class DjMixSession {
   private v: MixView;
   private readonly listeners = new Set<() => void>();
-  private readonly d: Required<Omit<SessionDeps, 'autoStop' | 'onPhase' | 'support'>> &
-    Pick<SessionDeps, 'autoStop' | 'onPhase' | 'support'>;
+  private readonly d: Required<Omit<SessionDeps, 'autoHold' | 'onPhase' | 'support'>> &
+    Pick<SessionDeps, 'autoHold' | 'onPhase' | 'support'>;
   private engine: EngineLike | null = null;
   private making: Promise<EngineLike | null> | null = null;
   private a: MixLane | null = null;
@@ -188,6 +213,15 @@ export class DjMixSession {
   private ended = false;
   /** a lane was waiting for its grid: Sync arriving with it is said (420) */
   private waited = false;
+  /** each start of B's: a later start's timer replaces an earlier one's */
+  private startToken = 0;
+  /** the last start (Sync toggled while B is starting re-runs it) */
+  private started: { T: number; posA: number; bFrom: number | null; Tb: number } | null = null;
+  /** the windows' fetches on their way (aborted when the lanes change, review L2) */
+  private fetching: AbortController | null = null;
+  private offEngine: (() => void) | null = null;
+  private held = false;
+  private aRefetched = false;
 
   constructor(deps: SessionDeps) {
     this.d = {
@@ -286,9 +320,10 @@ export class DjMixSession {
     // a grid that lands while cued only changes Sync's answer (above)
     if (sameA && sameB && this.v.phase !== 'idle' && this.v.phase !== 'failed') return;
     if (this.blending || this.v.aOnDeck) {
-      // the player moved on under a blend: its element events stop it first
-      if (!sameA) this.hardStop(null, false);
-      else return; // B can't change mid-blend (the store refuses)
+      // B can't change mid-blend (the store refuses); A moved on, or a new B
+      // while B was paused (review M1): the decks stop first, then prepare
+      if (sameA && sameB) return;
+      this.hardStop(null, false);
     }
     this.ratio = null;
     void this.prepare(!sameB);
@@ -335,8 +370,68 @@ export class DjMixSession {
     }
     this.master = 0;
     this.applied = {};
+    // the context stopping under the decks (not the listener's Pause, which
+    // setPaused marks) or the worklet failing: A back on its element at once (review H2)
+    const off = engine.onLifecycle?.((e) => {
+      if (e.kind === 'interrupted')
+        this.broke(
+          `The decks stopped (${e.reason}): ${this.a?.title || 'A'} is back on the player`,
+        );
+    });
+    if (engine.node) {
+      engine.node.onprocessorerror = () => {
+        // the worklet is dead: it goes first, then A is back on its element
+        this.dropEngine();
+        this.broke('The decks failed: the blend stopped');
+      };
+    }
+    this.offEngine = () => {
+      off?.();
+      if (engine.node) engine.node.onprocessorerror = null;
+    };
     this.applyAll();
     return engine;
+  }
+
+  /** Something under the decks stopped: never "playing" while silent. */
+  private broke(words: string): void {
+    if (this.v.aOnDeck) this.hardStop(words);
+    else if (this.blending) this.hardStop(words);
+  }
+
+  /** Let the engine go (its worklet, graph and lifecycle watch, review M4). */
+  private dropEngine(): void {
+    const engine = this.engine;
+    if (!engine) return;
+    this.offEngine?.();
+    this.offEngine = null;
+    this.engine = null;
+    this.applied = {};
+    this.aWin = null;
+    this.bWin = null;
+    try {
+      engine.dispose?.();
+    } catch {
+      /* a closed context */
+    }
+  }
+
+  /** Auto-mix held or let go (review H1). */
+  private hold(on: boolean): void {
+    if (on === this.held) return;
+    this.held = on;
+    try {
+      this.d.autoHold?.(on);
+    } catch {
+      /* never block the decks */
+    }
+  }
+
+  /** A new fetch's signal; the one before it is aborted (review L2). */
+  private signal(): AbortSignal {
+    this.fetching?.abort();
+    this.fetching = new AbortController();
+    return this.fetching.signal;
   }
 
   private now(): number {
@@ -399,6 +494,9 @@ export class DjMixSession {
 
   private async prepare(newB: boolean): Promise<void> {
     const gen = ++this.gen;
+    // what an earlier preparation still fetches isn't wanted any more (review L2)
+    this.fetching?.abort();
+    this.fetching = null;
     const { a, b } = this;
     if (!a || !b) return;
     this.stopFresh();
@@ -426,6 +524,7 @@ export class DjMixSession {
           b.id,
           Math.max(0, b.cue - PRE_S),
           MAX_WINDOW_S,
+          this.signal(),
         );
         if (gen !== this.gen) return;
         engine.load('B', data);
@@ -438,6 +537,7 @@ export class DjMixSession {
       this.startFresh();
     } catch (e) {
       if (gen !== this.gen) return;
+      if (e instanceof DOMException && e.name === 'AbortError') return;
       const words = e instanceof Error && e.message ? e.message : 'couldn’t load the audio';
       this.update({ phase: 'failed', error: `Couldn’t get the decks ready: ${words}` });
       this.say(`Couldn’t get ${b.title || 'B'} ready: ${words}`);
@@ -457,6 +557,7 @@ export class DjMixSession {
         a.id,
         Math.max(0, pos - PRE_S),
         MAX_WINDOW_S,
+        this.signal(),
       );
       if (gen !== this.gen || this.v.aOnDeck) return;
       engine.load('A', data);
@@ -517,9 +618,26 @@ export class DjMixSession {
       if (this.v.syncWhy) this.say(this.v.syncWhy);
       return false;
     }
+    if (this.v.phase === 'starting') {
+      // B hasn't come in yet: start it again on the same bar, with Sync as asked (review M2)
+      const st = this.started;
+      if (!st || st.Tb - this.now() < 0.1) {
+        this.say('Sync changes once B is in');
+        return false;
+      }
+      this.update({ sync: on });
+      try {
+        this.startB(st.T, st.posA, st.bFrom);
+      } catch {
+        this.hardStop('The blend stopped: the decks couldn’t start');
+        return false;
+      }
+      this.say(on ? 'Sync on' : 'Sync off');
+      return true;
+    }
     this.update({ sync: on });
     const b = this.b?.title || 'B';
-    if (this.v.phase === 'playing' || this.v.phase === 'starting') {
+    if (this.v.phase === 'playing') {
       if (on) this.relock();
       else this.glideFree();
       this.say(
@@ -559,7 +677,30 @@ export class DjMixSession {
       this.say(`Play ${a.title || 'the track'} first: B comes in on its beat`);
       return false;
     }
-    if (!covers(this.aWin, el.currentTime + AHEAD_S, 8)) {
+    const ctx = this.engine?.context as (BaseAudioContext & { state?: string }) | undefined;
+    if (ctx && ctx.state && ctx.state !== 'running') {
+      // the decks can't start on a stopped context: ask for it, then start (review H2)
+      const resume = (ctx as AudioContext).resume?.bind(ctx);
+      const gen = this.gen;
+      void Promise.resolve(resume?.())
+        .catch(() => undefined)
+        .then(() => {
+          if (gen !== this.gen || this.v.phase !== 'ready') return;
+          if (ctx.state === 'running') this.playB();
+          else this.say('The browser has stopped the audio: press Play B again');
+        });
+      return true;
+    }
+    // as much of A as the decks can hold, so A's window never ends the blend first (review M3)
+    const pos = el.currentTime + AHEAD_S;
+    const ahead = Math.max(
+      8,
+      Math.min(MAX_WINDOW_S - PRE_S - 1, (this.a?.duration ?? Infinity) - pos - 1),
+    );
+    // once fetched again for this press, what the server gave is what there is
+    const need = this.aRefetched ? 8 : ahead;
+    this.aRefetched = false;
+    if (!covers(this.aWin, pos, need)) {
       // the player jumped past A's window: fetch it again, then start
       const gen = ++this.gen;
       this.update({ phase: 'loading' });
@@ -567,6 +708,7 @@ export class DjMixSession {
         .then(() => {
           if (gen !== this.gen) return;
           this.update({ phase: 'ready' });
+          this.aRefetched = true;
           this.playB();
         })
         .catch(() => {
@@ -580,20 +722,27 @@ export class DjMixSession {
   }
 
   private takeOver(el: HTMLAudioElement): void {
+    try {
+      this.takeOverNow(el);
+    } catch {
+      // anything half-done is undone: A back on its element (review M5)
+      this.hardStop('The blend stopped: the decks couldn’t start');
+    }
+  }
+
+  private takeOverNow(el: HTMLAudioElement): void {
     const engine = this.engine!;
     this.stopFresh();
-    try {
-      this.d.autoStop?.();
-    } catch {
-      /* never block Play B */
-    }
+    this.hold(true);
     const ctx = engine.context;
     this.rateA = el.playbackRate > 0 ? el.playbackRate : 1;
     const T = ctx.currentTime + AHEAD_S;
     const from = el.currentTime + AHEAD_S * this.rateA;
     this.applyAll(ctx.currentTime);
     engine.mode('A', 'resample');
-    engine.play('A', T, from, this.rateA);
+    // the whole map replaced: nothing of an earlier go plays before T (review H3)
+    engine.stop('A', Infinity);
+    engine.map('A', 0, [{ f: T * engine.sampleRate, p: from, r: this.rateA }], true);
     const level = this.level();
     const g = engine.graph.master.gain;
     g.cancelScheduledValues(ctx.currentTime);
@@ -632,6 +781,7 @@ export class DjMixSession {
       Tb = T + (nb.time - posA) / this.rateA;
       aBeat = a.grid.barBeat(nb.bar);
     }
+    this.started = { T, posA, bFrom, Tb };
     const lock = this.v.sync && this.v.syncable && a.grid && b.grid && aBeat !== null;
     engine.stop('B', Infinity);
     let rateB: number | null = null;
@@ -659,20 +809,22 @@ export class DjMixSession {
           untilB: (this.bWin ? this.bWin.offset + this.bWin.duration : Infinity) + 1,
         });
         engine.mode('B', 'stretch');
-        engine.map('B', knots[0]!.f, knots, true);
+        // from frame 0: B's whole map replaced, silent until Tb (review H3)
+        engine.map('B', 0, knots, true);
         rateB = knots[0]!.r;
       }
     }
     if (rateB === null) {
       engine.mode('B', 'resample');
-      engine.play('B', Tb, bFrom ?? b.cue, 1);
+      engine.map('B', 0, [{ f: Tb * sr, p: bFrom ?? b.cue, r: 1 }], true);
     }
     this.pausedAt = null;
     this.update({ phase: 'starting', rateB });
     const gen = this.gen;
+    const token = ++this.startToken;
     this.later(
       () => {
-        if (gen !== this.gen || this.v.phase !== 'starting') return;
+        if (gen !== this.gen || token !== this.startToken || this.v.phase !== 'starting') return;
         this.update({ phase: 'playing' });
         this.say(
           rateB !== null
@@ -703,7 +855,11 @@ export class DjMixSession {
     const T = this.now() + 0.03;
     const posA = engine.position('A', T);
     if (posA === null) return false;
-    this.startB(T, posA, this.pausedAt);
+    try {
+      this.startB(T, posA, this.pausedAt);
+    } catch {
+      this.hardStop('The blend stopped: the decks couldn’t start');
+    }
     return true;
   }
 
@@ -732,10 +888,13 @@ export class DjMixSession {
     const posA = engine.position('A', t);
     const posB = engine.position('B', t);
     if (posA === null || posB === null) return;
-    const nb = nextBar(a.grid, posA, a.grid.periodAt(a.grid.beatAt(posA)));
+    // a full bar to ease B over, onto its nearest bar (review L7)
+    const nb = nextBar(a.grid, posA, 4 * a.grid.periodAt(a.grid.beatAt(posA)));
     const tk = t + (nb.time - posA) / this.rateA;
     const free = engine.position('B', tk) ?? posB;
-    const b0 = Math.round(b.grid.beatAt(free));
+    const b0 = b.grid.barBeat(
+      Math.max(0, Math.round((b.grid.beatAt(free) - b.grid.downbeatIndex) / 4)),
+    );
     const target = b.grid.timeAt(b0);
     const aBeat = a.grid.barBeat(nb.bar);
     const ratio = syncRatio(a.grid.periodAt(aBeat), b.grid.periodAt(b0), this.rateA);
@@ -767,7 +926,7 @@ export class DjMixSession {
       this.watchTimer = null;
       if (!this.v.aOnDeck || !this.engine) return;
       const left = this.timeLeft();
-      if (left !== null && left < this.barSeconds() + 0.3) {
+      if (left !== null && left < this.barSeconds() + END_MARGIN_S) {
         if (this.v.phase === 'playing' || this.v.phase === 'starting') {
           this.backOverBar(null);
           return;
@@ -881,7 +1040,15 @@ export class DjMixSession {
   private hardStop(words: string | null, keep = true): void {
     const engine = this.engine;
     this.clearLater();
-    if (engine && this.v.aOnDeck) this.silence(engine, this.el, this.level());
+    if (this.v.aOnDeck) {
+      if (engine) this.silence(engine, this.el, this.level());
+      else if (this.el) {
+        // the engine is gone (a worklet error): the element is all there is
+        this.cancelFade();
+        this.el.muted = false;
+        this.el.volume = this.level();
+      }
+    }
     this.afterRelease(keep);
     if (words) this.say(words);
   }
@@ -900,6 +1067,8 @@ export class DjMixSession {
 
   private afterRelease(keep: boolean): void {
     this.unbind();
+    this.started = null;
+    this.hold(false);
     if (this.suspended) {
       this.suspended = false;
       this.engine?.setPaused(false);
@@ -924,6 +1093,8 @@ export class DjMixSession {
 
   /** Let everything go (DJ mode off, B removed, the overlay closed). */
   end(): void {
+    this.fetching?.abort();
+    this.fetching = null;
     this.stopFresh();
     if (this.v.aOnDeck) this.hardStop(null, false);
     this.clearLater();
@@ -940,6 +1111,8 @@ export class DjMixSession {
         } catch {
           /* a closed context */
         }
+        // nothing cued: the engine goes too (its worklet, graph and watch, review M4)
+        if (this.engine === engine && this.v.phase === 'idle') this.dropEngine();
       }, 250);
     this.aWin = null;
     this.bWin = null;

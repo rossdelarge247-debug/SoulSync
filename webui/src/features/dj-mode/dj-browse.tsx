@@ -37,6 +37,8 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 /** How long typing settles before Browse asks (ms). */
 export const SEARCH_DELAY_MS = 200;
+/** How long the count waits before it's said, so a run of chips is said once (ms). */
+export const SAY_DELAY_MS = 600;
 
 export function DjBrowse({ store, fetchImpl }: { store: DjModeStore; fetchImpl?: FetchLike }) {
   const s = useDjMode(store);
@@ -102,6 +104,10 @@ function BrowseDialog({
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  /** the first answer is the opening's: only later ones (chips, search) are said */
+  const asked = useRef(false);
+  const sayTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(sayTimer.current), []);
   const dialog = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const listId = useId();
@@ -128,13 +134,28 @@ function BrowseDialog({
             if (ctl.signal.aborted) return;
             const list = (body.tracks ?? []).map((t) => rowFromApi(t as never));
             // the server orders them; the same order here keeps a stale cache honest
-            setRows(closestFirst(refTrack, list).filter((r) => r.id && r.id !== refTrack.id));
-            setTotal(Number(body.total) || list.length);
+            // a starred track whose file has gone can't be loaded: never offered (review L3)
+            const gone = list.filter((r) => r.fileMissing).length;
+            setRows(
+              closestFirst(refTrack, list).filter(
+                (r) => r.id && r.id !== refTrack.id && !r.fileMissing,
+              ),
+            );
+            const total = Math.max(0, (Number(body.total) || list.length) - gone);
+            setTotal(total);
+            // a change the person made (a chip, the search) is said once it lands, not on opening (review L7)
+            if (asked.current) {
+              const words = countLine(total, Boolean(q.trim()));
+              window.clearTimeout(sayTimer.current);
+              sayTimer.current = window.setTimeout(() => store.announce(words), SAY_DELAY_MS);
+            }
             setActive(0);
             setState('ready');
           })
           .catch(() => {
-            if (!ctl.signal.aborted) setState('error');
+            if (ctl.signal.aborted) return;
+            setState('error');
+            if (asked.current) store.announce('Couldn’t read your library: try again in a moment');
           });
       },
       q ? SEARCH_DELAY_MS : 0,
@@ -159,8 +180,9 @@ function BrowseDialog({
     }
     if (e.key === 'Tab') {
       // the focus stays in the dialog
+      // only what Tab really reaches (review M6)
       const items = dialog.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled])',
+        'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"])',
       );
       if (!items || items.length === 0) return;
       const first = items[0]!;
@@ -190,7 +212,10 @@ function BrowseDialog({
     document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: 'nearest' });
   }, [active, listId]);
 
-  const toggle = (k: keyof BrowseChips) => setChips((c) => ({ ...c, [k]: !c[k] }));
+  const toggle = (k: keyof BrowseChips) => {
+    asked.current = true;
+    setChips((c) => ({ ...c, [k]: !c[k] }));
+  };
   const aBpm = refTrack.bpm;
   const keys = mixKeys(refTrack.key);
   const activeId = rows[active] ? `${listId}-${active}` : undefined;
@@ -243,7 +268,10 @@ function BrowseDialog({
             aria-activedescendant={activeId}
             aria-describedby={hintId}
             autoComplete="off"
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              asked.current = true;
+              setQ(e.target.value);
+            }}
           />
           <span id={hintId} className={styles.searchHint}>
             type to search; ↑↓ then Enter loads
@@ -318,7 +346,9 @@ function BrowseDialog({
                   aria-selected={i === active}
                   className={styles.row}
                   data-active={i === active ? '' : undefined}
+                  aria-label={`${row.title}${row.artist ? `, ${row.artist}` : ''}${step ? `, ${step}` : ''}: Enter loads it as B`}
                   onMouseEnter={() => setActive(i)}
+                  onClick={() => load(row)}
                 >
                   {row.image ? (
                     <img className={styles.rowArt} src={row.image} alt="" />
@@ -347,16 +377,15 @@ function BrowseDialog({
                   <span className={`${styles.mono} ${styles.right}`}>
                     {lengthWords(row.durationS)}
                   </span>
-                  <button
-                    type="button"
+                  {/* an option holds no button (review L7): the row is the Load */}
+                  <span
                     className={styles.load}
                     data-primary={i === active ? '' : undefined}
-                    tabIndex={-1}
-                    aria-label={`Load ${row.title} as B`}
-                    onClick={() => load(row)}
+                    data-dj-load=""
+                    aria-hidden="true"
                   >
                     Load
-                  </button>
+                  </span>
                 </li>
               );
             })}

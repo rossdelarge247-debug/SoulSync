@@ -510,6 +510,7 @@
 }
 .row {
   min-height: 52px;
+  cursor: pointer;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .row[data-active] {
@@ -565,6 +566,10 @@
   text-align: right;
 }
 .load {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   min-height: 36px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;

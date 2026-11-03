@@ -44,6 +44,16 @@ const ROWS = [
     dj: { bpm: 128, key: '7A' },
   },
 ];
+// a starred track whose file has gone (Starred keeps it): never offered (review L3)
+const GONE = {
+  id: '11',
+  title: 'Gone Away',
+  artist_name: 'Ola',
+  duration_ms: 200000,
+  grid_ready: true,
+  file_missing: true,
+  dj: { bpm: 124, key: '8A' },
+};
 let asked: URLSearchParams[];
 let said: string[];
 let store: DjModeStore;
@@ -51,7 +61,8 @@ let store: DjModeStore;
 function browseFetch(url: string): Promise<Response> {
   const q = new URL(url, 'http://x').searchParams;
   asked.push(q);
-  const rows = q.get('q') ? ROWS.filter((r) => r.title.toLowerCase().includes(q.get('q')!)) : ROWS;
+  const all = q.get('starred') ? [...ROWS, GONE] : ROWS;
+  const rows = q.get('q') ? all.filter((r) => r.title.toLowerCase().includes(q.get('q')!)) : all;
   return Promise.resolve(
     new Response(JSON.stringify({ success: true, tracks: rows, total: rows.length })),
   );
@@ -221,7 +232,8 @@ describe('Browse (37f)', () => {
       store.openBrowse();
     });
     await screen.findByText('Sand Script');
-    fireEvent.click(screen.getByRole('button', { name: 'Load Sand Script as B' }));
+    // the row is the Load (an option holds no button, review L7)
+    fireEvent.click(screen.getByRole('option', { name: /^Sand Script/ }));
     expect(store.snapshot().b?.track.id).toBe('6');
   });
 
@@ -240,6 +252,43 @@ describe('Browse (37f)', () => {
       expect(store.openBrowse()).toBe(true);
       expect(await screen.findByRole('dialog')).toBeTruthy();
     }
+  });
+
+  it('review M6: Tab stays in the dialog, over what Tab really reaches', async () => {
+    mount();
+    act(() => {
+      store.openBrowse();
+    });
+    await screen.findByText('Harbour Lights');
+    const close = screen.getByRole('button', { name: 'Close Browse' });
+    const last = screen.getByRole('button', { name: 'Recently played' });
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    // the rows hold no buttons to Tab to (review L7): an option is the Load
+    expect(screen.getAllByRole('option')[0]!.querySelector('button')).toBeNull();
+  });
+
+  it('review L3 and L7: a missing file is never offered; a chip’s answer is said once', async () => {
+    mount();
+    act(() => {
+      store.openBrowse();
+    });
+    await screen.findByText('Harbour Lights');
+    // opening says nothing
+    await new Promise((r) => setTimeout(r, 700));
+    expect(said.filter((w) => w.includes('fit'))).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Starred' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Recently played' }));
+    await waitFor(() => expect(asked.at(-1)!.get('recent')).toBe('1'));
+    await waitFor(() =>
+      expect(said.filter((w) => w.includes('fit'))).toEqual([
+        '3 tracks fit · the smallest tempo and key step first',
+      ]),
+    );
+    expect(screen.queryByText('Gone Away')).toBeNull();
   });
 
   it('turning DJ mode off closes it and lets the opener go', async () => {

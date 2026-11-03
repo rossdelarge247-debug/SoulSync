@@ -51,6 +51,8 @@ export interface BrowseRow {
   bpm: number | null;
   /** its beat grid is done: Sync can work at once */
   gridReady: boolean;
+  /** a starred track whose file has gone (Starred keeps it): never offered (review L3) */
+  fileMissing?: boolean;
 }
 
 function round1(x: number): number {
@@ -106,6 +108,7 @@ interface ApiBrowseTrack {
   image_url?: string | null;
   duration_ms?: number | null;
   grid_ready?: boolean;
+  file_missing?: boolean;
   dj?: { bpm?: number | null; key?: string | null; key_uncertain?: boolean } | null;
 }
 
@@ -123,6 +126,7 @@ export function rowFromApi(t: ApiBrowseTrack): BrowseRow {
     keyUncertain: Boolean(t.dj?.key_uncertain),
     bpm: bpm > 0 ? bpm : null,
     gridReady: Boolean(t.grid_ready),
+    fileMissing: Boolean(t.file_missing),
   };
 }
 

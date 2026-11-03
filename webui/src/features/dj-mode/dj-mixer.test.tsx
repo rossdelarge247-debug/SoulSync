@@ -267,6 +267,13 @@ describe('Play B and the blend (37g, 37h)', () => {
     });
     expect(store.snapshot().mix.phase).toBe('starting');
     expect(store.blending()).toBe(true);
+    // review L5: a second press before B comes in doesn't pause it
+    expect(store.playB()).toBe(true);
+    expect(store.snapshot().mix.phase).toBe('starting');
+    expect(screen.getByRole('button', { name: /Pause B|Play B/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
     await flush(2500);
     expect(store.snapshot().mix.phase).toBe('playing');
     expect(screen.getByRole('button', { name: /Pause B/ })).toBeTruthy();
