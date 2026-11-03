@@ -165,8 +165,15 @@ export const HARD_S = 0.04;
 export const RAMP_S = 0.02;
 /** A window starts this far before where it's needed. */
 const PRE_S = 0.5;
-/** A's window is fetched again when less than this is left of it while B waits. */
-const A_FRESH_S = 60;
+/**
+ * While B waits, A's window is fetched again when less than this is left of
+ * it, and Play B takes A onto its deck at once when at least this much is
+ * ahead (re-review N4: a fresh window is 180 s, so it's fetched again about
+ * once a minute while B waits, and Play B doesn't wait on a fetch unless the
+ * player has just jumped; a blend can last two minutes on A's deck before
+ * the fader comes back by itself).
+ */
+const A_AHEAD_S = 120;
 /** How often the windows' ends are watched while A is on its deck (ms). */
 const WATCH_MS = 250;
 /**
@@ -222,6 +229,8 @@ export class DjMixSession {
   private offEngine: (() => void) | null = null;
   private held = false;
   private aRefetched = false;
+  /** B's cue moved under a blend: its window is fetched again after it */
+  private bStale = false;
 
   constructor(deps: SessionDeps) {
     this.d = {
@@ -310,6 +319,22 @@ export class DjMixSession {
     const was = { a: this.a, b: this.b };
     this.a = a;
     this.b = b;
+    if (this.v.aOnDeck && a && b && was.a?.id === a.id && was.b?.id === b.id) {
+      // the same two tracks under a blend: B's grid (and with it its cue)
+      // may land now (re-review N1). B plays on as it is, by ear: Sync shows
+      // off and a press locks it to A's beat; its new cue is for the next go
+      if (Math.abs((was.b?.cue ?? b.cue) - b.cue) > 0.05) this.bStale = true;
+      const landed = !was.b?.grid && Boolean(b.grid);
+      if (landed && this.v.rateB === null && this.v.sync) {
+        this.waited = false;
+        this.update({ sync: false });
+        this.syncCheck();
+        this.say(`${b.title || 'B'} has its beat grid now: Sync locks it to the beat`);
+        return;
+      }
+      this.syncCheck();
+      return;
+    }
     this.syncCheck();
     if (!a || !b) {
       if (this.v.phase !== 'idle') this.end();
@@ -575,7 +600,7 @@ export class DjMixSession {
       if (this.v.phase !== 'ready' || this.loadingA) return;
       const pos = this.d.player.audio()?.currentTime ?? 0;
       const end = this.a?.duration ?? Infinity;
-      const ahead = Math.min(A_FRESH_S, Math.max(0, end - pos - 1));
+      const ahead = Math.min(A_AHEAD_S, Math.max(0, end - pos - 1));
       if (!covers(this.aWin, pos, ahead)) {
         const gen = this.gen;
         void this.loadA(gen).catch(() => undefined);
@@ -693,10 +718,7 @@ export class DjMixSession {
     }
     // as much of A as the decks can hold, so A's window never ends the blend first (review M3)
     const pos = el.currentTime + AHEAD_S;
-    const ahead = Math.max(
-      8,
-      Math.min(MAX_WINDOW_S - PRE_S - 1, (this.a?.duration ?? Infinity) - pos - 1),
-    );
+    const ahead = Math.max(8, Math.min(A_AHEAD_S, (this.a?.duration ?? Infinity) - pos - 1));
     // once fetched again for this press, what the server gave is what there is
     const need = this.aRefetched ? 8 : ahead;
     this.aRefetched = false;
@@ -925,6 +947,14 @@ export class DjMixSession {
     const tick = () => {
       this.watchTimer = null;
       if (!this.v.aOnDeck || !this.engine) return;
+      // auto-mix turned on (or made again) under the blend hears the hold again (re-review N3)
+      if (this.held) {
+        try {
+          this.d.autoHold?.(true);
+        } catch {
+          /* never block the decks */
+        }
+      }
       const left = this.timeLeft();
       if (left !== null && left < this.barSeconds() + END_MARGIN_S) {
         if (this.v.phase === 'playing' || this.v.phase === 'starting') {
@@ -1069,19 +1099,26 @@ export class DjMixSession {
     this.unbind();
     this.started = null;
     this.hold(false);
-    if (this.suspended) {
-      this.suspended = false;
-      this.engine?.setPaused(false);
-      const ctx = this.engine?.context as AudioContext | undefined;
-      if (ctx && typeof ctx.resume === 'function') void ctx.resume().catch(() => undefined);
-    }
     this.pausedAt = null;
-    // the controls come back to rest on A: Back brought the fader there
+    // A is off its deck first: nothing after this is a blend to stop (re-review N2)
     this.update({ aOnDeck: false, rateB: null });
+    if (this.suspended) {
+      // the listener's Pause suspended the context: it's resumed, and only
+      // once it runs is the watch told the pause is over (so a suspended
+      // context isn't taken for an interruption on the way, re-review N2)
+      this.suspended = false;
+      const engine = this.engine;
+      const ctx = engine?.context as AudioContext | undefined;
+      const done = () => engine?.setPaused(false);
+      if (ctx && typeof ctx.resume === 'function') void ctx.resume().then(done, done);
+      else done();
+    }
     if (keep && this.a && this.b) {
       // A's deck has moved on: its window is fetched again from the element
       this.aWin = null;
-      void this.prepare(false);
+      const stale = this.bStale;
+      this.bStale = false;
+      void this.prepare(stale);
     } else if (this.v.phase !== 'idle') {
       // the track ended or another loaded: B stays loaded; the next lanes
       // (or Play B) get the decks ready again

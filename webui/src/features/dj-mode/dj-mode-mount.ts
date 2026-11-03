@@ -32,6 +32,8 @@ export interface SoulSyncDjBridge {
   /** Esc in the overlay: true when it was DJ mode's Back */
   escape(): boolean;
   on(): boolean;
+  /** A is on DJ mode's deck: auto-mix, starting now, holds (Brief F step 3) */
+  holdsTrack(): boolean;
   store: DjModeStore;
 }
 
@@ -231,6 +233,7 @@ export function mountDjMode(win: Window = window): DjModeStore {
       return store.escape();
     },
     on: () => store.snapshot().on,
+    holdsTrack: () => store.holdsTrack(),
     store,
   };
 

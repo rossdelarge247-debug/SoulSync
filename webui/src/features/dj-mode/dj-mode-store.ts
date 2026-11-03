@@ -123,6 +123,8 @@ export interface MixerHooks {
   playB(): boolean;
   /** B's place now while it plays (lane B's playhead) */
   positionB(): number | null;
+  /** A is playing on DJ mode's deck (its element muted under it) */
+  holdsTrack?(): boolean;
 }
 
 export const IDLE_MIX: MixState = { phase: 'idle', window: null, rateB: null, sync: false };
@@ -468,6 +470,15 @@ export class DjModeStore {
 
   positionB(): number | null {
     return this.mixer?.positionB() ?? null;
+  }
+
+  /** A is on DJ mode's deck: auto-mix, made now, must hold (re-review N3). */
+  holdsTrack(): boolean {
+    try {
+      return Boolean(this.s.on && this.mixer?.holdsTrack?.());
+    } catch {
+      return false;
+    }
   }
 
   // ── Browse (step 3) ────────────────────────────────────────────────────

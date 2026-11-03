@@ -427,7 +427,11 @@ describe('review round 1', () => {
     await r.advance(2.5);
     r.session.backOverBar(() => undefined);
     await r.advance(2.3);
-    expect(autoHold.mock.calls).toEqual([[true], [false]]);
+    // held throughout (said again while A is on its deck, re-review N3), let go once at the end
+    const calls = autoHold.mock.calls.map(([on]) => on);
+    expect(calls.at(-1)).toBe(false);
+    expect(calls.slice(0, -1).every((on) => on === true)).toBe(true);
+    expect(calls.filter((on) => on === false)).toHaveLength(1);
   });
 
   it('H2: the context stopping under the decks is the hard stop at once', async () => {
@@ -551,11 +555,10 @@ describe('review round 1', () => {
     ]);
   });
 
-  it('M3: at Play B, A’s window is fetched again unless it holds the whole blend', async () => {
+  it('M3: at Play B, A’s window is fetched again unless it holds two minutes of A', async () => {
     r.session.setLanes(laneA({ duration: 600 }), laneB());
     await r.advance(0.01);
-    r.el.currentTime = 230; // 70 s of A's window left: enough to wait on, not to blend on
-    await r.advance(2.1);
+    r.el.currentTime = 230; // the player jumped: 70 s of A's window left
     const before = r.windows.length;
     r.session.playB();
     await r.advance(0.01);
@@ -629,5 +632,73 @@ describe('review round 1', () => {
     expect(signals[0]!.aborted).toBe(true);
     r.session.end();
     expect(signals.at(-1)!.aborted).toBe(true);
+  });
+});
+
+describe('review round 2', () => {
+  it('N1: B’s grid landing mid-blend doesn’t stop it; B plays on by ear until Sync is pressed', async () => {
+    r.session.setLanes(laneA(), laneB({ grid: null, cue: 0, analysing: true }));
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.session.snapshot().rateB).toBeNull();
+    const map = r.engine.port.maps.B;
+    // the grid lands, and with it the cue moves to the mix-in
+    r.session.setLanes(laneA(), laneB({ cue: 4.34 }));
+    expect(r.session.snapshot()).toMatchObject({
+      phase: 'playing',
+      aOnDeck: true,
+      sync: false,
+      syncable: true,
+    });
+    expect(r.el.muted).toBe(true);
+    expect(r.engine.port.maps.B).toBe(map);
+    expect(r.said.at(-1)).toBe('Harbour Lights has its beat grid now: Sync locks it to the beat');
+    // a press locks it onto A's beat
+    r.session.setSync(true);
+    expect(r.session.snapshot().rateB).toBeCloseTo(0.96, 3);
+    // after the blend B is cued again at its new mix-in
+    r.session.backOverBar(null);
+    await r.advance(2.5);
+    expect(r.windows.some((w) => w.id === '8' && Math.abs(w.start - 3.84) < 1e-6)).toBe(true);
+  });
+
+  it('N2: a blend ended while paused says nothing false and stops once', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(1);
+    r.el.paused = true;
+    r.el.dispatchEvent(new Event('pause'));
+    expect(r.engine.state).toBe('suspended');
+    r.said.length = 0;
+    r.session.end();
+    await r.advance(0.05);
+    expect(r.said).toEqual([]);
+    expect(r.engine.resumed).toBe(1);
+    expect(r.engine.paused).toEqual([true, false]);
+  });
+
+  it('N3: the hold is said again while A is on its deck, so an auto-mix made mid-blend hears it', async () => {
+    const autoHold = vi.fn();
+    r.session.dispose();
+    r = rig(vi, { autoHold });
+    await cued();
+    r.session.playB();
+    await r.advance(1);
+    expect(autoHold.mock.calls.length).toBeGreaterThan(2);
+    expect(autoHold.mock.calls.every(([on]) => on === true)).toBe(true);
+  });
+
+  it('N4: while B waits A’s window keeps two minutes ahead, so Play B doesn’t wait on a fetch', async () => {
+    r.session.setLanes(laneA({ duration: 600 }), laneB());
+    await r.advance(0.01);
+    r.el.currentTime = 186; // 114.5 s of A's window left: under two minutes
+    await r.advance(2.1);
+    const fetched = r.windows.length;
+    expect(r.windows.at(-1)!.start).toBeGreaterThan(185);
+    r.session.playB();
+    expect(r.session.snapshot().aOnDeck).toBe(true);
+    expect(r.windows.length).toBe(fetched);
   });
 });

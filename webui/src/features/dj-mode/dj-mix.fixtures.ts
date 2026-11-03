@@ -37,6 +37,7 @@ export class FakeEngine {
     },
     suspend: async () => {
       this.suspended += 1;
+      this.state = 'suspended';
     },
     resume: async () => {
       this.resumed += 1;
@@ -99,8 +100,10 @@ export class FakeEngine {
   position(deck: DeckId, at = this.port.time) {
     return this.port.position(deck, at);
   }
+  /** as lifecycle.ts: a suspended context no longer paused by the listener is an interruption */
   setPaused(on: boolean) {
     this.paused.push(on);
+    if (!on && this.state === 'suspended') this.interrupt('suspended');
   }
   /** A param's value as the browser would play it at t. */
   value(key: `${DeckId}.${string}`, t = this.port.time): number {

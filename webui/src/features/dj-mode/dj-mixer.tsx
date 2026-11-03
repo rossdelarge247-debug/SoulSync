@@ -231,6 +231,7 @@ export function DjMixer({ store, session }: { store: DjModeStore; session: DjMix
         return phase === 'playing' ? session.pauseB() : session.playB();
       },
       positionB: () => session.positionB(),
+      holdsTrack: () => session.snapshot().aOnDeck,
     });
     return () => {
       session.end();
