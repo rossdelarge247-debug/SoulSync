@@ -74,9 +74,11 @@ def clean(cues: Any) -> List[Dict[str, Any]]:
 def _in_scope(database, track_id: str) -> bool:
     from core.dj.store import _scope
 
+    # ``where`` is the library scope's fixed SQL (core/dj/store.py _scope);
+    # every value, the id included, is a bound parameter
     where, params = _scope(database)
     with closing(database._get_connection()) as conn:
-        return conn.execute(f"SELECT 1 FROM tracks t WHERE t.id = ? AND {where}",
+        return conn.execute(f"SELECT 1 FROM tracks t WHERE t.id = ? AND {where}",  # nosemgrep: sqlalchemy-execute-raw-query
                             [track_id, *params]).fetchone() is not None
 
 
@@ -149,7 +151,8 @@ def for_export(database, profile_id: int, track_ids: Iterable[Any]) -> Dict[str,
         for start in range(0, len(ids), _CHUNK):
             chunk = ids[start:start + _CHUNK]
             marks = ",".join("?" * len(chunk))
-            for tid, slot, bar, sec in conn.execute(
+            # only "?" marks are formatted in; the ids are bound
+            for tid, slot, bar, sec in conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
                     f"SELECT track_id, slot, bar, seconds FROM track_dj_cues "
                     f"WHERE profile_id = ? AND track_id IN ({marks}) ORDER BY track_id, slot",
                     [int(profile_id), *chunk]).fetchall():
