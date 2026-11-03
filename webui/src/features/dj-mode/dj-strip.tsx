@@ -4,7 +4,7 @@
  * the zoom pill (442) at the right end of the line row. Rendered in the
  * lanes' `strip` and `lineEnd` slots (dj-stage.tsx).
  */
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { DjMixSession } from './dj-mix-session';
 import type { DjModeStore } from './dj-mode-store';
@@ -47,6 +47,7 @@ export function LaneStrip({
       aria-label={`Deck ${D}’s strip`}
       data-dj-strip={deck}
     >
+      <Transport deck={deck} store={store} />
       <button
         type="button"
         className={styles.phones}
@@ -108,6 +109,96 @@ export function LaneStrip({
         Key lock
       </button>
     </div>
+  );
+}
+
+/** Whether a deck plays, looked at a few times a second (the player's element doesn't say through the store). */
+function useDeckPlaying(store: DjModeStore, deck: 'a' | 'b', open: boolean): boolean {
+  const [playing, setPlaying] = useState(() => store.deckPlaying(deck));
+  useEffect(() => {
+    // only while the overlay shows (review L-6); looked at again as it opens
+    if (!open) return;
+    setPlaying(store.deckPlaying(deck));
+    const id = window.setInterval(() => setPlaying(store.deckPlaying(deck)), 200);
+    return () => window.clearInterval(id);
+  }, [store, deck, open]);
+  return playing;
+}
+
+/**
+ * A deck's Play/Pause and CUE (step 4b), a CDJ's: CUE stopped sets the cue
+ * point (on the beat), held at it plays from it and goes back when let go,
+ * playing it goes back to it and stops; Play while CUE is held plays on.
+ * Deck A's are the player's own while A is on its element; deck B's play
+ * into the headphones before the blend (Play B is still the synced start).
+ */
+function Transport({ deck, store }: { deck: 'a' | 'b'; store: DjModeStore }) {
+  const D = deck === 'a' ? 'A' : 'B';
+  const open = useDjMode(store).open;
+  const playing = useDeckPlaying(store, deck, open);
+  const [held, setHeld] = useState(false);
+  const down = () => {
+    if (held) return;
+    setHeld(true);
+    store.transport(deck, 'cueDown');
+  };
+  const up = () => {
+    if (!held) return;
+    setHeld(false);
+    store.transport(deck, 'cueUp');
+  };
+  return (
+    <span className={styles.transport} role="group" aria-label={`Deck ${D} transport`}>
+      <button
+        type="button"
+        className={styles.transportBtn}
+        aria-pressed={playing}
+        aria-keyshortcuts="G"
+        aria-label={`Deck ${D} ${playing ? 'pause' : 'play'}`}
+        title={`${playing ? 'Pause' : 'Play'} deck ${D} (G on the lane)${deck === 'b' ? ' · in the headphones before the blend' : ''}`}
+        data-dj-transport-play={deck}
+        onClick={() => store.transport(deck, 'play')}
+      >
+        <svg viewBox="0 0 12 12" aria-hidden="true" className={styles.transportIcon}>
+          {playing ? <path d="M2 1h3v10H2zM7 1h3v10H7z" /> : <path d="M2 1l9 5-9 5z" />}
+        </svg>
+      </button>
+      <button
+        type="button"
+        className={styles.cueBtn}
+        aria-pressed={held}
+        aria-keyshortcuts="C"
+        aria-label={`Deck ${D} cue`}
+        title={`CUE (C on the lane): stopped, sets the cue point; held at it, plays from it; playing, back to it`}
+        data-dj-transport-cue={deck}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            /* not capturable */
+          }
+          down();
+        }}
+        onPointerUp={up}
+        onPointerCancel={up}
+        onKeyDown={(e) => {
+          if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+            e.preventDefault();
+            down();
+          }
+        }}
+        onKeyUp={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            up();
+          }
+        }}
+        onBlur={up}
+      >
+        CUE
+      </button>
+    </span>
   );
 }
 

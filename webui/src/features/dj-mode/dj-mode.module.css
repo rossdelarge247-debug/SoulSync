@@ -594,7 +594,8 @@
 }
 @container djstage (max-width: 1327px) {
   .lane[data-has-strip] .head {
-    padding-right: 520px;
+    /* the strip in the head's corner: Play and CUE (4b), Headphones, cues 1–4, Key lock */
+    padding-right: 630px;
   }
 }
 
@@ -640,4 +641,24 @@
 }
 .undo:hover {
   background: var(--ss-hover-wash);
+}
+
+/* ── step 4b: the waveform drawn every frame from the 10 ms levels ── */
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.wave[data-drawn] .zoomLayer > .waveSvg,
+.wave[data-drawn] .zoomLayer > .played {
+  visibility: hidden;
+}
+.wave {
+  touch-action: pan-y;
+  cursor: grab;
+}
+.wave:active {
+  cursor: grabbing;
 }

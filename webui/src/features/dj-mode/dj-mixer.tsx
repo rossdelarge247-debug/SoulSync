@@ -400,6 +400,15 @@ export function DjMixer({
       togglePhones: (d) => session.setPhones(d, !session.snapshot().decks[d].phones),
       toggleKeyLock: (d) => session.setKeyLock(d, !session.snapshot().decks[d].keyLock),
       jump: (d, seconds) => session.jump(d, seconds),
+      deckPlaying: (d) => session.deckPlaying(d),
+      previewB: (on) => session.previewB(on),
+      parkB: (p) => session.parkB(p),
+      grab: (d) => session.grab(d),
+      moveHand: (d, offset) => session.moveHand(d, offset),
+      letGo: (d) => session.letGo(d),
+      releaseHand: () => session.releaseHand(),
+      nudge: (d, dir) => session.nudge(d, dir),
+      aOnDeck: () => session.snapshot().aOnDeck,
       handOver: () => session.handOver('press'),
       handOverWhy: () => session.handOverWhy(),
       undoHandOver: () => session.undoHandOver(),
@@ -433,8 +442,22 @@ export function DjMixer({
       levels: v.levels,
       handed: v.handed,
       solo: v.solo,
+      previewB: v.previewB,
+      hand: v.hand,
     });
-  }, [store, v.phase, v.window, v.rateB, v.sync, v.syncable, v.levels, v.handed, v.solo]);
+  }, [
+    store,
+    v.phase,
+    v.window,
+    v.rateB,
+    v.sync,
+    v.syncable,
+    v.levels,
+    v.handed,
+    v.solo,
+    v.previewB,
+    v.hand,
+  ]);
 
   const aTitle = s.a?.track.title || 'A';
   const bTitle = s.b?.track.title || 'B';

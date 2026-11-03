@@ -954,3 +954,48 @@
     gap: 4px;
   }
 }
+
+/* ── step 4b: a deck's Play/Pause and CUE, a CDJ's, at the strip's start ── */
+.transport {
+  display: inline-flex;
+  gap: 6px;
+  margin-right: 4px;
+}
+.transportBtn,
+.cueBtn {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+.transportBtn[aria-pressed='true'] {
+  border-color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+}
+.cueBtn {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+.cueBtn[aria-pressed='true'] {
+  background: rgba(251, 191, 36, 0.18);
+}
+.transportIcon {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+.transportBtn:focus-visible,
+.cueBtn:focus-visible {
+  outline: 2px solid rgb(var(--ss-accent-light-rgb));
+  outline-offset: 2px;
+}

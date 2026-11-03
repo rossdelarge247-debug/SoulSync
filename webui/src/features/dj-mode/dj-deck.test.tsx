@@ -23,8 +23,12 @@ let devices: OutputDevice[];
 let cuesPut: unknown[];
 /** A's grid can't be had (M4) */
 let noGridA = false;
+/** what the page's player was told (A's transport, step 4b) */
+let playerCalls: string[] = [];
 /** the server refuses the cues' save (L1) */
 let refuseCues = false;
+/** the cues can't be read (step 4b review L-5) */
+let unreadCues = false;
 
 function makeOutputs(): DjOutputs {
   return new DjOutputs(
@@ -101,6 +105,7 @@ function makeStore(): DjModeStore {
           cuesPut.push(JSON.parse(init.body as string));
           return new Response('{}', { status: refuseCues ? 400 : 200 });
         }
+        if (unreadCues) return new Response('{}', { status: 500 });
         return new Response(
           JSON.stringify({ cues: url.endsWith('/8') ? [{ slot: 2, bar: 4, seconds: 8.18 }] : [] }),
         );
@@ -136,6 +141,7 @@ beforeEach(async () => {
   cuesPut = [];
   noGridA = false;
   refuseCues = false;
+  unreadCues = false;
   said = [];
   reduce = false;
   window.matchMedia = ((q: string) => ({
@@ -145,9 +151,18 @@ beforeEach(async () => {
     removeEventListener: () => undefined,
   })) as unknown as typeof window.matchMedia;
   r = rig(vi, { say: (w) => store.announce(w) });
+  playerCalls = [];
   (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
     state: () => ({ track: FERRY, kind: 'library', volume: 70 }),
     audio: () => r.el,
+    toggle: () => {
+      playerCalls.push(r.el.paused ? 'play' : 'pause');
+      r.el.paused = !r.el.paused;
+    },
+    seek: (t: number) => {
+      playerCalls.push(`seek ${t}`);
+      r.el.currentTime = t;
+    },
   };
   store = makeStore();
   outputs = makeOutputs();
@@ -429,8 +444,315 @@ describe('the Monitor block and the outputs (37g, 37r)', () => {
     await withB();
     await flush(50);
     expect(document.querySelector('[data-dj-monitor]')).toBeNull();
-    const phones = document.querySelector<HTMLElement>('[data-dj-strip="b"] button')!;
+    const phones = document.querySelector<HTMLElement>(
+      '[data-dj-strip="b"] button[aria-keyshortcuts="M"]',
+    )!;
     expect(phones.dataset.unavailable).toBe('');
     expect(phones.title).toMatch(/No headphones output · Outputs…/);
+  });
+});
+
+describe('the transport (step 4b): Play/Pause and CUE a deck, a CDJ’s', () => {
+  it('each lane has Play and CUE before Headphones', async () => {
+    await withB();
+    // A is playing on the player; B is cued
+    for (const [d, play] of [
+      ['a', 'pause'],
+      ['b', 'play'],
+    ] as const) {
+      const strip = document.querySelector<HTMLElement>(`[data-dj-strip="${d}"]`)!;
+      const buttons = within(strip).getAllByRole('button');
+      expect(buttons[0]).toHaveAttribute('aria-label', `Deck ${d.toUpperCase()} ${play}`);
+      expect(buttons[1]).toHaveAccessibleName(`Deck ${d.toUpperCase()} cue`);
+      expect(buttons[2]).toHaveAttribute('aria-keyshortcuts', 'M');
+    }
+  });
+
+  it('A on the player: CUE stopped sets the cue point on the beat (kept as slot 0); held at it plays, let go goes back', async () => {
+    await withB();
+    r.el.paused = true;
+    r.el.currentTime = 33.1;
+    const cue = screen.getByRole('button', { name: 'Deck A cue' });
+    fireEvent.pointerDown(cue, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(cue, { pointerId: 1 });
+    const a = store.snapshot().a!;
+    // on A's beat (the grid's beats at 0.5 s from its first downbeat)
+    expect(a.main?.slot).toBe(0);
+    expect(a.cue).toBe(a.main!.seconds);
+    expect(said.at(-1)).toMatch(/^Deck A cue at bar /);
+    await flush(700);
+    expect((cuesPut.at(-1) as { cues: { slot: number }[] }).cues[0]!.slot).toBe(0);
+    // the deck went to the cue point as set (review M-4): holding CUE plays from it
+    expect(r.el.currentTime).toBe(a.cue);
+    playerCalls.length = 0;
+    fireEvent.pointerDown(cue, { button: 0, pointerId: 1 });
+    expect(playerCalls).toEqual([`seek ${a.cue}`, 'play']);
+    fireEvent.pointerUp(cue, { pointerId: 1 });
+    expect(playerCalls.slice(2)).toEqual(['pause', `seek ${a.cue}`]);
+  });
+
+  it('B before the blend: Play plays it into the headphones only; Play B is still the synced start', async () => {
+    await withB();
+    act(() => {
+      expect(store.transport('b', 'play')).toBe(true);
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    expect(said.at(-1)).toBe('Deck B playing in the headphones');
+    expect(r.engine.master.browser.valueAt(r.engine.port.time)).toBe(0);
+    await flush(1000);
+    act(() => {
+      store.transport('b', 'play');
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    act(() => {
+      store.playB();
+    });
+    expect(r.session.snapshot().phase).toBe('starting');
+  });
+
+  it('A’s CUE waits while A is on its deck; its Play is the player’s (pauses both)', async () => {
+    await withB();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    act(() => {
+      store.transport('a', 'cueDown');
+    });
+    expect(said.at(-1)).toBe(
+      'A’s CUE waits while it’s on its deck · cues 1–4 jump, Back ends the blend',
+    );
+  });
+
+  it('a press and drag on the waveform is the hand, not a cue placed; a click still places', async () => {
+    await withB();
+    fireEvent.click(document.querySelector('[data-dj-strip="b"] [data-dj-cue="3"]')!);
+    const wave = document.querySelector<HTMLElement>('[data-dj-wave="b"]')!;
+    wave.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        width: 288,
+        top: 0,
+        height: 50,
+        right: 288,
+        bottom: 50,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.pointerDown(wave, { button: 0, pointerId: 7, clientX: 100 });
+    fireEvent.pointerMove(wave, { pointerId: 7, clientX: 140 });
+    expect(r.session.snapshot().hand).toBe('B');
+    fireEvent.pointerUp(wave, { pointerId: 7, clientX: 140 });
+    fireEvent.click(wave, { clientX: 140 });
+    expect(store.snapshot().b!.cues[2]).toBeNull();
+    expect(r.session.snapshot().hand).toBeNull();
+    // B moved back by the hand: dragged right is back (40 px of 288 s over 288 px)
+    expect(r.session.snapshot().parkB).not.toBeNull();
+    // a click alone places the picked cue
+    fireEvent.click(wave, { clientX: 100 });
+    expect(store.snapshot().b!.cues[2]?.slot).toBe(3);
+  });
+
+  it('the lane keys: C (held) and G on the focused lane; ← → nudge only a playing deck', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'g' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    expect(said.at(-1)).toBe('Deck B back to its cue, stopped');
+    act(() => {
+      fireEvent.keyUp(laneB, { key: 'c' });
+    });
+    // B stopped: the arrow is the player's
+    const e = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    laneB.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+  });
+});
+
+describe('review round 1 (step 4b)', () => {
+  it('M-2: a held nudge lets go when the window loses focus', async () => {
+    await withB();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    const laneA = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
+    const base = r.engine.port.rate('A', r.engine.port.time);
+    act(() => {
+      fireEvent.keyDown(laneA, { key: 'ArrowRight' });
+    });
+    expect(store.isNudging('a')).toBe(true);
+    act(() => {
+      window.dispatchEvent(new Event('blur'));
+    });
+    expect(store.isNudging('a')).toBe(false);
+    expect(r.engine.port.rate('A', r.engine.port.time + 0.2)).toBeCloseTo(base, 3);
+  });
+
+  it('M-2: a C held on lane B (B in the headphones) lets go when the page hides, and when the lane loses focus', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // held again, then the lane loses focus
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.blur(laneB);
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // and the next C works again (nothing left held)
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+  });
+
+  it('M-3: a lost pointer capture lets the hand go; Play B then plays B', async () => {
+    await withB();
+    const wave = document.querySelector<HTMLElement>('[data-dj-wave="b"]')!;
+    wave.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        width: 288,
+        top: 0,
+        height: 50,
+        right: 288,
+        bottom: 50,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.pointerDown(wave, { button: 0, pointerId: 9, clientX: 100 });
+    fireEvent.pointerMove(wave, { pointerId: 9, clientX: 130 });
+    expect(r.session.snapshot().hand).toBe('B');
+    fireEvent(wave, new PointerEvent('lostpointercapture', { pointerId: 9, bubbles: true }));
+    expect(r.session.snapshot().hand).toBeNull();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.engine.port.rate('B', r.engine.port.time)).toBeGreaterThan(0.5);
+  });
+
+  it('M-3: closing the overlay lets the hand go', async () => {
+    await withB();
+    act(() => {
+      store.setOpen(true);
+    });
+    expect(store.grab('b')).toBe(true);
+    act(() => {
+      store.setOpen(false);
+    });
+    expect(r.session.snapshot().hand).toBeNull();
+  });
+
+  it('L-5: cues that couldn’t be read aren’t saved over, said once', async () => {
+    unreadCues = true;
+    await withB();
+    act(() => {
+      store.pressCue('b', 1);
+      store.placeCue('b', 20);
+      store.pressCue('b', 2);
+      store.placeCue('b', 30);
+    });
+    await flush(700);
+    expect(cuesPut).toEqual([]);
+    expect(said.filter((w) => w.startsWith('This track’s cues couldn’t be read'))).toHaveLength(1);
+  });
+
+  it('L-7: under a blend an arrow that can’t nudge is swallowed (the player’s seek would end it), said once', async () => {
+    await withB();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    act(() => {
+      store.playB(); // Pause B
+    });
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    for (let i = 0; i < 2; i++) {
+      const e = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+      act(() => {
+        laneB.dispatchEvent(e);
+      });
+      expect(e.defaultPrevented).toBe(true);
+    }
+    expect(
+      said.filter(
+        (w) => w === 'The arrows nudge a playing deck · the player’s seek would end the blend',
+      ),
+    ).toHaveLength(1);
+    expect(r.session.snapshot().aOnDeck).toBe(true);
+  });
+
+  it('L-6: the transport stops looking at the decks while the overlay is hidden', async () => {
+    await withB();
+    act(() => {
+      store.setOpen(true);
+    });
+    const spy = vi.spyOn(store, 'deckPlaying');
+    await flush(500);
+    expect(spy).toHaveBeenCalled();
+    act(() => {
+      store.setOpen(false);
+    });
+    spy.mockClear();
+    await flush(1000);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe('review round 2 (step 4b)', () => {
+  it('N-1: CUE held with the pointer from a focused lane keeps playing as the focus moves onto it (B and A)', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    const cueB = screen.getByRole('button', { name: 'Deck B cue' });
+    act(() => laneB.focus());
+    act(() => {
+      fireEvent.pointerDown(cueB, { button: 0, pointerId: 3 });
+    });
+    act(() => cueB.focus());
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.pointerUp(cueB, { pointerId: 3 });
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // deck A on the player, paused at its cue
+    r.el.paused = true;
+    r.el.currentTime = store.snapshot().a!.cue;
+    const laneA = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
+    const cueA = screen.getByRole('button', { name: 'Deck A cue' });
+    act(() => laneA.focus());
+    playerCalls.length = 0;
+    act(() => {
+      fireEvent.pointerDown(cueA, { button: 0, pointerId: 4 });
+    });
+    act(() => cueA.focus());
+    expect(playerCalls).toEqual([`seek ${store.snapshot().a!.cue}`, 'play']);
+    expect(r.el.paused).toBe(false);
+    // leaving the lane for elsewhere still lets go
+    act(() => {
+      fireEvent.blur(laneA, { relatedTarget: document.body });
+    });
   });
 });

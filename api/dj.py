@@ -51,6 +51,13 @@ PUT  /api/library/dj/cues/<track_id>
     own, four at most, ``{cues: [{slot: 1-4, bar, seconds}]}``; a cue's
     seconds follow the track's grid when it has a bar. PUT replaces them
     (``[]`` clears), body at most 2 KB. 404 outside the caller's library.
+GET  /api/library/dj/levels/<track_id>
+    DJ mode's fine waveform (step 4b, 37s; core/dj/levels.py): the track's
+    level every ``step`` seconds (10 ms; coarser past 25 minutes), 0–255,
+    base64 in ``levels``. The first ask answers ``202 {state: pending}`` and
+    works it out in the background (the player's waveform queue); ask again.
+    ``{state: failed, reason}`` for a file that can't be read. 404 outside
+    the caller's library.
 GET  /api/library/dj/track/<track_id>
     DJ mode's Hand over (Brief F step 4, 414): one library track as the
     player's queue takes it (Tracks' row shape: id, title, artist_name,
@@ -489,6 +496,24 @@ def dj_cues_save(track_id: str):
     if saved is None:
         return jsonify({"success": False, "error": "Not in your library"}), 404
     return _no_store({"success": True, "cues": saved})
+
+
+@bp.route("/api/library/dj/levels/<track_id>", methods=["GET"])
+def dj_levels(track_id: str):
+    if get_current_profile_id() is None:
+        return _no_profile()
+    from core.dj import levels
+
+    try:
+        found = levels.levels_for_track(get_database(), str(track_id)[:128])
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ levels failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    if found is None:
+        return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+    if found["state"] == "pending":
+        return _no_store({"success": True, **found}, 202)
+    return _no_store({"success": True, **found})
 
 
 @bp.route("/api/library/dj/track/<track_id>", methods=["GET"])

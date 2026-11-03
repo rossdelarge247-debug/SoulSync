@@ -136,6 +136,17 @@ def test_a_long_track_id_is_cut_as_the_grid_routes_cut_it(client, db):
     assert client.get(URL + long_id).get_json()["cues"] == [{"slot": 1, "bar": None, "seconds": 2.0}]
 
 
+def test_the_main_cue_is_slot_0_beside_the_hot_cues(client):
+    # step 4b: CUE's point is kept with the hot cues as slot 0
+    body = {"cues": [{"slot": 0, "bar": 2, "seconds": 5.0}, {"slot": 1, "bar": 0, "seconds": 1.0}]}
+    assert client.put(URL + "1", json=body).status_code == 200
+    assert [c["slot"] for c in client.get(URL + "1").get_json()["cues"]] == [0, 1]
+    five = {"cues": [{"slot": s, "bar": None, "seconds": float(s)} for s in (0, 1, 2, 3, 4)]}
+    assert client.put(URL + "2", json=five).status_code == 200
+    six = {"cues": five["cues"] + [{"slot": 0, "bar": None, "seconds": 9.0}]}
+    assert client.put(URL + "2", json=six).status_code == 400
+
+
 def test_a_big_body_is_refused_unread(client):
     res = client.put(URL + "1", data=b'{"cues": [' + b" " * 4096 + b"]}", content_type="application/json")
     assert res.status_code == 413
@@ -190,6 +201,13 @@ def test_export_writes_the_callers_cues_as_hot_cues(db):
     found = [(c.get("HOTCUE"), c.get("TYPE"), c.get("START"), c.get("NAME"))
              for c in root.findall("COLLECTION/ENTRY/CUE_V2")]
     assert found == [("0", "0", "1000.000000", "Cue 1"), ("3", "0", "33000.000000", "Cue 4")]
+    # the main cue (slot 0) is Traktor's Load marker, not a hot cue; with all
+    # five set every one goes (review M-1)
+    cues.put(db, 1, "1", [{"slot": s, "bar": None, "seconds": 1.0 + s} for s in (0, 1, 2, 3, 4)])
+    root = ET.fromstring(traktor.build_nml("Set", entries, cues=cues.for_export(db, 1, ["1"])))
+    marks = [(c.get("NAME"), c.get("TYPE"), c.get("HOTCUE")) for c in root.findall("COLLECTION/ENTRY/CUE_V2")]
+    assert marks == [("Cue", "3", "-1"), ("Cue 1", "0", "0"), ("Cue 2", "0", "1"), ("Cue 3", "0", "2"),
+                     ("Cue 4", "0", "3")]
     # without cues the entry is as before
     root = ET.fromstring(traktor.build_nml("Set", entries))
     assert root.findall("COLLECTION/ENTRY/CUE_V2") == []

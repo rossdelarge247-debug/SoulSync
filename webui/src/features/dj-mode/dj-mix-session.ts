@@ -149,6 +149,12 @@ export interface MixView {
   solo: boolean;
   /** the last Hand over, while its notice shows (10 s) */
   handed: Handed | null;
+  /** B plays before the blend, for the headphones only (B's Play or a held CUE, step 4b) */
+  previewB: boolean;
+  /** where B sits while it's cued and stopped (a scrub, its Play paused), else null: at its cue */
+  parkB: number | null;
+  /** the deck a hand is on (a drag on its waveform, step 4b), else null */
+  hand: DeckId | null;
 }
 
 /** A window's level every `step` seconds from `offset` (track seconds), 0–1. */
@@ -288,6 +294,13 @@ const JOIN_S = 0.06;
  * player obeys and B is cut back over a bar instead).
  */
 const SETTLE_MS = 60;
+/** The hand on the platter (step 4b): how often the deck follows it, and how fast it catches up. */
+const HAND_MS = 15;
+const HAND_TAU = 0.06;
+/** at most four times its speed either way under the hand */
+const HAND_MAX = 4;
+/** an arrow-key nudge: 4% faster or slower while held */
+export const NUDGE = 0.04;
 /** A window starts this far before where it's needed. */
 const PRE_S = 0.5;
 /**
@@ -380,6 +393,24 @@ export class DjMixSession {
   private settleTimer: unknown = null;
   /** the element's events while B plays on its own (37j) */
   private soloEl: HTMLAudioElement | null = null;
+  /** the hand on a deck's platter (a drag on its waveform, step 4b) */
+  private handOn: {
+    deck: DeckId;
+    /** the deck's speed when grabbed (0: it was stopped) */
+    base: number;
+    p0: number;
+    t0: number;
+    /** where the hand has moved it, track seconds */
+    offset: number;
+    stopped: boolean;
+    timer: unknown;
+    /** the session's phase when grabbed: a let-go after it changed does nothing (review M-3) */
+    phase: MixPhase;
+  } | null = null;
+  /** the end of B's preview (its window runs out) */
+  private previewTimer: unknown = null;
+  /** B's speed before an arrow-key nudge (its map is replaced while the key is held) */
+  private nudgeBase: number | null = null;
   /** the two as they were when Hand over was pressed (the lanes follow the player meanwhile) */
   private handing: { a: MixLane | null; b: MixLane } | null = null;
 
@@ -404,6 +435,9 @@ export class DjMixSession {
       levels: { A: null, B: null },
       solo: false,
       handed: null,
+      previewB: false,
+      parkB: null,
+      hand: null,
     };
   }
 
@@ -469,6 +503,10 @@ export class DjMixSession {
 
   /** B's place in its track now, while it plays (lane B's playhead), else null. */
   positionB(): number | null {
+    if (this.engine && this.v.phase === 'ready') {
+      if (this.v.previewB || this.v.hand === 'B') return this.engine.position('B');
+      return this.v.parkB;
+    }
     if (
       !this.engine ||
       !['starting', 'playing', 'backing', 'paused', 'handing'].includes(this.v.phase)
@@ -719,7 +757,23 @@ export class DjMixSession {
       this.update({ phase: 'failed', error: why });
       return;
     }
-    this.update({ phase: 'loading', error: null, ...(newB ? { window: null } : {}) });
+    this.endPreviewTimer();
+    // B's own play stops with it: the lanes changed (review L-1)
+    this.dropHand();
+    this.nudgeBase = null;
+    if (this.v.previewB && this.engine) {
+      try {
+        this.engine.stop('B', Math.round((this.now() + 0.01) * this.engine.sampleRate));
+      } catch {
+        /* a closed context */
+      }
+    }
+    this.update({
+      phase: 'loading',
+      error: null,
+      previewB: false,
+      ...(newB ? { window: null, parkB: null } : {}),
+    });
     const engine = await this.ensureEngine();
     if (gen !== this.gen) return;
     if (!engine) {
@@ -1222,6 +1276,12 @@ export class DjMixSession {
       aBeat = a.grid.barBeat(nb.bar);
     }
     this.started = { T, posA, bFrom, Tb };
+    // a hand on B gives way to the blend (review M-3), and an arrow's base goes (N-3)
+    this.dropHand();
+    this.nudgeBase = null;
+    // B's own play before the blend gives way to the synced start (step 4b)
+    this.endPreviewTimer();
+    if (this.v.previewB || this.v.parkB !== null) this.update({ previewB: false, parkB: null });
     const lock = this.v.sync && this.v.syncable && a.grid && b.grid && aBeat !== null;
     engine.stop('B', Infinity);
     let rateB: number | null = null;
@@ -1391,6 +1451,12 @@ export class DjMixSession {
 
   // ── Hand over (414, 37i, 37j) ──────────────────────────────────────────
 
+  /** Whether a deck is playing: B in a blend or before it (its preview), A on its deck. */
+  deckPlaying(deck: DeckId): boolean {
+    if (deck === 'A') return this.v.aOnDeck && !this.suspended;
+    return this.v.previewB || ['starting', 'playing', 'backing', 'handing'].includes(this.v.phase);
+  }
+
   /** Why Hand over can't happen now, in words; null when it can. */
   handOverWhy(): string | null {
     const b = this.b;
@@ -1430,6 +1496,7 @@ export class DjMixSession {
     const engine = this.engine!;
     this.clearLater();
     this.cancelSettle();
+    this.dropHand();
     const sr = engine.sampleRate;
     const t = this.now() + 0.03;
     let bar = this.barSeconds();
@@ -1530,8 +1597,15 @@ export class DjMixSession {
     const aRow = aIndex >= 0 ? (queue[aIndex] ?? null) : null;
     let bFrom = -1;
     for (let i = aIndex + 1; i < queue.length; i++) {
-      const id = (queue[i] as { id?: string | number } | null)?.id;
-      if ((typeof id === 'string' || typeof id === 'number') && String(id) === b.id) {
+      const r = queue[i] as { id?: string | number; file_path?: unknown } | null;
+      const id = r?.id;
+      // only a row the player can play from its file (N-3); else B's own record is inserted
+      if (
+        (typeof id === 'string' || typeof id === 'number') &&
+        String(id) === b.id &&
+        typeof r?.file_path === 'string' &&
+        r.file_path
+      ) {
         bFrom = i;
         break;
       }
@@ -1598,9 +1672,13 @@ export class DjMixSession {
     used = true;
     // auto-mix is let go whatever happened (review L-1)
     this.hold(false);
+    // a failed result: the player may keep this handoff registered, and a
+    // later load would stop deck B through it; it's spent now (N-2)
+    const wasStopped = stopped;
+    if (result.status !== 'played') stopped = true;
     if (gen !== this.gen) return;
     if (result.status !== 'played') {
-      this.handFailed(b, result.status, reason, row, bFrom, deckA);
+      this.handFailed(b, result.status, reason, row, bFrom, deckA, wasStopped);
       return;
     }
     if (this.suspended) {
@@ -1653,11 +1731,19 @@ export class DjMixSession {
     row: unknown,
     bFrom: number,
     deckA: boolean,
+    bStopped = false,
   ): void {
     const engine = this.engine;
     const player = this.d.player;
     if (engine && deckA)
       engine.stop('A', Math.round((engine.context.currentTime + 0.05) * engine.sampleRate));
+    // a newer load already stopped deck B (N-1): nothing plays here, the player's own load is on
+    if (bStopped) {
+      this.update({ phase: 'idle', solo: false, handed: null });
+      this.gen += 1;
+      this.say(`Couldn’t hand over to ${b.title || 'B'}: the player moved on`);
+      return;
+    }
     // B's row as it was: taken out again (or back where it was), unless it's playing
     const st = player.state();
     const at = st?.queue && row !== null ? st.queue.indexOf(row) : -1;
@@ -1677,7 +1763,7 @@ export class DjMixSession {
     this.say(
       moving
         ? `Couldn’t hand over to ${b.title || 'B'}: the player moved on`
-        : `Couldn’t hand over to ${b.title || 'B'}: it plays on here · Hand over again or Back`,
+        : `Couldn’t hand over to ${b.title || 'B'}: it plays on here · ${this.b ? 'Hand over again or Back' : 'Back ends it'}`,
     );
     // A's end was left to DJ mode: the player's advance again
     if (reason === 'ended' && (status === 'busy' || status === 'empty')) player.next?.();
@@ -1960,6 +2046,299 @@ export class DjMixSession {
     this.settleTimer = null;
   }
 
+  // ── B before the blend, and the hand on the platter (step 4b) ──────────
+
+  /**
+   * B's own Play before the blend (a CDJ's Play on deck B): B plays from
+   * where it's parked (its cue unless a scrub or a pause moved it), at its
+   * own tempo, into the headphones; the speakers don't hear it (A is on the
+   * player, so the decks' master is down, and the fader is at A). Play B is
+   * still the synced start: it takes B back to its cue and brings it in on
+   * A's next bar.
+   */
+  previewB(on: boolean): boolean {
+    const engine = this.engine;
+    const b = this.b;
+    if (!engine || !b || this.v.phase !== 'ready' || !this.bWin || this.v.aOnDeck) return false;
+    if (on === this.v.previewB) return true;
+    const sr = engine.sampleRate;
+    const t = this.now() + 0.03;
+    if (!on) {
+      const p = engine.position('B', t);
+      engine.stop('B', Math.round((t + 0.01) * sr));
+      this.endPreviewTimer();
+      this.update({ previewB: false, parkB: p ?? this.v.parkB });
+      return true;
+    }
+    const ctx = engine.context as BaseAudioContext & {
+      state?: string;
+      resume?: () => Promise<void>;
+    };
+    if (ctx.state && ctx.state !== 'running') void ctx.resume?.().catch(() => undefined);
+    const from = this.clampB(this.v.parkB ?? b.cue);
+    const r = tempoRate(this.v.values.B.tempo);
+    this.speakersOff();
+    engine.stop('B', Infinity);
+    engine.mode('B', this.modeFor('B', r));
+    engine.map('B', 0, [{ f: t * sr, p: from, r }], true);
+    this.update({ previewB: true, parkB: null });
+    // the window's end stops it (there's nothing past it on the deck)
+    const end = this.bWin.offset + this.bWin.duration;
+    this.endPreviewTimer();
+    this.previewTimer = this.d.setTimeout(
+      () => {
+        this.previewTimer = null;
+        if (this.v.previewB) this.previewB(false);
+      },
+      (Math.max(0, end - from) / Math.max(0.25, r)) * 1000,
+    );
+    return true;
+  }
+
+  /** The decks' master held at 0: before the blend B is for the headphones only. */
+  private speakersOff(): void {
+    const engine = this.engine;
+    if (!engine) return;
+    try {
+      const g = engine.graph.master.gain;
+      const now = engine.context.currentTime;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(0, now);
+      this.master = 0;
+    } catch {
+      /* a closed context */
+    }
+  }
+
+  private endPreviewTimer(): void {
+    if (this.previewTimer !== null) this.d.clearTimeout(this.previewTimer);
+    this.previewTimer = null;
+  }
+
+  /** B's place while it's stopped (CUE's return, a seek of B's transport): ready or paused. */
+  parkB(seconds: number): void {
+    const p = this.clampB(seconds);
+    if (this.v.phase === 'paused') {
+      this.pausedAt = p;
+      this.update({});
+      return;
+    }
+    if (this.v.phase !== 'ready') return;
+    if (this.v.previewB) {
+      this.previewB(false);
+    }
+    this.update({ parkB: p });
+  }
+
+  /** A track second inside B's window (the deck has nothing outside it). */
+  private clampB(p: number): number {
+    const w = this.bWin;
+    if (!w) return p;
+    return Math.max(w.offset + 0.05, Math.min(w.offset + w.duration - 0.05, p));
+  }
+
+  /**
+   * A hand on a deck's platter (a press on its waveform): null when it's
+   * on, else why not. A playing deck is nudged (it speeds up or slows down
+   * with the hand and keeps where it's moved to); a stopped one scrubs
+   * (it moves only as the hand does, audibly). Deck A only once it's on its
+   * deck: on the player's element it's the player's own (step 4b, 496).
+   */
+  grab(deck: DeckId): string | null {
+    const engine = this.engine;
+    if (!engine) return 'The decks aren’t ready';
+    const ctx = engine.context as BaseAudioContext & { state?: string };
+    if (ctx.state && ctx.state !== 'running') return 'Paused: play to move the decks';
+    if (this.v.phase === 'handing') return 'Handing over: a moment';
+    let p: number | null;
+    let base: number;
+    const t = this.now() + 0.03;
+    if (deck === 'A') {
+      if (!this.v.aOnDeck)
+        return 'A is the player’s: nudge and scrub it once it’s on its deck (Play B)';
+      p = engine.position('A', t);
+      base = this.rateA;
+    } else {
+      if (!this.b || !this.bWin) return 'B isn’t on its deck yet';
+      if (this.v.phase === 'starting') return 'B comes in on A’s next bar';
+      const moving =
+        (this.v.phase === 'playing' || this.v.phase === 'backing' || this.v.previewB) &&
+        this.v.phase !== 'paused';
+      if (moving) {
+        p = engine.position('B', t);
+        base = rateAt(engine.current('B'), t, engine.sampleRate) ?? 1;
+      } else if (this.v.phase === 'ready' || this.v.phase === 'paused') {
+        p =
+          this.v.phase === 'paused' ? (this.pausedAt ?? this.b.cue) : (this.v.parkB ?? this.b.cue);
+        base = 0;
+      } else return 'B isn’t on its deck yet';
+    }
+    if (p === null) return 'The deck isn’t playing';
+    this.dropHand();
+    const stopped = base === 0;
+    // B scrubbed before the blend: the headphones only
+    if (!this.v.aOnDeck && !this.v.solo) this.speakersOff();
+    engine.mode(deck, 'resample');
+    if (stopped) {
+      // the platter held still: the deck runs at speed 0 where it is
+      engine.stop(deck, Infinity);
+      engine.map(deck, 0, [{ f: t * engine.sampleRate, p, r: 0 }], true);
+    }
+    this.handOn = {
+      deck,
+      base,
+      p0: p,
+      t0: t,
+      offset: 0,
+      stopped,
+      timer: null,
+      phase: this.v.phase,
+    };
+    this.update({ hand: deck });
+    const tick = () => {
+      const h = this.handOn;
+      if (!h) return;
+      this.followHand();
+      h.timer = this.d.setTimeout(tick, HAND_MS);
+    };
+    this.handOn.timer = this.d.setTimeout(tick, HAND_MS);
+    return null;
+  }
+
+  /** The hand has moved the deck `offset` track seconds from where it was grabbed. */
+  moveHand(deck: DeckId, offset: number): void {
+    const h = this.handOn;
+    if (!h || h.deck !== deck || !Number.isFinite(offset)) return;
+    h.offset = offset;
+    this.followHand();
+  }
+
+  /** The deck follows the hand: its speed is what gets it there over HAND_TAU. */
+  private followHand(): void {
+    const h = this.handOn;
+    const engine = this.engine;
+    if (!h || !engine) return;
+    const sr = engine.sampleRate;
+    const t = this.now() + 0.03;
+    const pNow = engine.position(h.deck, t) ?? h.p0;
+    const target = h.p0 + h.base * (t - h.t0) + h.offset;
+    let r = h.base + (target - pNow) / HAND_TAU;
+    r = Math.max(-HAND_MAX, Math.min(HAND_MAX, r));
+    // never past the window's ends
+    const w = h.deck === 'A' ? this.aWin : this.bWin;
+    if (
+      w &&
+      ((pNow <= w.offset + 0.05 && r < 0) || (pNow >= w.offset + w.duration - 0.05 && r > 0))
+    )
+      r = 0;
+    engine.map(h.deck, t * sr, [{ f: t * sr, p: pNow, r }]);
+  }
+
+  /** B held to A's beat by Sync right now. */
+  private lockedB(): boolean {
+    return (
+      this.v.rateB !== null &&
+      this.ratio !== null &&
+      this.v.aOnDeck &&
+      (this.v.phase === 'playing' || this.v.phase === 'backing')
+    );
+  }
+
+  /** Whoever had a hand on a deck lets go (the overlay closed). */
+  releaseHand(): void {
+    if (this.handOn) this.letGo(this.handOn.deck);
+  }
+
+  /** The hand lets go: a nudged deck carries on at its speed from where it is; a scrubbed one stays put. */
+  letGo(deck: DeckId): void {
+    const h = this.handOn;
+    const engine = this.engine;
+    if (!h || h.deck !== deck) return;
+    this.dropHand(false);
+    // the deck has moved on since (Play B, Hand over, Back): it's not the hand's any more
+    if (!engine || h.phase !== this.v.phase) return;
+    const sr = engine.sampleRate;
+    const t = this.now() + 0.03;
+    const p = engine.position(deck, t) ?? h.p0;
+    if (h.stopped) {
+      engine.stop(deck, Math.round((t + 0.01) * sr));
+      if (deck === 'B') {
+        if (this.v.phase === 'paused') this.pausedAt = p;
+        else if (this.v.phase === 'ready') this.update({ parkB: p });
+      }
+    } else if (deck === 'B' && this.lockedB()) {
+      // held to A by Sync: locked again where the hand moved it (review L-2)
+      this.lockInPlace(t);
+    } else {
+      engine.map(deck, t * sr, [{ f: t * sr, p, r: h.base }]);
+    }
+    engine.mode(deck, this.modeFor(deck, deck === 'A' ? this.rateA / this.rateA0 : h.base));
+    this.update({ hand: null });
+  }
+
+  /**
+   * The hand comes off. `settle` (a phase change took it, not a let-go): a
+   * playing deck goes back to its speed from where it is (Sync's lock for
+   * B, re-review N-2), a scrubbed one stops there.
+   */
+  private dropHand(settle = true): void {
+    const h = this.handOn;
+    if (!h) return;
+    this.d.clearTimeout(h.timer);
+    this.handOn = null;
+    const engine = this.engine;
+    if (settle && engine) {
+      try {
+        const sr = engine.sampleRate;
+        const t = this.now() + 0.03;
+        if (h.stopped) engine.stop(h.deck, Math.round((t + 0.01) * sr));
+        else if (h.deck === 'B' && this.lockedB()) this.lockInPlace(t);
+        else {
+          const p = engine.position(h.deck, t);
+          if (p !== null) engine.map(h.deck, t * sr, [{ f: t * sr, p, r: h.base }]);
+        }
+        engine.mode(
+          h.deck,
+          this.modeFor(h.deck, h.deck === 'A' ? this.rateA / this.rateA0 : h.base),
+        );
+      } catch {
+        /* a closed context */
+      }
+    }
+    if (this.v.hand !== null) this.update({ hand: null });
+  }
+
+  /**
+   * ← → on a lane (37p's nudge): the deck a little faster or slower while
+   * the key is held (`dir` ±1), back to its speed where it is when let go
+   * (0). Only a playing deck; A once it's on its deck.
+   */
+  nudge(deck: DeckId, dir: -1 | 0 | 1): boolean {
+    const engine = this.engine;
+    // a let-go always forgets the base, even when the deck stopped meanwhile (re-review N-3)
+    const heldBase = this.nudgeBase;
+    if (dir === 0) this.nudgeBase = null;
+    if (!engine) return false;
+    const playing =
+      deck === 'A'
+        ? this.v.aOnDeck && this.v.phase !== 'handing'
+        : this.v.phase === 'playing' || this.v.phase === 'backing' || this.v.previewB;
+    if (!playing) return false;
+    const sr = engine.sampleRate;
+    const t = this.now() + 0.03;
+    const p = engine.position(deck, t);
+    if (p === null) return false;
+    const base = deck === 'A' ? this.rateA : (heldBase ?? rateAt(engine.current('B'), t, sr) ?? 1);
+    if (dir === 0) {
+      if (deck === 'B' && this.lockedB()) this.lockInPlace(t);
+      else engine.map(deck, t * sr, [{ f: t * sr, p, r: base }]);
+      return true;
+    }
+    if (deck === 'B' && this.nudgeBase === null) this.nudgeBase = base;
+    engine.map(deck, t * sr, [{ f: t * sr, p, r: base * (1 + dir * NUDGE) }]);
+    return true;
+  }
+
   // ── the ends of the windows ────────────────────────────────────────────
 
   /** A bar before either deck's window runs out, the fader comes back to A by itself (424). */
@@ -2048,6 +2427,7 @@ export class DjMixSession {
    */
   backOverBar(done: (() => void) | null): void {
     const engine = this.engine;
+    this.dropHand();
     if (this.v.solo && this.v.phase === 'playing') {
       // B on its own: it goes out over a bar (A had finished)
       this.soloOut(
@@ -2112,6 +2492,7 @@ export class DjMixSession {
     const engine = this.engine;
     const el = this.el;
     this.clearLater();
+    this.dropHand();
     if (engine && this.v.aOnDeck) {
       const now = engine.context.currentTime;
       const level = this.level();
@@ -2159,6 +2540,7 @@ export class DjMixSession {
   private hardStop(words: string | null, keep = true, align = true): void {
     const engine = this.engine;
     this.clearLater();
+    this.dropHand();
     if (align) this.alignElement();
     if (this.v.aOnDeck) {
       if (engine) this.silence(engine, this.el, this.level());
@@ -2240,6 +2622,8 @@ export class DjMixSession {
     this.stopFresh();
     this.cancelSettle();
     this.handing = null;
+    this.dropHand();
+    this.endPreviewTimer();
     if (this.undo) {
       this.d.clearTimeout(this.undo.timer);
       this.undo = null;
@@ -2279,6 +2663,9 @@ export class DjMixSession {
       sync: true,
       solo: false,
       handed: null,
+      previewB: false,
+      parkB: null,
+      hand: null,
     });
     this.applyAll();
   }

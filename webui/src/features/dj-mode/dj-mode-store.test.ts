@@ -163,6 +163,8 @@ describe('on and off', () => {
       // 3b: the person's cue points on the track
       'GET /api/library/dj/cues/2',
       'GET /api/library/dj/grid/2',
+      // 4b: its level every 10 ms, for the zoomed waveform
+      'GET /api/library/dj/levels/2',
       'GET /api/library/tracks/2/peaks',
       'POST /api/library/dj/tracks',
     ]);

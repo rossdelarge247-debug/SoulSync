@@ -27,6 +27,16 @@ export interface Cue {
 export type CueSet = readonly (Cue | null)[];
 
 export const SLOTS = [1, 2, 3, 4] as const;
+/** The deck's main cue point (CUE, step 4b): slot 0, kept beside the hot cues. */
+export const MAIN_SLOT = 0;
+
+/** The main cue from the route's list (slot 0), or null. */
+export function mainCueOf(list: readonly Cue[] | null | undefined): Cue | null {
+  const c = (list ?? []).find((x) => x && x.slot === MAIN_SLOT);
+  return c && Number.isFinite(c.seconds) && c.seconds >= 0
+    ? { slot: MAIN_SLOT, bar: c.bar ?? null, seconds: c.seconds }
+    : null;
+}
 
 export function emptyCues(): CueSet {
   return [null, null, null, null];
@@ -156,6 +166,9 @@ export class CueStore {
     string,
     { timer: ReturnType<typeof setTimeout>; set: CueSet; onFail?: () => void }
   >();
+  /** each track's main cue as last read or set: it's saved with the hot cues (step 4b) */
+  private mains = new Map<string, Cue | null>();
+  private sets = new Map<string, CueSet>();
 
   constructor(private readonly f: FetchLike) {}
 
@@ -164,13 +177,28 @@ export class CueStore {
       const res = await this.f(appURL(`/api/library/dj/cues/${encodeURIComponent(trackId)}`));
       if (!res.ok) return null;
       const body = (await res.json()) as { cues?: Cue[] };
-      return cueSetOf(body.cues);
+      const set = cueSetOf(body.cues);
+      this.mains.set(trackId, mainCueOf(body.cues));
+      this.sets.set(trackId, set);
+      return set;
     } catch {
       return null;
     }
   }
 
+  /** The main cue as last read (or set), or null. */
+  main(trackId: string): Cue | null {
+    return this.mains.get(trackId) ?? null;
+  }
+
+  /** The main cue changed (CUE): saved with the hot cues as they are. */
+  saveMain(trackId: string, cue: Cue | null, onFail?: () => void): void {
+    this.mains.set(trackId, cue);
+    this.save(trackId, this.sets.get(trackId) ?? emptyCues(), onFail);
+  }
+
   save(trackId: string, set: CueSet, onFail?: () => void): void {
+    this.sets.set(trackId, set);
     const was = this.pending.get(trackId);
     if (was) clearTimeout(was.timer);
     const timer = setTimeout(() => this.send(trackId), SAVE_DELAY_MS);
@@ -185,7 +213,9 @@ export class CueStore {
     void this.f(appURL(`/api/library/dj/cues/${encodeURIComponent(trackId)}`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cues: p.set.filter(Boolean) }),
+      body: JSON.stringify({
+        cues: [this.mains.get(trackId) ?? null, ...p.set].filter(Boolean),
+      }),
     })
       .then((res) => {
         if (!res.ok) p.onFail?.();
