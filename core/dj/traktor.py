@@ -515,13 +515,23 @@ MAX_HOT_CUES = 4
 
 
 def _hot_cues(entry: ET.Element, cues: Optional[Sequence[Dict[str, Any]]]) -> None:
-    for cue in list(cues or [])[:MAX_HOT_CUES]:
+    """Hot cues 1–4 as Traktor's hot cues; the main cue (slot 0, DJ mode's
+    CUE) as Traktor's Load marker, where a track loaded on a deck sits."""
+    for cue in list(cues or [])[:MAX_HOT_CUES + 1]:
         try:
             slot = int(cue["slot"])
             seconds = float(cue["seconds"])
         except (KeyError, TypeError, ValueError):
             continue
-        if slot not in (1, 2, 3, 4) or not 0 <= seconds < 36_000:
+        if not 0 <= seconds < 36_000:
+            continue
+        if slot == 0:
+            ET.SubElement(entry, "CUE_V2", {
+                "NAME": "Cue", "DISPL_ORDER": "0", "TYPE": "3",
+                "START": f"{seconds * 1000:.6f}", "LEN": "0.000000", "REPEATS": "-1",
+                "HOTCUE": "-1"})
+            continue
+        if slot not in (1, 2, 3, 4):
             continue
         ET.SubElement(entry, "CUE_V2", {
             "NAME": f"Cue {slot}", "DISPL_ORDER": "0", "TYPE": "0",

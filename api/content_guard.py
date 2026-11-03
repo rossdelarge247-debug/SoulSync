@@ -12,6 +12,9 @@ through each one this hooks the app once (register(app)):
     GET  /api/library/dj/window/<id>
                                   a stretch of the track's audio for the
                                   two-deck engine (auto-mix)
+    GET  /api/library/dj/levels/<id>
+                                  DJ mode's fine waveform of a track it
+                                  couldn't play either
     POST /api/stream/start        playing a soulseek search result: there's
     POST /api/verification/<id>/play, /api/quarantine/<id>/play
                                   no explicit data on a peer's file or an
@@ -106,7 +109,7 @@ def track_is_explicit(db, file_path=None, track_id=None) -> bool:
 
 _UNVOUCHED_STREAMS = {("/api/stream/start", "POST")}
 _PLAYER_TRACK = re.compile(r"^/api/library/tracks/([^/]+)/(peaks|details)$")
-_DJ_WINDOW = re.compile(r"^/api/library/dj/window/([^/]+)$")
+_DJ_WINDOW = re.compile(r"^/api/library/dj/(?:window|levels)/([^/]+)$")
 _REVIEW_PLAY = re.compile(r"^/api/(verification|quarantine)/[^/]+/play$")
 # the session key /api/library/play sets to the file (or server stream) it
 # checked. /stream/audio for a kid only serves while the session still

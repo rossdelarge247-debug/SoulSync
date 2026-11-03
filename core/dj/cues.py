@@ -26,6 +26,9 @@ logger = get_logger("dj.cues")
 
 #: four cue points a track (439)
 SLOTS = (1, 2, 3, 4)
+#: the deck's main cue point (step 4b, the CUE button: a CDJ's cue), kept beside the hot cues
+MAIN = 0
+ALL_SLOTS = (MAIN, *SLOTS)
 #: the furthest a cue can sit (seconds): a 10-hour file is past any DJ's
 MAX_SECONDS = 36_000.0
 #: a cue's bar on the grid: bars from the first downbeat. Before it (a long
@@ -49,19 +52,20 @@ def _number(value: Any) -> Optional[float]:
 
 
 def clean(cues: Any) -> List[Dict[str, Any]]:
-    """The body's cues, checked: at most four, slots 1–4 each once, a place
-    in range. Raises CueError with the words to send back."""
+    """The body's cues, checked: the main cue (slot 0, CUE's point) and hot
+    cues 1–4, each once, a place in range. Raises CueError with the words to
+    send back."""
     if not isinstance(cues, list):
         raise CueError("cues must be a list")
-    if len(cues) > len(SLOTS):
-        raise CueError("At most four cues a track")
+    if len(cues) > len(ALL_SLOTS):
+        raise CueError("At most four cues a track and the main cue")
     out: Dict[int, Dict[str, Any]] = {}
     for cue in cues:
         if not isinstance(cue, dict):
             raise CueError("Each cue is {slot, bar, seconds}")
         slot = cue.get("slot")
-        if isinstance(slot, bool) or slot not in SLOTS:
-            raise CueError("A cue's slot is 1, 2, 3 or 4")
+        if isinstance(slot, bool) or slot not in ALL_SLOTS:
+            raise CueError("A cue's slot is 0 (the main cue), 1, 2, 3 or 4")
         if slot in out:
             raise CueError("Each slot once")
         seconds = _number(cue.get("seconds"))
@@ -122,7 +126,7 @@ def get(database, profile_id: int, track_id: str) -> Optional[List[Dict[str, Any
         conn.row_factory = None
         rows = conn.execute(
             "SELECT slot, bar, seconds FROM track_dj_cues WHERE profile_id = ? AND track_id = ? "
-            "ORDER BY slot LIMIT 4", (int(profile_id), track_id)).fetchall()
+            "ORDER BY slot LIMIT 5", (int(profile_id), track_id)).fetchall()
     grid = _grids(database, [track_id]).get(track_id)
     return [_placed({"slot": s, "bar": b, "seconds": sec}, grid) for s, b, sec in rows]
 

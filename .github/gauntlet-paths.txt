@@ -96,6 +96,10 @@ core/sample/tempo.py
 # and its scope check are in api/dj.py above, the kids guard in
 # api/content_guard.py below)
 core/dj/window.py
+# DJ mode step 4b: a track's fine waveform, decoded in the background for a
+# caller, scoped to the caller's library (route in api/dj.py, kids guard in
+# api/content_guard.py)
+core/dj/levels.py
 # Analyse on demand: any profile puts its own library's tracks first in the
 # DJ sweep (per-profile caps and a rate limit, scoped to the caller's
 # library), the sweep's waits and Stop for that line, and the progress route
