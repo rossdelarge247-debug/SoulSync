@@ -1121,8 +1121,14 @@ export class DjMixSession {
       void this.prepare(stale);
     } else if (this.v.phase !== 'idle') {
       // the track ended or another loaded: B stays loaded; the next lanes
-      // (or Play B) get the decks ready again
+      // (or Play B) get the decks ready again. A cue that moved mid-blend
+      // (its grid landed) drops B's window, so it's fetched from the new
+      // mix-in then (re-review R1)
       this.aWin = null;
+      if (this.bStale) {
+        this.bWin = null;
+        this.bStale = false;
+      }
       this.gen += 1;
       this.update({ phase: 'idle' });
     }

@@ -664,6 +664,24 @@ describe('review round 2', () => {
     expect(r.windows.some((w) => w.id === '8' && Math.abs(w.start - 3.84) < 1e-6)).toBe(true);
   });
 
+  it('R1: B’s cue moved mid-blend, then A ends: B’s window comes from the new mix-in next time', async () => {
+    r.session.setLanes(laneA(), laneB({ grid: null, cue: 0, analysing: true }));
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    // the grid lands mid-blend and the cue moves to the mix-in
+    r.session.setLanes(laneA(), laneB({ cue: 4.34 }));
+    r.el.ended = true;
+    r.el.dispatchEvent(new Event('ended'));
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    r.windows.length = 0;
+    // the next A arrives with the same B
+    r.el.ended = false;
+    r.session.setLanes(laneA({ id: '5', title: 'Next One' }), laneB({ cue: 4.34 }));
+    await r.advance(0.5);
+    expect(r.windows.some((w) => w.id === '8' && Math.abs(w.start - 3.84) < 1e-6)).toBe(true);
+  });
+
   it('N2: a blend ended while paused says nothing false and stops once', async () => {
     await cued();
     r.session.playB();
