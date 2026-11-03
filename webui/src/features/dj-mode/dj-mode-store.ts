@@ -13,6 +13,10 @@
  * - **lane B** is a track loaded by a drop (the `dj` target, dj-stage.tsx)
  *   or, from step 3, by Browse's Load (`loadB`): shown with its waveform and
  *   data, cued, not played.
+ * - **the mixer** (step 3, dj-mixer.tsx and dj-mix-session.ts) registers
+ *   its hooks (`setMixer`): Back mid-blend brings the fader to A over a
+ *   bar first (413), turning DJ mode off lets the decks go, ⇧P is Play B,
+ *   and the mix's phase (`mix`) feeds the header's line and Esc's rule.
  * - a track without its grid is asked for at once (`source: 'dj_now'`, the
  *   on-demand path, core/dj/ondemand.py) and watched through Brief A's one
  *   poll (analysis.api.ts); the grid is read again when it lands (420).
@@ -83,7 +87,47 @@ export interface DjModeSnapshot {
   b: LaneState | null;
   /** Browse is there (step 3 registers it): the button and B show */
   browse: boolean;
+  /** the mixer's phase (step 3): what the header says, what Back and Esc do */
+  mix: MixState;
 }
+
+export type MixPhaseLike =
+  | 'idle'
+  | 'loading'
+  | 'ready'
+  | 'starting'
+  | 'playing'
+  | 'paused'
+  | 'backing'
+  | 'failed';
+
+export interface MixState {
+  phase: MixPhaseLike;
+  /** B's window on its deck (424), track seconds */
+  window: { start: number; end: number } | null;
+  /** B's speed while Sync stretches it */
+  rateB: number | null;
+  /** Sync is on and can work */
+  sync: boolean;
+}
+
+/** What the mixer (step 3) lends the store: it lives with the Visuals' pieces. */
+export interface MixerHooks {
+  /** B is playing (or about to, or Back is bringing A back): a blend */
+  blending(): boolean;
+  /** Back mid-blend: the fader to A over a bar, then `done` */
+  backOverBar(done: () => void): void;
+  /** let the decks go at once (DJ mode off, the overlay closed, B removed) */
+  end(): void;
+  /** Play B (⇧P) or Pause B */
+  playB(): boolean;
+  /** B's place now while it plays (lane B's playhead) */
+  positionB(): number | null;
+  /** A is playing on DJ mode's deck (its element muted under it) */
+  holdsTrack?(): boolean;
+}
+
+export const IDLE_MIX: MixState = { phase: 'idle', window: null, rateB: null, sync: false };
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -187,6 +231,8 @@ export class DjModeStore {
   private unwatch: Record<Deck, (() => void) | null> = { a: null, b: null };
   private timers: Record<Deck, ReturnType<typeof setTimeout> | null> = { a: null, b: null };
   private browseOpener: (() => void) | null = null;
+  private browseCloser: (() => boolean) | null = null;
+  private mixer: MixerHooks | null = null;
   private offAnalysis: (() => void) | null = null;
   /** the grid lookups for a drag's drop line (37c): true has a grid, false not yet */
   private readiness = new Map<string, { v: boolean | 'asking'; at: number }>();
@@ -218,6 +264,7 @@ export class DjModeStore {
       a: null,
       b: null,
       browse: false,
+      mix: IDLE_MIX,
     };
     this.s.availability = this.availabilityNow();
   }
@@ -310,7 +357,8 @@ export class DjModeStore {
   setOpen(open: boolean): void {
     if (open === this.s.open) return;
     this.set({ open });
-    // closing the overlay is Back (step 2: nothing is ever blending)
+    // closing the overlay ends DJ mode, a blend with it (the hard stop: A
+    // back on its element at once); step 4 keeps it on with the overlay closed (37o)
     if (!open && this.s.on) this.setOn(false);
   }
 
@@ -329,6 +377,8 @@ export class DjModeStore {
       this.say('DJ mode on');
       return true;
     }
+    this.browseCloser?.();
+    this.mixer?.end();
     this.clearLane('a');
     this.clearLane('b');
     this.readiness.clear();
@@ -343,10 +393,92 @@ export class DjModeStore {
     return this.setOn(!this.s.on);
   }
 
-  /** Back (413): with nothing loaded or nothing started, at once. */
+  /**
+   * Back (413): with nothing loaded or B not started, at once; mid-blend
+   * the fader comes back to A over one bar first, then DJ mode is off.
+   */
   back(): boolean {
     if (!this.s.on) return false;
+    if (this.blending()) {
+      if (this.s.mix.phase === 'backing') return true;
+      this.mixer!.backOverBar(() => {
+        if (this.s.on) this.setOn(false);
+      });
+      return true;
+    }
     return this.setOn(false);
+  }
+
+  /** B is in the speakers (37h): Esc isn't Back then (413), and B can't be swapped. */
+  blending(): boolean {
+    try {
+      return Boolean(this.mixer?.blending());
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Esc in the overlay (37p): Browse closes first; mid-blend it only says
+   * how to end the blend (a stray key never ends one); otherwise it's Back.
+   */
+  escape(): boolean {
+    if (!this.s.on) return false;
+    if (this.browseCloser?.()) return true;
+    if (this.blending()) {
+      this.say('Blending · Back ends it over a bar');
+      return true;
+    }
+    return this.back();
+  }
+
+  // ── the mixer (step 3) ─────────────────────────────────────────────────
+
+  setMixer(hooks: MixerHooks | null): void {
+    this.mixer = hooks;
+    if (!hooks && this.s.mix !== IDLE_MIX) this.set({ mix: IDLE_MIX });
+  }
+
+  /** The mixer's phase, window and rate changed. */
+  setMix(mix: MixState): void {
+    const was = this.s.mix;
+    if (
+      was.phase === mix.phase &&
+      was.rateB === mix.rateB &&
+      was.sync === mix.sync &&
+      was.window?.start === mix.window?.start &&
+      was.window?.end === mix.window?.end
+    )
+      return;
+    this.set({ mix });
+  }
+
+  /**
+   * ⇧P: Play B (or Pause B while it plays). With B loaded the key is DJ
+   * mode's whatever the mixer answers (getting ready, A paused, a second
+   * press): it never falls through to Previous (review H4).
+   */
+  playB(): boolean {
+    if (!this.s.on || !this.s.b) return false;
+    try {
+      this.mixer?.playB();
+    } catch {
+      /* the mixer says why itself */
+    }
+    return true;
+  }
+
+  positionB(): number | null {
+    return this.mixer?.positionB() ?? null;
+  }
+
+  /** A is on DJ mode's deck: auto-mix, made now, must hold (re-review N3). */
+  holdsTrack(): boolean {
+    try {
+      return Boolean(this.s.on && this.mixer?.holdsTrack?.());
+    } catch {
+      return false;
+    }
   }
 
   // ── Browse (step 3) ────────────────────────────────────────────────────
@@ -356,13 +488,20 @@ export class DjModeStore {
    * Browse… button and B is the page's key (step 2 hides Browse behind this,
    * rather than drawing a button that does nothing).
    */
-  setBrowseOpener(open: (() => void) | null): void {
+  setBrowseOpener(open: (() => void) | null, close: (() => boolean) | null = null): void {
     this.browseOpener = open;
+    this.browseCloser = open ? close : null;
     this.set({ browse: Boolean(open) });
   }
 
   openBrowse(): boolean {
-    if (!this.s.on || !this.browseOpener) return false;
+    if (!this.s.on) return false;
+    // B is in the speakers: a new B would cut it off (Back first)
+    if (this.blending()) {
+      this.say('Blending · Back ends it, then Browse');
+      return true;
+    }
+    if (!this.browseOpener) return false;
     this.browseOpener();
     return true;
   }
@@ -374,6 +513,8 @@ export class DjModeStore {
     if (!this.s.on) return false;
     const track = 'image' in item ? item : laneTrackFromItem(item);
     if (!track.id || track.id === this.playingId()) return false;
+    // never under a blend: B is in the speakers (Back first)
+    if (this.blending()) return false;
     this.loadLane('b', track);
     // said once, unless the caller says it itself (a drop's toast)
     if (announce) this.say(`${track.title || 'The track'} loaded as B, cued`);
@@ -386,7 +527,7 @@ export class DjModeStore {
   }
 
   removeB(): void {
-    if (!this.s.b) return;
+    if (!this.s.b || this.blending()) return;
     const title = this.s.b.track.title;
     this.clearLane('b');
     this.say(`${title || 'The second track'} removed`);

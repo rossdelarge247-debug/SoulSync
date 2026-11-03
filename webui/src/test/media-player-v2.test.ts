@@ -2126,6 +2126,15 @@ describe('the Visuals keys (HANDOFF 60)', () => {
     expect(html).toMatch(/id="np-v2-visuals-dj-btn"[^>]*aria-keyshortcuts="D"[^>]*hidden/);
   });
 
+  it('the shortcuts list has DJ mode’s B, ⇧P and K (step 3, 37p)', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toContain('<dt>DJ mode: Browse for the second track</dt><dd><kbd>B</kbd></dd>');
+    expect(html).toContain(
+      '<dt>DJ mode: Play or pause B, on the next bar</dt><dd><kbd>Shift P</kbd></dd>',
+    );
+    expect(html).toContain('<dt>DJ mode: kill the focused EQ band</dt><dd><kbd>K</kbd></dd>');
+  });
+
   it('F with nothing playing leaves the visuals closed', () => {
     const { calls, press } = keys(false, true, { track: false });
     press('f');

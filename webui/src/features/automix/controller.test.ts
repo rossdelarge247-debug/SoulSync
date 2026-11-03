@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeckData } from '@/features/engine/engine';
 import type { ApiGrid } from '@/features/engine/grid';
 
+import { DjMixSession, type EngineLike as DjEngine } from '@/features/dj-mode/dj-mix-session';
+import { FakeEngine as DjFakeEngine, laneA, laneB } from '@/features/dj-mode/dj-mix.fixtures';
 import { Transition, type TransitionInput } from '@/features/engine/executor';
 import { BeatGrid } from '@/features/engine/grid';
 import { FakePort } from '@/features/engine/testing';
@@ -1481,5 +1483,61 @@ describe('the phase follow-up of 29 October: the next track changes before the m
     expect(v.pair?.toId).toBe('7');
     expect(engine.loaded).toEqual([]);
     h.ctl.stop();
+  });
+});
+
+describe('DJ mode holds the playing track (Brief F step 3, review H1)', () => {
+  it('with both mounted: no plan, no countdown and the element stays muted under DJ mode’s deck', async () => {
+    const h = harness();
+    await at(h, 100);
+    expect(h.plan).toHaveBeenCalledTimes(1);
+    const dj = new DjFakeEngine();
+    const session = new DjMixSession({
+      player: { audio: () => h.el as unknown as HTMLAudioElement, state: () => h.st },
+      engine: async () => dj as unknown as DjEngine,
+      fetchWindow: async (_c, _id, start, dur) => ({
+        channels: [],
+        mono4: new Float32Array(0),
+        sampleRate: SR,
+        offset: start,
+        duration: dur,
+      }),
+      say: () => undefined,
+      autoHold: (on) => h.ctl.hold(on),
+    });
+    session.setLanes(laneA({ duration: 300 }), laneB());
+    await flush();
+    expect(session.snapshot().phase).toBe('ready');
+    expect(session.playB()).toBe(true);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.el.muted).toBe(true);
+    // auto-mix's 120 ms tick and the player's events: the element stays DJ mode's
+    h.plan.mockClear();
+    await at(h, OUT - 2);
+    window.dispatchEvent(new CustomEvent('ss:player'));
+    h.el.dispatchEvent(new Event('play'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.el.muted).toBe(true);
+    expect(h.plan).not.toHaveBeenCalled();
+    expect(engine.inputs).toEqual([]);
+    expect(h.ctl.getView().barsToGo).toBeNull();
+    // DJ mode lets go: the element is the player's again and auto-mix plans afresh
+    session.end();
+    expect(h.el.muted).toBe(false);
+    h.ctl.poke();
+    await flush();
+    expect(h.plan).toHaveBeenCalled();
+    session.dispose();
+  });
+});
+
+describe('the hold never sticks (re-review N3)', () => {
+  it('stop() lets a hold go', () => {
+    const h = harness();
+    h.ctl.start();
+    h.ctl.hold(true);
+    expect(h.ctl.holding).toBe(true);
+    h.ctl.stop();
+    expect(h.ctl.holding).toBe(false);
   });
 });

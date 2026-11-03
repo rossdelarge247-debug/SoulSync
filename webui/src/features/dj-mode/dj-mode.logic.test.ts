@@ -288,7 +288,7 @@ describe('lane B’s drop (37c, 37d)', () => {
     expect(dropStepLine(a, { key: '9A', bpm: 124 }, false)).toBe(
       '+1 on the wheel · same tempo · analysed when it’s loaded',
     );
-    expect(dropStepLine(a, { key: '8B', bpm: 62 }, null)).toBe('Relative · double time');
+    expect(dropStepLine(a, { key: '8B', bpm: 62 }, null)).toBe('Relative · half time');
     expect(dropStepLine(a, { key: null, bpm: null }, true)).toBe('Has its beat grid');
     expect(dropStepLine(null, { key: '8A', bpm: 126 }, null)).toBe('');
   });
@@ -299,7 +299,8 @@ describe('lane B’s drop (37c, 37d)', () => {
     expect(keyStepWords('8A', '11A')).toBe('3 steps on the wheel');
     expect(keyStepWords('8A', null)).toBe('');
     expect(tempoStepWords(124, 120)).toBe('−3.2%');
-    expect(tempoStepWords(124, 248)).toBe('half time');
+    expect(tempoStepWords(124, 248)).toBe('double time');
+    expect(tempoStepWords(124, 62)).toBe('half time');
     expect(tempoStepWords(null, 120)).toBe('');
   });
 });
@@ -330,6 +331,28 @@ describe('words', () => {
     expect(headerLine({ ...base, b: 'Harbour Lights', bPhase: 'analysing', browse: true })).toBe(
       'Analysing Harbour Lights · Sync comes with the grid',
     );
+  });
+
+  it('the header’s line follows the mixer (37g, 37h)', () => {
+    const cued = {
+      a: 'Night Ferry',
+      aPhase: 'ready' as const,
+      b: 'Harbour Lights',
+      bPhase: 'ready' as const,
+      browse: true,
+    };
+    expect(headerLine({ ...cued, mix: 'loading' })).toBe(
+      'Harbour Lights cued · getting the decks ready',
+    );
+    expect(headerLine({ ...cued, mix: 'ready' })).toBe(
+      'Harbour Lights cued · Play B, then move the fader',
+    );
+    expect(headerLine({ ...cued, mix: 'starting' })).toBe('Blending · Back ends it over a bar');
+    expect(headerLine({ ...cued, mix: 'playing' })).toBe('Blending · Back ends it over a bar');
+    expect(headerLine({ ...cued, mix: 'paused' })).toBe(
+      'Harbour Lights paused · Play B carries on on the next bar',
+    );
+    expect(headerLine({ ...cued, mix: 'backing' })).toBe('Bringing Night Ferry back over a bar');
   });
 });
 

@@ -26,6 +26,13 @@ GET  /api/library/dj/browse
     Each track says whether the caller starred it (``starred``);
     ``starred=1`` (the Starred filter) keeps only the caller's starred
     tracks, a starred one whose file is gone included (``file_missing``).
+    DJ mode's Browse (37f): ``near`` (A's BPM) and ``near_key`` (A's key)
+    say what "closest" means; ``tempo=near`` keeps ±6% of ``near`` at the
+    same tempo or half or double time; ``recent=1`` the tracks the caller
+    played in the last 14 days; ``exclude`` (up to 5) leaves ids out;
+    ``sort=closest`` is the tempo gap, then the steps on the wheel (at most
+    100 rows). Each row says ``grid_ready``. The step's words are the
+    client's (435).
 GET  /api/library/dj/mixes/<track_id>
     "Mixes well with…": the same key, ±1 on the Camelot wheel or the relative
     major/minor, at a BPM within ±6% (half and double time count);
@@ -340,7 +347,11 @@ def dj_browse():
                             key=(request.args.get("key") or "")[:12], q=(request.args.get("q") or "")[:200],
                             sort=request.args.get("sort") or "bpm", page=_int("page", 1), limit=_int("limit", 50),
                             fix_art=fix_art_url, profile_id=int(get_current_profile_id()),
-                            starred=request.args.get("starred") in ("1", "true"))
+                            starred=request.args.get("starred") in ("1", "true"),
+                            near=_float("near"), near_key=(request.args.get("near_key") or "")[:12],
+                            tempo_near=request.args.get("tempo") == "near",
+                            recent=request.args.get("recent") in ("1", "true"),
+                            exclude=[e[:64] for e in request.args.getlist("exclude")[:store.MAX_EXCLUDE]])
     except Exception as exc:  # noqa: BLE001
         logger.error("DJ browse failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500

@@ -624,6 +624,8 @@ export class AutomixController {
   }
 
   stop(): void {
+    // a hold never outlives the controller's run (re-review N3)
+    this.held = false;
     this.started = false;
     this.stopTicker();
     this.letGo();
@@ -713,6 +715,8 @@ export class AutomixController {
    * the element is the player's, so it's never left muted or faded out.
    */
   private freeElement(): void {
+    // DJ mode holds the element (muted under its own deck A): it isn't ours to free
+    if (this.held) return;
     if (this.engineOwns() && !this.released) return;
     const el = this.player.audio();
     if (!el) return;
@@ -723,6 +727,26 @@ export class AutomixController {
 
   /** the element was faded down by a hand-over (its volume is put back with it) */
   private fadedOut = false;
+
+  /** DJ mode (Brief F step 3) has the playing track on its own deck A */
+  private held = false;
+
+  /**
+   * DJ mode holds the playing track (its element plays on muted under DJ
+   * mode's deck A): while held, nothing is planned or counted down, no mix
+   * starts, and the element is left as DJ mode keeps it. Holding lets go
+   * of anything of ours first; letting go plans afresh.
+   */
+  get holding(): boolean {
+    return this.held;
+  }
+
+  hold(on: boolean): void {
+    if (on === this.held) return;
+    if (on) this.otherAudio();
+    this.held = on;
+    if (!on) this.tick();
+  }
 
   private bind(el: HTMLAudioElement | null): void {
     if (el === this.boundEl) return;
@@ -789,6 +813,12 @@ export class AutomixController {
     const el = this.player.audio();
     this.bind(el);
     this.keepTicking();
+    if (this.held) {
+      // DJ mode has the track: no plan, no countdown, the element left alone
+      this.pending = null;
+      this.emit();
+      return;
+    }
     this.freeElement();
     this.followVolume();
     if (this.engineOwns()) {

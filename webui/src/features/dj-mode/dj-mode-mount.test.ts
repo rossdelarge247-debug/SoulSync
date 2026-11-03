@@ -27,6 +27,7 @@ const FERRY = { id: '2', title: 'Night Ferry', is_library: true, filename: '/m/2
 let track: Record<string, unknown> | null;
 let kind: string;
 let toasts: string[];
+let said: string[];
 
 function player(t: Record<string, unknown> | null, k = 'library') {
   track = t;
@@ -44,6 +45,7 @@ beforeEach(() => {
   track = null;
   kind = 'library';
   toasts = [];
+  said = [];
   const w = window as unknown as Record<string, unknown>;
   w.SoulSyncPlayer = { state: () => ({ track, kind }) };
   w.showToast = (m: string) => toasts.push(m);
@@ -62,7 +64,7 @@ beforeEach(() => {
       entry: () => undefined,
       subscribe: () => () => undefined,
     },
-    say: () => undefined,
+    say: (w: string) => said.push(w),
     phone: () => false,
   });
   mountDjMode(window);
@@ -198,6 +200,61 @@ describe('the keys (37p)', () => {
     expect(window.SoulSyncDj!.escape()).toBe(true);
     expect(window.SoulSyncDj!.on()).toBe(false);
     window.SoulSyncDj!.store.setBrowseOpener(null);
+  });
+
+  it('⇧P is Play B with B loaded; mid-blend Esc says how to end it and Back takes a bar', async () => {
+    player(FERRY);
+    overlay().classList.remove('hidden');
+    await tick();
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(false);
+    window.SoulSyncDj!.key('D');
+    const store = window.SoulSyncDj!.store;
+    let blending = false;
+    const backOverBar = vi.fn();
+    const playB = vi.fn(() => {
+      blending = true;
+      return true;
+    });
+    store.setMixer({
+      blending: () => blending,
+      backOverBar,
+      end: vi.fn(),
+      playB,
+      positionB: () => null,
+    });
+    // no B: the key is the player's (Previous)
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(false);
+    store.loadB({ id: '8', title: 'Harbour Lights', artist: 'Marram', image: null, duration: 288 });
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(true);
+    expect(playB).toHaveBeenCalledTimes(1);
+    // review H4: with B loaded ⇧P is DJ mode's even when Play B can't act
+    // (getting ready, A paused, a second press): never Previous
+    playB.mockImplementationOnce(() => false);
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(true);
+    playB.mockImplementationOnce(() => {
+      throw new Error('not now');
+    });
+    expect(window.SoulSyncDj!.key('⇧P')).toBe(true);
+    store.setMix({ phase: 'playing', window: null, rateB: 0.98, sync: true });
+    await tick();
+    expect($('np-v2-visuals-dj-line').textContent).toBe('Blending · Back ends it over a bar');
+    expect(window.SoulSyncDj!.escape()).toBe(true);
+    expect(window.SoulSyncDj!.on()).toBe(true);
+    // said once, politely
+    expect(said.at(-1)).toBe('Blending · Back ends it over a bar');
+    // B (Browse) under a blend says why, and a drop can't replace B
+    expect(window.SoulSyncDj!.key('B')).toBe(true);
+    expect(
+      store.loadB({ id: '9', title: 'Copper Sky', artist: '', image: null, duration: 300 }),
+    ).toBe(false);
+    // the Back button: the fader to A over a bar, then off
+    $('np-v2-visuals-dj-back').click();
+    expect(backOverBar).toHaveBeenCalledTimes(1);
+    expect(window.SoulSyncDj!.on()).toBe(true);
+    blending = false;
+    backOverBar.mock.calls[0]![0]();
+    expect(window.SoulSyncDj!.on()).toBe(false);
+    store.setMixer(null);
   });
 
   it('a phone never offers it (417)', () => {

@@ -1037,3 +1037,22 @@ describe('with the mixing features hidden (Settings → Library → DJ, the defa
     expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
   });
 });
+
+describe('DJ mode holding the playing track when auto-mix starts (re-review N3)', () => {
+  afterEach(() => {
+    delete (window as unknown as { SoulSyncDj?: unknown }).SoulSyncDj;
+  });
+
+  it('turned on mid-blend, it holds from the first tick: the element stays muted', async () => {
+    (audio as unknown as { muted: boolean }).muted = true;
+    (window as unknown as { SoulSyncDj: unknown }).SoulSyncDj = { holdsTrack: () => true };
+    const view = mount();
+    await new Promise((r) => setTimeout(r, 400));
+    expect((audio as unknown as { muted: boolean }).muted).toBe(true);
+    // unmounted, the hold goes with it: made again without DJ mode, it frees the element
+    view.unmount();
+    delete (window as unknown as { SoulSyncDj?: unknown }).SoulSyncDj;
+    mount();
+    await waitFor(() => expect((audio as unknown as { muted: boolean }).muted).toBe(false));
+  });
+});

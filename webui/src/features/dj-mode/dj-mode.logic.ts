@@ -431,9 +431,11 @@ export function tempoStepWords(a: number | null | undefined, b: number | null | 
   const x = Number(a);
   const y = Number(b);
   if (!(x > 0) || !(y > 0)) return '';
+  // tempoStep's "double" is B doubled to meet A: B runs at half A's tempo,
+  // which a DJ (and 37f's "62.0 half time", core/dj/camelot.py) calls half time
   const { how } = tempoStep(x, y);
-  if (how === 'half') return 'half time';
-  if (how === 'double') return 'double time';
+  if (how === 'double') return 'half time';
+  if (how === 'half') return 'double time';
   const pct = pyRound((y / x - 1) * 100, 1);
   if (pct === 0) return 'same tempo';
   return `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`;
@@ -477,16 +479,24 @@ export function headerLine({
   b,
   bPhase,
   browse,
+  mix = 'idle',
 }: {
   a: string | null;
   aPhase: LanePhase | null;
   b: string | null;
   bPhase: LanePhase | null;
   browse: boolean;
+  /** the mixer's phase (step 3) */
+  mix?: string;
 }): string {
   if (b) {
+    if (mix === 'starting' || mix === 'playing') return 'Blending · Back ends it over a bar';
+    if (mix === 'backing') return `Bringing ${a || 'A'} back over a bar`;
+    if (mix === 'paused') return `${b} paused · Play B carries on on the next bar`;
     if (bPhase === 'analysing' || bPhase === 'loading' || bPhase === 'waiting')
       return `Analysing ${b} · Sync comes with the grid`;
+    if (mix === 'ready') return `${b} cued · Play B, then move the fader`;
+    if (mix === 'loading') return `${b} cued · getting the decks ready`;
     return `${b} cued`;
   }
   if (a && aPhase === 'analysing')
