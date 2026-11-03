@@ -624,6 +624,8 @@ export class AutomixController {
   }
 
   stop(): void {
+    // a hold never outlives the controller's run (re-review N3)
+    this.held = false;
     this.started = false;
     this.stopTicker();
     this.letGo();
@@ -735,6 +737,10 @@ export class AutomixController {
    * starts, and the element is left as DJ mode keeps it. Holding lets go
    * of anything of ours first; letting go plans afresh.
    */
+  get holding(): boolean {
+    return this.held;
+  }
+
   hold(on: boolean): void {
     if (on === this.held) return;
     if (on) this.otherAudio();

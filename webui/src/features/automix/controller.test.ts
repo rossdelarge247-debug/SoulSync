@@ -1530,3 +1530,14 @@ describe('DJ mode holds the playing track (Brief F step 3, review H1)', () => {
     session.dispose();
   });
 });
+
+describe('the hold never sticks (re-review N3)', () => {
+  it('stop() lets a hold go', () => {
+    const h = harness();
+    h.ctl.start();
+    h.ctl.hold(true);
+    expect(h.ctl.holding).toBe(true);
+    h.ctl.stop();
+    expect(h.ctl.holding).toBe(false);
+  });
+});

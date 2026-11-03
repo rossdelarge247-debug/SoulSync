@@ -474,6 +474,9 @@ export function AutomixHost() {
   }, [ctl]);
 
   useEffect(() => {
+    // DJ mode may have the playing track on its deck already (the mixing
+    // features turned on mid-blend): hold before the first tick frees the element
+    if (window.SoulSyncDj?.holdsTrack?.()) ctl.hold(true);
     ctl.start();
     const onPlayer = (e: Event) => {
       const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason;
