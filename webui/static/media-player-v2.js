@@ -3008,7 +3008,30 @@ function npv2SyncEqBtn() {
 // Playback speed
 // ---------------------------------------------------------------------------
 
+// While DJ mode holds the track (deck A plays it, the element muted under
+// it), the player's speed waits: deck A's Tempo is the speed then (Brief F
+// step 4, the step 3b re-review's L-new-1). Nothing changes or is saved; a
+// person's change is answered with a toast, and the menus show the speed
+// as it was.
+function npv2DjHoldsTrack() {
+    try {
+        return Boolean(window.SoulSyncDj && window.SoulSyncDj.holdsTrack && window.SoulSyncDj.holdsTrack());
+    } catch (e) {
+        return false;
+    }
+}
+
+const NPV2_SPEED_DJ_WAIT = "Speed waits while DJ mode has the track: use deck A's Tempo";
+
 function npv2SetSpeed(v, opts) {
+    if (npv2DjHoldsTrack()) {
+        try {
+            const sel = document.getElementById('np-v2-speed-select');
+            if (sel) sel.value = String(NPV2.speed);
+        } catch (e) {}
+        if (!opts || !opts.silent) npv2Toast(NPV2_SPEED_DJ_WAIT, 'info');
+        return false;
+    }
     NPV2.speed = npv2ClampSpeed(v);
     npv2Set('speed', String(NPV2.speed));
     const els = [npv2AudioEl()];
@@ -3027,6 +3050,7 @@ function npv2SetSpeed(v, opts) {
     } catch (e) {}
     if (!opts || !opts.silent) npv2Toast('Speed ' + npv2FormatSpeed(NPV2.speed), 'info');
     try { if (typeof npNotify === 'function') npNotify('speed'); } catch (e) {}
+    return true;
 }
 
 function npv2CycleSpeed(dir) {
@@ -3767,9 +3791,7 @@ function npv2WireTransport() {
 function npv2OnRateChange(e) {
     const el = (e && e.target) || npv2AudioEl();
     if (!el) return;
-    try {
-        if (window.SoulSyncDj && window.SoulSyncDj.holdsTrack && window.SoulSyncDj.holdsTrack()) return;
-    } catch (err) { /* DJ mode's bridge failing never blocks the player */ }
+    if (npv2DjHoldsTrack()) return;
     try {
         if (isFinite(el.playbackRate) && el.playbackRate !== NPV2.speed) {
             NPV2.speed = npv2ClampSpeed(el.playbackRate);

@@ -4,6 +4,7 @@ import type { DragItem } from '@/features/dnd/dnd-model';
 
 import { apiGrid } from './dj-mode.fixtures';
 import {
+  barLine,
   barAt,
   barsWithin,
   beatMap,
@@ -393,5 +394,39 @@ describe('a long file analysed in part (review L6)', () => {
     expect(inMixOut(whole, 240)).toBe(false);
     expect(inMixOut(whole, 241)).toBe(true);
     expect(inMixOut(null, 999)).toBe(false);
+  });
+});
+
+describe('step 4: the header while handing over or B plays alone, and the bar’s one line (37o)', () => {
+  const base = {
+    a: 'Night Ferry',
+    aPhase: 'ready' as const,
+    b: 'Harbour Lights',
+    bPhase: 'ready' as const,
+    browse: true,
+  };
+  it('the header', () => {
+    expect(headerLine({ ...base, mix: 'handing' })).toBe('Handing over to Harbour Lights');
+    expect(headerLine({ ...base, mix: 'playing', solo: true })).toBe(
+      'Harbour Lights on its own · Hand over makes it the player’s track',
+    );
+  });
+
+  it('the bar: nothing with DJ mode off or the Visuals open; with B, cued or blending', () => {
+    expect(barLine({ on: false, open: false, b: 'Harbour Lights', mix: 'playing' })).toBeNull();
+    expect(barLine({ on: true, open: true, b: 'Harbour Lights', mix: 'playing' })).toBeNull();
+    expect(barLine({ on: true, open: false, b: null, mix: 'idle' })).toBeNull();
+    expect(barLine({ on: true, open: false, b: 'Harbour Lights', mix: 'ready' })).toBe(
+      'DJ mode · Harbour Lights cued',
+    );
+    expect(barLine({ on: true, open: false, b: 'Harbour Lights', mix: 'playing' })).toBe(
+      'DJ mode · blending into Harbour Lights',
+    );
+    expect(barLine({ on: true, open: false, b: 'Harbour Lights', mix: 'paused' })).toBe(
+      'DJ mode · Harbour Lights paused',
+    );
+    expect(barLine({ on: true, open: false, b: null, mix: 'handing' })).toBe(
+      'DJ mode · handing over to B',
+    );
   });
 });

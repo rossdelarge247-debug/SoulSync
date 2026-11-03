@@ -480,6 +480,7 @@ export function headerLine({
   bPhase,
   browse,
   mix = 'idle',
+  solo = false,
 }: {
   a: string | null;
   aPhase: LanePhase | null;
@@ -488,7 +489,12 @@ export function headerLine({
   browse: boolean;
   /** the mixer's phase (step 3) */
   mix?: string;
+  /** B playing on its own (step 4, 37j) */
+  solo?: boolean;
 }): string {
+  if (mix === 'handing') return `Handing over to ${b || 'B'}`;
+  if (solo && b && mix === 'playing')
+    return `${b} on its own · Hand over makes it the player’s track`;
   if (b) {
     if (mix === 'starting' || mix === 'playing') return 'Blending · Back ends it over a bar';
     if (mix === 'backing') return `Bringing ${a || 'A'} back over a bar`;
@@ -503,6 +509,31 @@ export function headerLine({
     return `Analysing ${a} · you can load B now; Sync comes with the grid`;
   if (a) return `${a} on the speakers · drop ${browse ? 'or Browse ' : ''}a second track`;
   return 'Nothing playing';
+}
+
+/**
+ * The player bar's one line with the Visuals closed (37o, 37j): while DJ
+ * mode is on with B loaded (or handing over); null otherwise, and always
+ * with DJ mode off (nothing new, ever).
+ */
+export function barLine({
+  on,
+  open,
+  b,
+  mix,
+}: {
+  on: boolean;
+  open: boolean;
+  b: string | null;
+  mix: string;
+}): string | null {
+  if (!on || open) return null;
+  if (mix === 'handing') return `DJ mode · handing over to ${b || 'B'}`;
+  if (!b) return null;
+  if (mix === 'starting' || mix === 'playing' || mix === 'backing')
+    return `DJ mode · blending into ${b}`;
+  if (mix === 'paused') return `DJ mode · ${b} paused`;
+  return `DJ mode · ${b} cued`;
 }
 
 /** 37l: T while DJ mode is on. */

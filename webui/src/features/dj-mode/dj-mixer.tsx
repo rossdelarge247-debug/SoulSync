@@ -4,8 +4,8 @@
  * columns:
  *
  * - **the centre:** Play B (filled cyan; Pause B while it plays), Sync (on
- *   by default; with its reason when it can't), Hand over to B (step 4:
- *   drawn, not yet working, and says so), the 32px crossfader (A→B), and
+ *   by default; with its reason when it can't), Hand over to B (step 4,
+ *   414: B becomes the player's track; H), the 32px crossfader (A→B), and
  *   the echo's Send A, Time and Feedback;
  * - **deck A and deck B:** Volume, Hi, Mid, Low (each with KILL) and Filter,
  *   drawn from `DECK_CONTROLS` by `DeckColumn`: 3b turns each into a
@@ -44,8 +44,6 @@ import { MonitorBlock } from './dj-monitor';
 import { useDjMode } from './dj-stage';
 import { syncRatioFromBpm } from './dj-sync';
 
-export const HAND_OVER_WAIT = 'Hand over comes in the next update · Back ends the blend for now';
-
 export function useMixView(session: DjMixSession): MixView {
   return useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
 }
@@ -62,12 +60,20 @@ export function mixLane(lane: LaneState | null): MixLane | null {
     cue: lane.cue,
     duration: lane.duration,
     analysing: lane.phase === 'analysing' || lane.phase === 'waiting',
+    queue: lane.track.queue ?? null,
   };
 }
 
 function laneKey(lane: LaneState | null): string {
   if (!lane) return '';
-  return [lane.track.id, lane.phase, lane.cue, lane.info?.bpm ?? '', lane.duration ?? ''].join('|');
+  return [
+    lane.track.id,
+    lane.phase,
+    lane.cue,
+    lane.info?.bpm ?? '',
+    lane.duration ?? '',
+    lane.track.queue ? 'q' : '',
+  ].join('|');
 }
 
 /** Reduce motion: the mixer appears in place. */
@@ -393,6 +399,10 @@ export function DjMixer({
       togglePhones: (d) => session.setPhones(d, !session.snapshot().decks[d].phones),
       toggleKeyLock: (d) => session.setKeyLock(d, !session.snapshot().decks[d].keyLock),
       jump: (d, seconds) => session.jump(d, seconds),
+      handOver: () => session.handOver('press'),
+      handOverWhy: () => session.handOverWhy(),
+      undoHandOver: () => session.undoHandOver(),
+      ownsAdvance: () => session.ownsAdvance(),
     });
     // the outputs are watched while DJ mode is on (37r)
     outputs?.start();
@@ -417,10 +427,13 @@ export function DjMixer({
       phase: v.phase,
       window: v.window,
       rateB: v.rateB,
-      sync: v.sync && v.syncable,
+      // B on its own (37j) has nothing to be synced to
+      sync: v.sync && v.syncable && !v.solo,
       levels: v.levels,
+      handed: v.handed,
+      solo: v.solo,
     });
-  }, [store, v.phase, v.window, v.rateB, v.sync, v.syncable, v.levels]);
+  }, [store, v.phase, v.window, v.rateB, v.sync, v.syncable, v.levels, v.handed, v.solo]);
 
   const aTitle = s.a?.track.title || 'A';
   const bTitle = s.b?.track.title || 'B';
@@ -430,7 +443,7 @@ export function DjMixer({
   const playing = v.phase === 'playing' || v.phase === 'starting';
   // while B is about to come in the button waits (a second press does nothing, review L5)
   const canPlay = ['ready', 'paused', 'playing'].includes(v.phase);
-  const syncOn = v.sync && v.syncable;
+  const syncOn = v.sync && v.syncable && !v.solo;
   const backing = v.phase === 'backing';
   // B's tempo as Sync sets it (37g: "−1.6%" in green): as it plays, else as it will
   const aBpm = s.a?.info?.bpm ?? s.a?.grid?.bpm ?? null;
@@ -438,6 +451,8 @@ export function DjMixer({
   const syncRate = v.rateB ?? syncRatioFromBpm(aBpm, bBpm)?.rate ?? 1;
   const syncPct = Math.round((syncRate - 1) * 1000) / 10;
   const playWhy = canPlay ? null : status;
+  const handWhy = session.handOverWhy();
+  const handing = v.phase === 'handing';
 
   return (
     <section
@@ -495,12 +510,14 @@ export function DjMixer({
           <button
             type="button"
             className={styles.handOver}
-            aria-disabled="true"
-            title={HAND_OVER_WAIT}
+            aria-disabled={handWhy !== null}
+            aria-keyshortcuts="H"
+            title={handWhy ?? `Hand over: ${bTitle} becomes the player’s track (H)`}
             data-dj-hand-over=""
-            onClick={() => store.announce(HAND_OVER_WAIT)}
+            data-handing={handing ? '' : undefined}
+            onClick={() => store.handOver()}
           >
-            Hand over to B
+            {handing ? 'Handing over…' : 'Hand over to B'}
           </button>
         </div>
         <p className={styles.status} data-dj-mix-status="">
@@ -580,6 +597,7 @@ export function statusWords(v: MixView, a: string, b: string): string {
     case 'starting':
       return `${b} comes in on ${a}’s next bar`;
     case 'playing':
+      if (v.solo) return `${b} on its own · Hand over makes it the player’s track`;
       return v.rateB !== null
         ? `Both on the speakers · ${b} on ${a}’s beat`
         : 'Both on the speakers';
@@ -587,6 +605,8 @@ export function statusWords(v: MixView, a: string, b: string): string {
       return `${b} paused · Play B carries on on ${a}’s next bar`;
     case 'backing':
       return `Bringing ${a} back over a bar`;
+    case 'handing':
+      return `Handing over to ${b}: ${a} out over a bar`;
     default:
       return '';
   }

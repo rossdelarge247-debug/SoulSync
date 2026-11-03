@@ -332,7 +332,6 @@ describe('the hard stops: never silent, never "playing" while silent', () => {
   for (const [event, words] of [
     ['seeking', 'The blend stopped: Night Ferry moved'],
     ['ended', 'Night Ferry ended: the blend stopped'],
-    ['loadstart', 'The blend stopped'],
   ] as const) {
     it(`${event}: the decks out over 40 ms, the element unmuted at its level`, async () => {
       await cued();
@@ -341,6 +340,11 @@ describe('the hard stops: never silent, never "playing" while silent', () => {
       expect(r.el.muted).toBe(true);
       if (event === 'ended') r.el.ended = true;
       r.el.dispatchEvent(new Event(event));
+      // a seek waits a moment (the player loading another track seeks first, step 4)
+      if (event === 'seeking') {
+        expect(r.session.snapshot().aOnDeck).toBe(true);
+        await r.advance(0.07);
+      }
       expect(r.el.muted).toBe(false);
       expect(r.el.volume).toBeCloseTo(0.7);
       const t = r.engine.port.time;
@@ -358,6 +362,9 @@ describe('the hard stops: never silent, never "playing" while silent', () => {
     await r.advance(1);
     r.el.paused = true;
     r.el.dispatchEvent(new Event('pause'));
+    // a moment first: a pause on the way to another track isn't the listener's (step 4)
+    expect(r.engine.suspended).toBe(0);
+    await r.advance(0.07);
     expect(r.engine.suspended).toBe(1);
     expect(r.engine.paused).toEqual([true]);
     r.el.paused = false;
@@ -689,6 +696,7 @@ describe('review round 2', () => {
     await r.advance(1);
     r.el.paused = true;
     r.el.dispatchEvent(new Event('pause'));
+    await r.advance(0.07);
     expect(r.engine.state).toBe('suspended');
     r.said.length = 0;
     r.session.end();
@@ -790,8 +798,9 @@ describe('3b: Tempo, Key lock, Headphones, cue jumps (438–443)', () => {
     r.session.setDeck('A', 'tempo', 5);
     await r.advance(5);
     r.el.currentTime = 40;
+    await r.advance(0.07);
     expect(r.session.snapshot().aOnDeck).toBe(false);
-    expect(r.el.currentTime).toBe(40);
+    expect(r.el.currentTime).toBeCloseTo(40.07, 2);
     expect(r.el.muted).toBe(false);
   });
 

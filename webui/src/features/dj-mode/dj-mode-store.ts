@@ -59,6 +59,8 @@ export interface LaneTrack {
   /** what the drag carried, until the DJ data says */
   key?: string | null;
   bpm?: number | null;
+  /** B: the track as the player's queue takes it (Hand over, 414); fetched when the drag didn't carry it */
+  queue?: Record<string, unknown> | null;
 }
 
 export interface LaneInfo {
@@ -109,6 +111,7 @@ export type MixPhaseLike =
   | 'playing'
   | 'paused'
   | 'backing'
+  | 'handing'
   | 'failed';
 
 export interface MixState {
@@ -121,6 +124,10 @@ export interface MixState {
   sync: boolean;
   /** the decks' windows as levels (3b: a zoomed lane's detail) */
   levels?: Record<'A' | 'B', import('./dj-mix-session').DeckLevels | null>;
+  /** the last Hand over, while its notice shows (37i) */
+  handed?: import('./dj-mix-session').Handed | null;
+  /** B playing on its own (A finished, 37j) */
+  solo?: boolean;
 }
 
 /** What the mixer (step 3) lends the store: it lives with the Visuals' pieces. */
@@ -143,6 +150,14 @@ export interface MixerHooks {
   togglePhones?(deck: 'A' | 'B'): void;
   toggleKeyLock?(deck: 'A' | 'B'): void;
   jump?(deck: 'A' | 'B', seconds: number): 'seek' | 'cue' | 'jumped' | 'outside';
+  /** Hand over (414, step 4): false (and said why) when it can't */
+  handOver?(): boolean;
+  /** why Hand over can't happen now, or null */
+  handOverWhy?(): string | null;
+  /** Hand over's Undo (10 s) */
+  undoHandOver?(): Promise<boolean>;
+  /** A's end is DJ mode's (A ran out while B plays: a Hand over) */
+  ownsAdvance?(): boolean;
 }
 
 export const IDLE_MIX: MixState = { phase: 'idle', window: null, rateB: null, sync: false };
@@ -228,6 +243,10 @@ export function laneTrackFromItem(item: DragItem): LaneTrack {
     duration: duration > 0 ? duration : null,
     key: item.key ?? null,
     bpm: item.bpm ?? null,
+    queue:
+      item.queue && typeof item.queue.file_path === 'string' && item.queue.file_path
+        ? item.queue
+        : null,
   };
 }
 
@@ -264,6 +283,13 @@ export class DjModeStore {
   private readonly cueStore: CueStore;
   /** the tracks whose failed cue save has been said (once a track, L1) */
   private readonly unsavedSaid = new Set<string>();
+  /** B as it was when it was handed over: Undo puts it back in its lane, cued */
+  private handedB: LaneTrack | null = null;
+  /** the player's element, watched for A's end while DJ mode is on (37j's words) */
+  private endedEl: EventTarget | null = null;
+  /** the lane A track whose element ended, until the player moves on */
+  private aEnded: string | null = null;
+  private endedTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: DjModeDeps = {}) {
     this.win = deps.win ?? window;
@@ -371,21 +397,67 @@ export class DjModeStore {
       this.setOn(false);
       return;
     }
+    this.watchEnded();
     const { track } = this.player();
     const id = track?.id === null || track?.id === undefined ? '' : String(track.id);
     if (track && id && id !== this.s.a?.track.id) {
+      const was = this.s.a?.track ?? null;
+      const ended = was !== null && this.aEnded === was.id;
+      this.aEnded = null;
       this.loadLane('a', laneTrackFromPlayer(track));
       // the player moved onto B's track: B would be the playing track itself
+      // (a Hand over says so itself)
       if (this.s.b?.track.id === id) this.clearLane('b');
+      else if (this.s.b && was) {
+        // 37j: the player obeyed (Next, a row played, A ended into Up next): B stays loaded
+        const now = track.title || 'The next track';
+        const head = ended ? `${was.title || 'The track'} ended · ` : '';
+        this.say(`${head}${now} is playing · ${this.s.b.track.title || 'B'} still cued`);
+      }
     }
   }
 
+  /** A's end (37j's words): watched on the player's element while DJ mode is on. */
+  private watchEnded(): void {
+    let el: EventTarget | null = null;
+    try {
+      el =
+        (
+          this.win as Window & { SoulSyncPlayer?: { audio?: () => EventTarget | null } }
+        ).SoulSyncPlayer?.audio?.() ?? null;
+    } catch {
+      el = null;
+    }
+    if (!this.s.on || typeof el?.addEventListener !== 'function') el = null;
+    if (el === this.endedEl) return;
+    this.endedEl?.removeEventListener('ended', this.onAEnded);
+    this.endedEl = el;
+    el?.addEventListener('ended', this.onAEnded);
+  }
+
+  private readonly onAEnded = () => {
+    const a = this.s.a;
+    if (!this.s.on || !a) return;
+    this.aEnded = a.track.id;
+    if (this.endedTimer) clearTimeout(this.endedTimer);
+    // Up next ran out (37j): the player stops; DJ mode stays with A at its end
+    this.endedTimer = setTimeout(() => {
+      this.endedTimer = null;
+      const b = this.s.b;
+      if (!this.s.on || !b || this.blending() || this.s.mix.solo) return;
+      if (this.playingId() !== a.track.id || this.aEnded !== a.track.id) return;
+      this.say(`${a.track.title || 'The track'} ended · nothing in Up next · Play B to carry on`);
+    }, 400);
+  };
+
+  /**
+   * The overlay opened or closed. DJ mode stays on with it closed (37j: ×
+   * closes the overlay and the blend goes on; the player bar shows one line
+   * while it's on, 37o); the decks don't need the stage.
+   */
   setOpen(open: boolean): void {
     if (open === this.s.open) return;
     this.set({ open });
-    // closing the overlay ends DJ mode, a blend with it (the hard stop: A
-    // back on its element at once); step 4 keeps it on with the overlay closed (37o)
-    if (!open && this.s.on) this.setOn(false);
   }
 
   // ── on and off ─────────────────────────────────────────────────────────
@@ -400,11 +472,16 @@ export class DjModeStore {
       const { track } = this.player();
       this.set({ on: true });
       if (track) this.loadLane('a', laneTrackFromPlayer(track));
+      this.watchEnded();
       this.say('DJ mode on');
       return true;
     }
     this.browseCloser?.();
     this.mixer?.end();
+    this.handedB = null;
+    this.aEnded = null;
+    if (this.endedTimer) clearTimeout(this.endedTimer);
+    this.endedTimer = null;
     // the cues waiting to be saved go now; picks and zoom are this visit's
     this.cueStore.flush();
     this.set({ pick: { a: null, b: null }, zoom: { a: 'whole', b: 'whole' } });
@@ -414,11 +491,17 @@ export class DjModeStore {
     // asked again next time DJ mode opens (review N1)
     this.asked.clear();
     this.set({ on: false });
+    this.watchEnded();
     this.say('DJ mode off');
     return true;
   }
 
+  /** D (37p): on or off, off only when nothing is blending (Back ends a blend over a bar). */
   toggle(): boolean {
+    if (this.s.on && this.blending()) {
+      this.say('Blending · Back ends it over a bar');
+      return true;
+    }
     return this.setOn(!this.s.on);
   }
 
@@ -490,10 +573,64 @@ export class DjModeStore {
       was.levels?.A === mix.levels?.A &&
       was.levels?.B === mix.levels?.B &&
       was.window?.start === mix.window?.start &&
-      was.window?.end === mix.window?.end
+      was.window?.end === mix.window?.end &&
+      was.handed === mix.handed &&
+      Boolean(was.solo) === Boolean(mix.solo)
     )
       return;
     this.set({ mix });
+  }
+
+  // ── Hand over (step 4: 414, 37i) ───────────────────────────────────────
+
+  /** Why Hand over can't happen now (the button's title), or null. */
+  handOverWhy(): string | null {
+    if (!this.s.on || !this.s.b) return 'Load a second track first';
+    try {
+      return this.mixer?.handOverWhy?.() ?? 'The decks aren’t ready';
+    } catch {
+      return 'The decks aren’t ready';
+    }
+  }
+
+  /** H or the button: B becomes the player's track (414). False when there's no B. */
+  handOver(): boolean {
+    if (!this.s.on || !this.s.b) return false;
+    const b = this.s.b.track;
+    try {
+      if (this.mixer?.handOver?.()) this.handedB = b;
+    } catch {
+      /* the mixer says why itself */
+    }
+    return true;
+  }
+
+  /** Hand over's Undo (10 s): A back as the player's track, B back in its lane, cued. */
+  async undoHandOver(): Promise<boolean> {
+    const b = this.handedB;
+    const mixer = this.mixer;
+    if (!this.s.on || !b || !mixer?.undoHandOver) return false;
+    this.handedB = null;
+    let ok = false;
+    try {
+      ok = await mixer.undoHandOver();
+    } catch {
+      ok = false;
+    }
+    if (!ok || !this.s.on) return false;
+    this.refresh();
+    this.loadB(b, { announce: false });
+    this.say(`Undone: ${this.s.a?.track.title || 'A'} is back · ${b.title || 'B'} cued`);
+    return true;
+  }
+
+  /** A's end is DJ mode's while B plays (the player asks, media-player.js). */
+  ownsAdvance(): boolean {
+    try {
+      return Boolean(this.s.on && this.mixer?.ownsAdvance?.());
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -570,9 +707,40 @@ export class DjModeStore {
     // never under a blend: B is in the speakers (Back first)
     if (this.blending()) return false;
     this.loadLane('b', track);
+    if (!track.queue) void this.loadQueueTrack(this.gen.b, track.id);
     // said once, unless the caller says it itself (a drop's toast)
     if (announce) this.say(`${track.title || 'The track'} loaded as B, cued`);
     return true;
+  }
+
+  /** B as the player's queue takes it, for Hand over (Browse's rows and some drags don't carry it). */
+  private async loadQueueTrack(gen: number, id: string): Promise<void> {
+    const body = (await this.getJson(`/api/library/dj/track/${encodeURIComponent(id)}`)) as {
+      track?: Record<string, unknown> & { file_missing?: boolean };
+    } | null;
+    if (!this.live('b', gen)) return;
+    const t = body?.track;
+    if (!t || t.file_missing || typeof t.file_path !== 'string' || !t.file_path) return;
+    const lane = this.s.b;
+    if (!lane) return;
+    const duration = Number(t.duration_ms);
+    this.setLane('b', {
+      track: {
+        ...lane.track,
+        queue: {
+          id: t.id,
+          title: t.title,
+          artist: t.artist_name,
+          album: t.album_title,
+          file_path: t.file_path,
+          artist_id: t.artist_id,
+          album_id: t.album_id,
+          image_url: t.image_url,
+          bitrate: t.bitrate,
+          duration: duration > 0 ? Math.round(duration / 1000) : undefined,
+        },
+      },
+    });
   }
 
   /** One polite announcement for a change of state the lanes see (the mix-out reached). */

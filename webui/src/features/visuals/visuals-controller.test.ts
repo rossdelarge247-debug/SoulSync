@@ -807,6 +807,55 @@ describe('DJ mode, a mode of the stage (Brief F, 37b, 37l)', () => {
   });
 });
 
+describe('Data mid-blend asks first (step 4, 37l)', () => {
+  it('No keeps the blend and the family; Yes is Back (the fader to A over a bar)', async () => {
+    const { djModeStore, resetDjModeStore } = await import('@/features/dj-mode/dj-mode-store');
+    resetDjModeStore();
+    (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = {
+      state: () => ({
+        track: { id: 't1', title: 'Night Ferry', is_library: true, filename: '/m/1.flac' },
+        kind: 'library',
+      }),
+    };
+    const store = djModeStore({
+      fetch: async () => new Response('{}', { status: 404 }),
+      analyse: () => undefined,
+      analysis: {
+        watch: () => () => undefined,
+        entry: () => undefined,
+        subscribe: () => () => undefined,
+      },
+      say: () => undefined,
+      phone: () => false,
+    });
+    const back = vi.fn();
+    store.setOn(true);
+    store.setMixer({
+      blending: () => true,
+      backOverBar: back,
+      end: () => undefined,
+      playB: () => true,
+      positionB: () => null,
+    });
+    const h = harness();
+    h.c.setOpen(true);
+    h.c.setFamily('synchros');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    h.c.setFamily('data');
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(back).not.toHaveBeenCalled();
+    expect(h.c.snapshot().family).toBe('synchros');
+    confirm.mockReturnValue(true);
+    h.c.setFamily('data');
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(h.c.snapshot().family).toBe('data');
+    confirm.mockRestore();
+    h.c.dispose();
+    resetDjModeStore();
+    delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+  });
+});
+
 describe('Data during auto-mix (review M3)', () => {
   it('while auto-mix owns playback the fading element’s volume isn’t divided out, nor called Muted', () => {
     const h = harness();

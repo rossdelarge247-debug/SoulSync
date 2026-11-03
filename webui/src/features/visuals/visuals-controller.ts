@@ -545,9 +545,23 @@ export class VisualsController {
   }
 
   setFamily(family: Family, moved: Moved = 'picked'): void {
-    // Data is a mode of the stage too (37l): choosing it turns DJ mode off
-    // (nothing blends in step 2, so it doesn't ask)
-    if (family === 'data' && this.s.djMode) djModeStore().back();
+    // Data is a mode of the stage too (37l): choosing it turns DJ mode off;
+    // mid-blend it asks first, and Back then ends the blend over a bar
+    if (family === 'data' && this.s.djMode) {
+      const dj = djModeStore();
+      if (dj.blending()) {
+        let yes = false;
+        try {
+          yes = this.win.confirm(
+            'Data turns DJ mode off: the blend ends, the fader back to A over a bar. Carry on?',
+          );
+        } catch {
+          yes = false;
+        }
+        if (!yes) return;
+      }
+      dj.back();
+    }
     if (family === this.s.family) return;
     this.clearPreview(true);
     savePrefs({ family });

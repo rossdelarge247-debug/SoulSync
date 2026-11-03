@@ -155,6 +155,12 @@ export class FakeAudio extends EventTarget {
   muted = false;
   volume = 0.7;
   playbackRate = 1;
+  /** as the element does: paused, and it says so */
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.dispatchEvent(new Event('pause'));
+  }
 }
 
 /** 120 BPM: a beat every 0.5 s, a bar every 2 s, the first downbeat at 1 s. */

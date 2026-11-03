@@ -477,6 +477,43 @@ html[data-player='tray'] .ss-player-bar { display: none; }
     font-variant-numeric: tabular-nums;
 }
 
+/* DJ mode on with the Visuals closed (Brief F step 4, 37o): one green line */
+.ss-player-dj-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 340px;
+    min-height: 32px;
+    padding: 0 4px 0 12px;
+    border: 1px solid rgba(74, 222, 128, 0.35);
+    border-radius: 8px;
+    background: rgba(74, 222, 128, 0.08);
+    color: var(--ss-text);
+    font-size: 13px;
+    white-space: nowrap;
+}
+.ss-player-dj-line[hidden] { display: none; }
+.ss-player-dj-line { flex: none; }
+/* the line takes its room from the waveform, not from the volume or Up next */
+.ss-player-bar:has(.ss-player-dj-line:not([hidden])) { grid-template-columns: 300px minmax(0, 1fr) auto; }
+.ss-player-dj-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #4ade80; }
+.ss-player-dj-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ss-player-dj-sep { color: var(--ss-text-secondary); }
+.ss-player-dj-open {
+    min-height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: rgb(var(--ss-accent-light-rgb));
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.ss-player-dj-open:hover { background: var(--ss-hover-wash); }
+.ss-player-dj-open:focus-visible { outline: 2px solid rgb(var(--ss-accent-light-rgb)); outline-offset: 1px; }
+
 /* ── the tray ────────────────────────────────────────────────────────── */
 
 .ss-player-tray {

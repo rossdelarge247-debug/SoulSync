@@ -58,6 +58,12 @@ export function djMixSession(): DjMixSession {
       audio: () => player()?.audio?.() ?? null,
       state: () => player()?.state?.() ?? null,
       seek: (seconds) => player()?.seek?.(seconds),
+      // Hand over (step 4, 414): B's row after the playing one, played joining deck B
+      next: () => player()?.next?.(),
+      playIndex: (index, options) =>
+        player()?.playIndex?.(index, options) ?? Promise.resolve({ status: 'failed' }),
+      insertNext: (track) => player()?.insertNext?.(track) ?? -1,
+      remove: (index) => player()?.remove?.(index),
     },
     async engine(): Promise<EngineLike | null> {
       if (typeof AudioWorkletNode === 'undefined') return null;

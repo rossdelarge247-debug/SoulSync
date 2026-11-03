@@ -20,7 +20,10 @@ const HTML = `
       <button id="np-v2-visuals-dj-btn" aria-pressed="false" hidden>DJ mode</button>
       <button id="np-v2-visuals-dj-close" hidden></button>
     </div>
-  </div></div>`;
+  </div></div>
+  <div id="ss-player-bar">
+    <span id="ss-player-dj-line" hidden><span id="ss-player-dj-text"></span><button id="ss-player-dj-open">Open</button></span>
+  </div>`;
 
 const FERRY = { id: '2', title: 'Night Ferry', is_library: true, filename: '/m/2.flac' };
 
@@ -127,7 +130,7 @@ describe('the toggle (37a)', () => {
     expect(layer).toHaveBeenCalledTimes(1);
   });
 
-  it('closing the overlay turns it off (nothing is blending in step 2)', async () => {
+  it('closing the overlay keeps DJ mode on (step 4, 37j); its keys wait for the overlay', async () => {
     player(FERRY);
     overlay().classList.remove('hidden');
     await tick();
@@ -135,7 +138,10 @@ describe('the toggle (37a)', () => {
     expect(window.SoulSyncDj!.on()).toBe(true);
     overlay().classList.add('hidden');
     await tick();
-    expect(window.SoulSyncDj!.on()).toBe(false);
+    expect(window.SoulSyncDj!.on()).toBe(true);
+    // with the overlay closed B and H are nobody's
+    expect(window.SoulSyncDj!.key('B')).toBe(false);
+    expect(window.SoulSyncDj!.key('H')).toBe(false);
   });
 });
 
@@ -277,5 +283,79 @@ describe('the keys (37p)', () => {
     expect($('np-v2-visuals-dj-btn').hidden).toBe(true);
     overlay().classList.remove('hidden');
     expect(window.SoulSyncDj!.key('D')).toBe(false);
+  });
+});
+
+describe('the player bar’s one line with the Visuals closed (step 4, 37o)', () => {
+  const line = () => $('ss-player-dj-line');
+  const text = () => $('ss-player-dj-text').textContent;
+
+  it('none with DJ mode off, ever; with it on and B loaded, one line, its Open opens the Visuals', async () => {
+    player(FERRY);
+    await tick();
+    expect(line().hidden).toBe(true);
+    overlay().classList.remove('hidden');
+    await tick();
+    window.SoulSyncDj!.key('D');
+    // B loaded, the overlay still open: nothing in the bar
+    djModeStore().loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    expect(line().hidden).toBe(true);
+    overlay().classList.add('hidden');
+    await tick();
+    expect(line().hidden).toBe(false);
+    expect(text()).toBe('DJ mode · Harbour Lights cued');
+    djModeStore().setMix({ phase: 'playing', window: null, rateB: null, sync: true });
+    expect(text()).toBe('DJ mode · blending into Harbour Lights');
+    $('ss-player-dj-open').click();
+    expect(overlay().classList.contains('hidden')).toBe(false);
+    await tick();
+    expect(line().hidden).toBe(true);
+  });
+
+  it('gone with Hand over (B empties) and with Back', async () => {
+    player(FERRY);
+    overlay().classList.remove('hidden');
+    await tick();
+    window.SoulSyncDj!.key('D');
+    djModeStore().loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    overlay().classList.add('hidden');
+    await tick();
+    expect(line().hidden).toBe(false);
+    // the player takes B: lane A is B's track, lane B empties
+    player({ ...FERRY, id: '8', title: 'Harbour Lights' });
+    await tick();
+    expect(line().hidden).toBe(true);
+    djModeStore().setOn(false);
+    expect(line().hidden).toBe(true);
+  });
+});
+
+describe('H and the advance (step 4, 37p, 37j)', () => {
+  it('H is Hand over in the overlay with B loaded; else nobody’s', async () => {
+    player(FERRY);
+    overlay().classList.remove('hidden');
+    await tick();
+    expect(window.SoulSyncDj!.key('H')).toBe(false);
+    window.SoulSyncDj!.key('D');
+    expect(window.SoulSyncDj!.key('H')).toBe(false);
+    djModeStore().loadB({ id: '8', title: 'Harbour Lights', inLibrary: true });
+    const handOver = vi.fn(() => true);
+    djModeStore().setMixer({
+      blending: () => true,
+      backOverBar: () => undefined,
+      end: () => undefined,
+      playB: () => true,
+      positionB: () => null,
+      handOver,
+      handOverWhy: () => null,
+      ownsAdvance: () => true,
+    });
+    expect(window.SoulSyncDj!.key('H')).toBe(true);
+    expect(handOver).toHaveBeenCalledTimes(1);
+    expect(window.SoulSyncDj!.ownsAdvance()).toBe(true);
+    // DJ mode mid-blend: D doesn't turn it off
+    window.SoulSyncDj!.key('D');
+    expect(window.SoulSyncDj!.on()).toBe(true);
+    expect(said.at(-1)).toBe('Blending · Back ends it over a bar');
   });
 });

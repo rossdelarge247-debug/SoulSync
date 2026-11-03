@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 describe('the table (one place for 287)', () => {
-  it('maps M, ⇧M, N, ⇧N, A, X, T, D, B and ⇧P, and nothing else', () => {
+  it('maps M, ⇧M, N, ⇧N, A, X, T, D, B, ⇧P and H, and nothing else', () => {
     expect(handler().table).toEqual({
       M: ['dj:M', 'mix:M', 'mute'],
       '⇧M': ['mute'],
@@ -74,6 +74,7 @@ describe('the table (one place for 287)', () => {
       D: ['dj:D'],
       B: ['dj:B'],
       '⇧P': ['dj:⇧P'],
+      H: ['dj:H'],
       '1': ['dj:1'],
       '2': ['dj:2'],
       '3': ['dj:3'],
@@ -84,6 +85,31 @@ describe('the table (one place for 287)', () => {
       '⇧+': ['dj:+'],
       '=': ['dj:+'],
     });
+  });
+
+  it('step 4: H is DJ mode’s Hand over; with DJ mode not taking it, nobody’s', () => {
+    let takes = true;
+    const djKey = vi.fn(() => takes);
+    const w = window as unknown as { SoulSyncDj?: unknown };
+    w.SoulSyncDj = { key: djKey };
+    try {
+      const { handle } = handler();
+      const e = key('h');
+      handle(e);
+      expect(djKey).toHaveBeenCalledWith('H');
+      expect(e.defaultPrevented).toBe(true);
+      takes = false;
+      const f = key('H');
+      handle(f);
+      expect(f.defaultPrevented).toBe(false);
+    } finally {
+      delete w.SoulSyncDj;
+    }
+    // DJ mode off (no bridge): the key does nothing at all
+    const { handle } = handler();
+    const g = key('h');
+    handle(g);
+    expect(g.defaultPrevented).toBe(false);
   });
 
   it('3b: M, 1–4, Z, − and + ask DJ mode first; M mutes when DJ mode doesn’t take it', () => {
