@@ -13,6 +13,8 @@ import {
   CueStore,
   cueWords,
   emptyCues,
+  MAX_BAR,
+  MIN_BAR,
   placeLabel,
   SAVE_DELAY_MS,
   withCue,
@@ -31,6 +33,17 @@ describe('placing a cue', () => {
     // inside the track
     expect(cueAt(1, 400, null, 300).seconds).toBe(300);
     expect(cueAt(1, -3, null, 300).seconds).toBe(0);
+  });
+
+  it('a bar the server can’t keep (L1): the cue keeps its seconds, with no bar', () => {
+    // the first downbeat at 1,201 s: a cue at 1 s is 600 bars before it, still kept
+    const late = new BeatGrid({ period: 0.5, firstBeat: 1201 });
+    expect(cueAt(1, 1, late, 3000).bar).toBe(-600);
+    // at 4,001 s it's 2,000 bars before: past the bound, so its seconds only
+    const later = new BeatGrid({ period: 0.5, firstBeat: 4001 });
+    expect(cueAt(1, 1, later, 6000)).toEqual({ slot: 1, bar: null, seconds: 1 });
+    expect(MIN_BAR).toBe(-1000);
+    expect(MAX_BAR).toBe(10000);
   });
 
   it('follows the grid: a re-analysis that moves it moves the cue', () => {

@@ -185,6 +185,91 @@ describe('the Monitor (37g)', () => {
   });
 });
 
+describe('the Monitor’s device (H1)', () => {
+  /** A graph whose nodes take any connection, and an element whose device may refuse. */
+  function monitor(refuse: () => boolean) {
+    const node = () => {
+      const n = {
+        gain: {
+          target: 1,
+          setTargetAtTime(v: number) {
+            n.gain.target = v;
+          },
+        },
+        pan: { value: 0 },
+        stream: {},
+        channelCount: 2,
+        connect: (to: unknown) => to,
+        disconnect: () => undefined,
+      };
+      return n;
+    };
+    const ctx = {
+      currentTime: 0,
+      destination: {},
+      createGain: node,
+      createStereoPanner: node,
+      createMediaStreamDestination: node,
+      createChannelMerger: node,
+    } as unknown as AudioContext;
+    const g: MonitorGraph = {
+      context: ctx,
+      cueBus: node() as never,
+      out: node() as never,
+      tap: node() as never,
+    };
+    const el = {
+      srcObject: null as unknown,
+      sinks: [] as string[],
+      played: 0,
+      setSinkId: async (id: string) => {
+        el.sinks.push(id);
+        if (refuse()) throw new Error('NotAllowedError');
+      },
+      play: async () => {
+        el.played += 1;
+      },
+      pause: () => undefined,
+    };
+    const router = new MonitorRouter(g, () => el as never);
+    return { router, el };
+  }
+  const two = { case: 'two', headphones: SCARLETT } as OutputState;
+
+  it('a refused setSinkId stays muted on the next route, which tries the device again', async () => {
+    let refuse = true;
+    const { router, el } = monitor(() => refuse);
+    expect(await router.route(two)).toBe(false);
+    expect(router.isMuted).toBe(true);
+    expect(el.played).toBe(0);
+    // a refresh (devicechange, Outputs…, Split) with the same state
+    expect(await router.route(two)).toBe(false);
+    expect(router.isMuted).toBe(true);
+    expect(el.sinks).toEqual(['s2', 's2']);
+    expect(el.played).toBe(0);
+    // it takes: unmuted, and only now heard
+    refuse = false;
+    expect(await router.route(two)).toBe(true);
+    expect(router.isMuted).toBe(false);
+    expect(el.played).toBe(1);
+    // the same state again: the fast path, nothing set again
+    expect(await router.route(two)).toBe(true);
+    expect(el.sinks).toHaveLength(3);
+    router.dispose();
+  });
+
+  it('the headphones back with the same id: the device is set again', async () => {
+    const { router, el } = monitor(() => false);
+    await router.route(two);
+    await router.route({ case: 'phonesLost', headphones: SCARLETT } as OutputState);
+    expect(router.isMuted).toBe(true);
+    await router.route(two);
+    expect(el.sinks).toEqual(['s2', 's2']);
+    expect(router.isMuted).toBe(false);
+    router.dispose();
+  });
+});
+
 describe('the outputs as the page runs them', () => {
   let r: Rig;
   let devices: MediaDeviceInfo[];

@@ -43,12 +43,20 @@ export function cueSetOf(list: readonly Cue[] | null | undefined): CueSet {
 }
 
 /** A cue at a time: on the nearest beat with a grid (its bar to the beat), else the time itself. */
+/** The bars a cue can sit at on the grid (core/dj/cues.py MIN_BAR, MAX_BAR). */
+export const MIN_BAR = -1000;
+export const MAX_BAR = 10000;
+
 export function cueAt(slot: number, seconds: number, grid: BeatGrid | null, duration: number): Cue {
   const t = Math.max(0, Math.min(duration > 0 ? duration : Infinity, seconds));
   if (!grid) return { slot, bar: null, seconds: round(t, 3) };
   const beat = Math.round(grid.beatAt(t));
   const bar = (beat - grid.downbeatIndex) / 4;
-  return { slot, bar, seconds: round(Math.max(0, grid.timeAt(beat)), 4) };
+  const at = round(Math.max(0, grid.timeAt(beat)), 4);
+  // a bar the server can't keep (L1): the cue keeps its seconds instead,
+  // so it's saved, just not moved by a later re-analysis
+  if (!(bar >= MIN_BAR && bar <= MAX_BAR)) return { slot, bar: null, seconds: at };
+  return { slot, bar, seconds: at };
 }
 
 function round(x: number, d: number): number {

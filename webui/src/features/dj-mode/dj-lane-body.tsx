@@ -103,6 +103,17 @@ export function LaneBody({
       c ? { slot: c.slot, x: duration > 0 ? cueSeconds(c, gridT) / duration : 0 } : null,
     )
     .filter((c): c is { slot: number; x: number } => c !== null && c.x >= 0 && c.x <= 1);
+  const discs = cues.map((c) => (
+    <span
+      key={c.slot}
+      className={styles.cueDisc}
+      data-picked={pick === c.slot ? '' : undefined}
+      data-dj-cue-disc={c.slot}
+      style={{ left: `${c.x * 100}%` }}
+    >
+      {c.slot}
+    </span>
+  ));
   const layer = { '--zoom-scale': String(scale) } as CSSProperties;
   // zoomed, the deck's window gives the detail the 200 peaks can't (37s)
   const detail = zoomed ? s.mix.levels?.[deck === 'a' ? 'A' : 'B'] : null;
@@ -245,18 +256,13 @@ export function LaneBody({
                 ) : null}
               </span>
             ))}
-            {cues.map((c) => (
-              <span
-                key={c.slot}
-                className={styles.cueDisc}
-                data-picked={pick === c.slot ? '' : undefined}
-                data-dj-cue-disc={c.slot}
-                style={{ left: `${c.x * 100}%` }}
-              >
-                {c.slot}
-              </span>
-            ))}
+            {discs}
           </div>
+        </div>
+      ) : cues.length ? (
+        // no grid (yet): the cues still have their band (M4)
+        <div className={styles.map} data-cues="" data-dj-cue-band="" aria-hidden="true">
+          <div className={styles.zoomLayer}>{discs}</div>
         </div>
       ) : null}
     </div>

@@ -135,6 +135,8 @@ export interface MixerHooks {
   playB(): boolean;
   /** B's place now while it plays (lane B's playhead) */
   positionB(): number | null;
+  /** A's place on its deck while it's there (the element only keeps time near enough, M1) */
+  positionA?(): number | null;
   /** A is playing on DJ mode's deck (its element muted under it) */
   holdsTrack?(): boolean;
   /** A deck's Headphones, Key lock and jumps (3b); the session's */
@@ -260,6 +262,8 @@ export class DjModeStore {
   private gridFor: Record<Deck, number | null> = { a: null, b: null };
   private readonly now: () => number;
   private readonly cueStore: CueStore;
+  /** the tracks whose failed cue save has been said (once a track, L1) */
+  private readonly unsavedSaid = new Set<string>();
 
   constructor(deps: DjModeDeps = {}) {
     this.win = deps.win ?? window;
@@ -511,6 +515,17 @@ export class DjModeStore {
     return this.mixer?.positionB() ?? null;
   }
 
+  /** A's place in its track: deck A's own while it's on its deck, else the player's element. */
+  positionA(): number | null {
+    try {
+      const p = this.mixer?.positionA?.() ?? null;
+      if (p !== null && Number.isFinite(p)) return p;
+    } catch {
+      /* the element's, then */
+    }
+    return this.audioTime();
+  }
+
   /** A is on DJ mode's deck: auto-mix, made now, must hold (re-review N3). */
   holdsTrack(): boolean {
     try {
@@ -661,16 +676,26 @@ export class DjModeStore {
     const cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
     const cues = withCue(lane.cues, cue);
     this.setLane(deck, { cues });
-    this.cueStore.save(lane.track.id, cues, () => this.say('The cues couldn’t be saved'));
+    this.cueStore.save(lane.track.id, cues, () => this.cuesNotSaved(lane.track.id));
     this.say(cueWords(had ? 'moved' : 'placed', this.deckName(deck), cue));
     return true;
+  }
+
+  /**
+   * A refused or failed save (L1): the cues stay as placed for this visit,
+   * and that's said once a track, not at every move.
+   */
+  private cuesNotSaved(trackId: string): void {
+    if (this.unsavedSaid.has(trackId)) return;
+    this.unsavedSaid.add(trackId);
+    this.say('The cues couldn’t be saved: they’re kept here until the page is closed');
   }
 
   /** The picked cue at the playhead (Enter on the lane: placing without a pointer). */
   placeAtPlayhead(deck: Deck): boolean {
     if (this.s.pick[deck] === null) return false;
     let t: number | null;
-    if (deck === 'a') t = this.player().track ? this.audioTime() : null;
+    if (deck === 'a') t = this.player().track ? this.positionA() : null;
     else t = this.positionB() ?? this.s.b?.cue ?? null;
     return t === null ? false : this.placeCue(deck, t);
   }
@@ -693,7 +718,7 @@ export class DjModeStore {
     if (!lane || slot === null || !lane.cues[slot - 1]) return false;
     const cues = withoutCue(lane.cues, slot);
     this.setLane(deck, { cues });
-    this.cueStore.save(lane.track.id, cues, () => this.say('The cues couldn’t be saved'));
+    this.cueStore.save(lane.track.id, cues, () => this.cuesNotSaved(lane.track.id));
     this.say(`Cue ${slot} on deck ${this.deckName(deck)} removed`);
     return true;
   }

@@ -21,6 +21,10 @@ import { DjOutputs } from './dj-outputs-host';
 let outputs: DjOutputs;
 let devices: OutputDevice[];
 let cuesPut: unknown[];
+/** A's grid can't be had (M4) */
+let noGridA = false;
+/** the server refuses the cues' save (L1) */
+let refuseCues = false;
 
 function makeOutputs(): DjOutputs {
   return new DjOutputs(
@@ -72,6 +76,7 @@ function makeStore(): DjModeStore {
       const m = /\/api\/library\/dj\/grid\/([^/]+)$/.exec(url);
       if (m) {
         const id = decodeURIComponent(m[1]!);
+        if (id === '2' && noGridA) return new Response('{}', { status: 404 });
         const g =
           id === '2'
             ? apiGrid({ track_id: '2' })
@@ -94,7 +99,7 @@ function makeStore(): DjModeStore {
       if (/\/api\/library\/dj\/cues\//.test(url)) {
         if (init?.method === 'PUT') {
           cuesPut.push(JSON.parse(init.body as string));
-          return new Response('{}');
+          return new Response('{}', { status: refuseCues ? 400 : 200 });
         }
         return new Response(
           JSON.stringify({ cues: url.endsWith('/8') ? [{ slot: 2, bar: 4, seconds: 8.18 }] : [] }),
@@ -129,6 +134,8 @@ beforeEach(async () => {
     { id: 's2', label: 'Scarlett 2i2' },
   ];
   cuesPut = [];
+  noGridA = false;
+  refuseCues = false;
   said = [];
   reduce = false;
   window.matchMedia = ((q: string) => ({
@@ -286,6 +293,28 @@ describe('the lane strip, cues and zoom (37g, 37s)', () => {
     expect(store.snapshot().on).toBe(true);
   });
 
+  it('a refused save keeps the cues placed and says so once (L1)', async () => {
+    refuseCues = true;
+    await withB();
+    for (const slot of [1, 3]) {
+      act(() => {
+        store.pressCue('b', slot);
+        store.placeCue('b', 20 + slot);
+      });
+      await flush(700);
+    }
+    expect(cuesPut).toHaveLength(2);
+    expect(
+      store
+        .snapshot()
+        .b!.cues.filter(Boolean)
+        .map((c) => c!.slot),
+    ).toEqual([1, 2, 3]);
+    expect(said.filter((w) => w.startsWith('The cues couldn’t be saved'))).toEqual([
+      'The cues couldn’t be saved: they’re kept here until the page is closed',
+    ]);
+  });
+
   it('a set cue pressed on cued B moves where Play B starts', async () => {
     await withB();
     fireEvent.click(document.querySelector('[data-dj-strip="b"] [data-dj-cue="2"]')!);
@@ -312,6 +341,48 @@ describe('the lane strip, cues and zoom (37g, 37s)', () => {
       expect(store.laneKey('Z', 'b')).toBe(true);
     });
     expect(pill).toHaveTextContent('whole track');
+  });
+});
+
+describe('lane A without a grid (M4)', () => {
+  it('zoom falls back to 2 s a bar, and a cue is placed and drawn without the beat map', async () => {
+    store.dispose();
+    noGridA = true;
+    store = makeStore();
+    outputs = makeOutputs();
+    store.setOn(true);
+    await withB();
+    expect(store.snapshot().a!.phase).toBe('no_grid');
+    const laneA = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
+    act(() => {
+      store.zoom('a', 1);
+    });
+    const body = laneA.querySelector<HTMLElement>('[data-zoomed]')!;
+    // 64 bars at 2 s a bar is 128 s of the 286: the layer is 286/128 lanes wide
+    expect(Number(body.style.getPropertyValue('--zoom-scale'))).toBeCloseTo(286 / 128, 3);
+    act(() => {
+      store.zoom('a', -1);
+    });
+    fireEvent.click(laneA.querySelector('[data-dj-strip="a"] [data-dj-cue="1"]')!);
+    const wave = laneA.querySelector<HTMLElement>('[data-dj-wave="a"]')!;
+    wave.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        width: 286,
+        top: 0,
+        height: 50,
+        right: 286,
+        bottom: 50,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.click(wave, { clientX: 60 });
+    const cue = store.snapshot().a!.cues[0]!;
+    expect(cue).toEqual({ slot: 1, bar: null, seconds: 60 });
+    expect(laneA.querySelector('[data-dj-beat-map]')).toBeNull();
+    const band = laneA.querySelector('[data-dj-cue-band]')!;
+    expect(band.querySelector('[data-dj-cue-disc="1"]')).not.toBeNull();
   });
 });
 

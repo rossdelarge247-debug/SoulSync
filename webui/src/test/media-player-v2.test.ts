@@ -2127,12 +2127,79 @@ describe('the Visuals keys (HANDOFF 60)', () => {
   });
 
   it('L asks DJ mode first (3b key lock), then is the A–B loop', () => {
-    const v2src = readFileSync(resolve(process.cwd(), 'static/media-player-v2.js'), 'utf8');
-    const body = v2src.slice(
-      v2src.indexOf("case 'L':"),
-      v2src.indexOf('npv2AbToggle();', v2src.indexOf("case 'L':")),
-    );
-    expect(body).toContain("window.SoulSyncDj.key('L')");
+    const w = window as unknown as { SoulSyncDj?: { key: (k: string) => boolean } };
+    const asked: string[] = [];
+    let takes = true;
+    w.SoulSyncDj = {
+      key: (k) => {
+        asked.push(k);
+        return takes;
+      },
+    };
+    try {
+      const { calls, press } = keys(true, false);
+      // DJ mode takes it (a lane focused, or B loaded): key lock, no loop
+      expect(press('l')).toBe(true);
+      expect(asked).toEqual(['L']);
+      expect(calls).toEqual([]);
+      // DJ mode passes: the A–B loop, as always
+      takes = false;
+      expect(press('L')).toBe(true);
+      expect(asked).toEqual(['L', 'L']);
+      expect(calls).toEqual(['a-b loop']);
+    } finally {
+      delete w.SoulSyncDj;
+    }
+    // without DJ mode at all: the loop
+    const { calls, press } = keys(true, false);
+    press('l');
+    expect(calls).toEqual(['a-b loop']);
+  });
+
+  it('the element’s rate while DJ mode holds the track is neither snapped nor saved (3b, review M1)', () => {
+    const run = (holds: boolean | null) => {
+      const saved: [string, string][] = [];
+      const speeds: number[] = [];
+      const NPV2 = { speed: 1 };
+      const el = { playbackRate: 1.05 };
+      const fakeWindow = holds === null ? {} : { SoulSyncDj: { holdsTrack: () => holds } };
+      const factory = new Function(
+        'stubs',
+        'window',
+        `const { NPV2, npv2ClampSpeed, npv2Set, npv2SetSpeed, npv2AudioEl } = stubs;
+        ${extractFunction('npv2OnRateChange', v2)}
+        return { npv2OnRateChange };`,
+      );
+      const api = factory(
+        {
+          NPV2,
+          npv2ClampSpeed: (v: number) =>
+            [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].reduce((b, p) =>
+              Math.abs(p - v) < Math.abs(b - v) ? p : b,
+            ),
+          npv2Set: (k: string, v: string) => saved.push([k, v]),
+          npv2SetSpeed: (v: number) => {
+            speeds.push(v);
+            el.playbackRate = v;
+          },
+          npv2AudioEl: () => el,
+        },
+        fakeWindow,
+      ) as { npv2OnRateChange: (e: { target: unknown }) => void };
+      api.npv2OnRateChange({ target: el });
+      return { saved, speeds, el, NPV2 };
+    };
+    // DJ mode holds the track: deck A's Tempo drives the muted element
+    const held = run(true);
+    expect(held.saved).toEqual([]);
+    expect(held.speeds).toEqual([]);
+    expect(held.el.playbackRate).toBe(1.05);
+    expect(held.NPV2.speed).toBe(1);
+    // otherwise (OS media keys, say) it's adopted, as before
+    for (const free of [run(false), run(null)]) {
+      expect(free.saved).toEqual([['speed', '1']]);
+      expect(free.speeds).toEqual([1]);
+    }
   });
 
   it('the shortcuts list has DJ mode’s 3b keys', () => {

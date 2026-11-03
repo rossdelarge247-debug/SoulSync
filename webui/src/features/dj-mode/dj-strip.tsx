@@ -38,7 +38,7 @@ export function LaneStrip({
   if (!lane) return null;
   const D = deck === 'a' ? 'A' : 'B';
   const settings = v.decks[D];
-  const why = headphonesWhy(o.state);
+  const why = o.known ? headphonesWhy(o.state) : null;
   const pick = s.pick[deck];
   return (
     <div

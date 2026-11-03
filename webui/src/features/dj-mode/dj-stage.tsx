@@ -242,6 +242,7 @@ function usePlayhead(
   },
   announce: (words: string) => void,
   onElementDuration: (seconds: number) => void,
+  posA: () => number | null,
 ): void {
   const grid = lane.phase === 'ready' ? lane.grid : null;
   const title = lane.track.title;
@@ -252,6 +253,8 @@ function usePlayhead(
   const trackId = lane.track.id;
   const durRef = useRef(onElementDuration);
   durRef.current = onElementDuration;
+  const posRef = useRef(posA);
+  posRef.current = posA;
   useEffect(() => {
     let id = 0;
     let second = Number.NaN;
@@ -259,7 +262,8 @@ function usePlayhead(
     let elDur = Number.NaN;
     const tick = () => {
       const el = playerAudio();
-      const t = el?.currentTime ?? 0;
+      // deck A's own place while it's on its deck (M1), else the element's
+      const t = posRef.current() ?? el?.currentTime ?? 0;
       const ed = el && Number.isFinite(el.duration) ? el.duration : 0;
       // the element's length as it loads (review N2): the lane draws its map once it's known
       if (ed !== elDur) {
@@ -316,8 +320,14 @@ function LaneA({
   // kept in state as the element's loads (N2)
   const [elementDuration, setElementDuration] = useState(0);
   const duration = lane.duration || elementDuration;
-  usePlayhead(lane, duration, refs, (w) => store.announce(w), setElementDuration);
-  const ready = lane.phase === 'ready' && lane.grid && duration > 0;
+  usePlayhead(
+    lane,
+    duration,
+    refs,
+    (w) => store.announce(w),
+    setElementDuration,
+    () => store.positionA(),
+  );
   return (
     <section
       ref={wave}
@@ -342,10 +352,12 @@ function LaneA({
       <LaneBody
         deck="a"
         lane={lane}
-        duration={ready ? duration : 0}
+        // the real length even without a grid (M4): zoom falls back to 2 s
+        // a bar and cues can still be placed; LaneBody gates the grid's layers
+        duration={duration}
         store={store}
         s={s}
-        now={() => playerAudio()?.currentTime ?? 0}
+        now={() => store.positionA() ?? 0}
       />
       {lane.phase === 'analysing' || lane.phase === 'waiting' ? <Analysing lane={lane} /> : null}
       {lane.phase === 'no_grid' ? <NoGrid lane={lane} /> : null}

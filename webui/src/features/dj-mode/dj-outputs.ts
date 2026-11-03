@@ -29,7 +29,7 @@
  */
 import type { OutputDevice } from '@/shell/player-output';
 
-import { CueRouter } from '@/features/engine/outputs';
+import { CueRouter, type CueRouterOptions } from '@/features/engine/outputs';
 
 export const DJ_OUTPUTS_KEY = 'soulsync-dj-outputs';
 
@@ -216,10 +216,15 @@ export class MonitorRouter {
   private readonly router: CueRouter;
   private mode: 'device' | 'split' | null = null;
   private deviceId = '';
+  /** the last apply took (setSinkId resolved) and nothing was lost since */
+  private applied = false;
   private level = 1;
   private muted = false;
 
-  constructor(private readonly g: MonitorGraph) {
+  constructor(
+    private readonly g: MonitorGraph,
+    makeElement?: CueRouterOptions['makeElement'],
+  ) {
     const ctx = g.context;
     this.cueAmt = ctx.createGain();
     this.mixAmt = ctx.createGain();
@@ -231,19 +236,33 @@ export class MonitorRouter {
       mix: g.out,
       mixTarget: g.tap,
       cueBus: this.volume,
+      // 37r: the cue in the left ear, the speakers in the right
+      cueEar: 'left',
+      makeElement,
     });
   }
 
-  /** Route as the outputs say: to the headphones' device, split, or nowhere. Resolves false when the device refused. */
+  /**
+   * Route as the outputs say: to the headphones' device, split, or nowhere.
+   * Resolves false when the device refused. The fast path (same device, no
+   * change) is taken only while the last apply took and nothing was lost
+   * since: a refused or lost device is applied again, muted until it takes,
+   * so the cue never plays where the element was left (the speakers).
+   */
   async route(s: OutputState): Promise<boolean> {
     if (s.case === 'two' && s.headphones) {
-      if (this.mode === 'device' && this.deviceId === s.headphones.id) {
+      if (this.mode === 'device' && this.deviceId === s.headphones.id && this.applied) {
         this.setMuted(false);
         return true;
       }
+      this.setMuted(true);
       this.mode = 'device';
       this.deviceId = s.headphones.id;
+      this.applied = false;
       const ok = await this.router.apply({ mode: 'device', deviceId: s.headphones.id });
+      // a later route may have moved on while this one waited
+      if (this.mode !== 'device' || this.deviceId !== s.headphones.id) return ok;
+      this.applied = ok;
       this.setMuted(!ok);
       return ok;
     }
@@ -251,13 +270,17 @@ export class MonitorRouter {
       if (this.mode !== 'split') {
         this.mode = 'split';
         this.deviceId = '';
+        this.applied = false;
         await this.router.apply({ mode: 'split', deviceId: '' });
+        this.applied = true;
       }
       this.setMuted(false);
       return true;
     }
     if (s.case === 'phonesLost' || s.case === 'speakersLost') {
-      // muted where it is: nothing that wasn't on the speakers goes there
+      // muted where it is: nothing that wasn't on the speakers goes there;
+      // when they come back the device is set again (same id or not)
+      this.applied = false;
       this.setMuted(true);
       return true;
     }
@@ -296,6 +319,7 @@ export class MonitorRouter {
     if (this.mode) this.router.dispose();
     this.mode = null;
     this.deviceId = '';
+    this.applied = false;
   }
 
   dispose(): void {

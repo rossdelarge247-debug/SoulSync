@@ -213,6 +213,8 @@ export const FADE_S = 0.08;
 export const HARD_S = 0.04;
 /** A control's change is a ramp this long: no zipper, no click. */
 export const RAMP_S = 0.02;
+/** the element further than this from deck A is put where A is before A goes back onto it (M1) */
+export const ALIGN_S = 0.04;
 /** A window starts this far before where it's needed. */
 const PRE_S = 0.5;
 /**
@@ -271,6 +273,8 @@ export class DjMixSession {
   private rateA0 = 1;
   /** the session's own seek of the element (a cue on A): not a person's */
   private ownSeek = false;
+  /** A has left its own speed during this take-over: its mode stays stretch (L3) */
+  private aMoved = false;
   private ended = false;
   /** a lane was waiting for its grid: Sync arriving with it is said (420) */
   private waited = false;
@@ -356,6 +360,16 @@ export class DjMixSession {
 
   get blending(): boolean {
     return ['starting', 'playing', 'backing'].includes(this.v.phase);
+  }
+
+  /**
+   * A's place in its track while it's on its deck (deck A's own position:
+   * the muted element under it keeps time, but only near enough), else null.
+   * Cue placement, lane A's playhead and zoom read this first (review M1).
+   */
+  positionA(): number | null {
+    if (!this.engine || !this.v.aOnDeck) return null;
+    return this.engine.position('A');
   }
 
   /** B's place in its track now, while it plays (lane B's playhead), else null. */
@@ -704,8 +718,12 @@ export class DjMixSession {
   /** A deck's mode: Key lock time-stretches (the key stays); off, the deck varispeeds. */
   private modeFor(deck: DeckId, rate: number): 'resample' | 'stretch' {
     if (!this.v.decks[deck].keyLock) return 'resample';
-    // at its own speed the two are the same samples; stretch only when it moves
-    return deck === 'B' || Math.abs(rate - 1) > 1e-6 ? 'stretch' : 'resample';
+    if (deck === 'B') return 'stretch';
+    // at its own speed the two are the same samples; A stretches once it
+    // moves, and stays stretched for the rest of this take-over, so a Tempo
+    // passing 0 doesn't flip the mode back and forth (review L3)
+    if (Math.abs(rate - 1) > 1e-6) this.aMoved = true;
+    return this.aMoved ? 'stretch' : 'resample';
   }
 
   /**
@@ -715,6 +733,9 @@ export class DjMixSession {
    * the place carried on: no jump, so no click.
    */
   setTempo(deck: DeckId, value: number): void {
+    // B on its way in: its start (and Sync's lock) is laid for A's next
+    // bar, so both Tempos wait until it's in (the faders say so, L2)
+    if (this.v.phase === 'starting') return;
     const range = this.v.decks[deck].range;
     const v = Math.max(-range, Math.min(range, Math.round(value * 10) / 10));
     if (deck === 'B' && this.v.sync && this.v.syncable) {
@@ -742,6 +763,10 @@ export class DjMixSession {
       this.rateA = this.rateA0 * tempoRate(this.v.values.A.tempo);
       engine.mode('A', this.modeFor('A', this.rateA / this.rateA0));
       engine.map('A', t * sr, [{ f: t * sr, p, r: this.rateA }]);
+      // the muted element keeps time with deck A (so the player's clock and
+      // its end stay A's); the player's speed control ignores a change while
+      // DJ mode holds the track and never saves it (media-player-v2.js), and
+      // lane A and the cues read deck A itself (positionA, review M1)
       if (this.el) this.el.playbackRate = this.rateA;
       // B held to A follows A's new tempo, where it is
       if (this.v.rateB !== null && (this.v.phase === 'playing' || this.v.phase === 'backing'))
@@ -781,6 +806,8 @@ export class DjMixSession {
   }
 
   setRange(deck: DeckId, range: TempoRange): void {
+    // a narrower range would move the tempo, which waits while B starts (L2)
+    if (this.v.phase === 'starting' && Math.abs(this.v.values[deck].tempo) > range) return;
     const decks = { ...this.v.decks, [deck]: { ...this.v.decks[deck], range } };
     this.update({ decks });
     const tempo = this.v.values[deck].tempo;
@@ -1027,6 +1054,7 @@ export class DjMixSession {
     const ctx = engine.context;
     this.rateA0 = el.playbackRate > 0 ? el.playbackRate : 1;
     this.rateA = this.rateA0 * tempoRate(this.v.values.A.tempo);
+    this.aMoved = false;
     const T = ctx.currentTime + AHEAD_S;
     const from = el.currentTime + AHEAD_S * this.rateA;
     this.applyAll(ctx.currentTime);
@@ -1324,6 +1352,7 @@ export class DjMixSession {
     if (engine && this.v.aOnDeck) {
       const now = engine.context.currentTime;
       const level = this.level();
+      this.alignElement();
       if (el && !el.paused && !el.ended && !this.suspended) {
         el.volume = 0;
         el.muted = false;
@@ -1339,12 +1368,35 @@ export class DjMixSession {
   }
 
   /**
+   * The element to where deck A is (review M1): it follows A's speed, but a
+   * browser's rate is only near enough, so before A goes back onto it the
+   * element is put where A is when they've drifted apart (the session's own
+   * seek, not a person's).
+   */
+  private alignElement(): void {
+    const el = this.el;
+    if (!el || !this.v.aOnDeck || el.ended) return;
+    const p = this.engine?.position('A') ?? null;
+    if (p === null || !Number.isFinite(p)) return;
+    if (Math.abs(el.currentTime - p) <= ALIGN_S) return;
+    this.ownSeek = true;
+    try {
+      el.currentTime = p;
+    } catch {
+      this.ownSeek = false;
+    }
+  }
+
+  /**
    * The hard stop (a close, DJ mode off, a seek, another track, the track's
    * end): the decks out over 40 ms, the element unmuted at its level at once.
+   * `align`: the element put where deck A is first (not for a person's seek
+   * or the track's end, where the element is already where it should be).
    */
-  private hardStop(words: string | null, keep = true): void {
+  private hardStop(words: string | null, keep = true, align = true): void {
     const engine = this.engine;
     this.clearLater();
+    if (align) this.alignElement();
     if (this.v.aOnDeck) {
       if (engine) this.silence(engine, this.el, this.level());
       else if (this.el) {
@@ -1375,6 +1427,7 @@ export class DjMixSession {
     const el = this.el;
     if (el && this.v.aOnDeck && el.playbackRate !== this.rateA0) el.playbackRate = this.rateA0;
     this.rateA = this.rateA0;
+    this.aMoved = false;
     this.ownSeek = false;
     if (this.v.values.A.tempo !== 0)
       this.update({ values: { ...this.v.values, A: { ...this.v.values.A, tempo: 0 } } });
@@ -1552,19 +1605,19 @@ export class DjMixSession {
       this.ownSeek = false;
       return;
     }
-    this.hardStop(`The blend stopped: ${this.a?.title || 'the track'} moved`);
+    this.hardStop(`The blend stopped: ${this.a?.title || 'the track'} moved`, true, false);
   };
 
   /** A ran out on its deck's watch: the player goes on as it always does (Hand over is step 4). */
   private readonly onEnded = () => {
     if (this.ended) return;
     this.ended = true;
-    this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false);
+    this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
   };
 
   private readonly onOther = () => {
     if (!this.v.aOnDeck) return;
-    this.hardStop('The blend stopped', false);
+    this.hardStop('The blend stopped', false, false);
   };
 
   dispose(): void {

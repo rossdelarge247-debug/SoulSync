@@ -35,6 +35,11 @@ export interface OutputsView {
   /** names hidden by the browser until it's allowed the microphone (Chrome) */
   unnamed: boolean;
   prefs: DjOutputPrefs;
+  /**
+   * The devices have been listed at least once. Until then the case is a
+   * placeholder: nothing is said, routed or remembered from it.
+   */
+  known: boolean;
 }
 
 export function browserOutputsEnv(win: Window = window): OutputsEnv {
@@ -100,6 +105,7 @@ export class DjOutputs {
       devices: [],
       unnamed: false,
       prefs,
+      known: false,
     };
   }
 
@@ -131,8 +137,13 @@ export class DjOutputs {
     this.dropRouter();
   }
 
-  /** The devices again: the case, the routing, and what changed said once. */
-  async refresh(): Promise<void> {
+  /**
+   * The devices again: the case, the routing, and what changed said once.
+   * Only while DJ mode is on (`start`) is anything said or a default
+   * remembered; the first listing is never said (it isn't a change), and
+   * the settings panel's listing (`quiet`) never says anything.
+   */
+  async refresh({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
     let list: MediaDeviceInfo[] = [];
     try {
       list = await this.env.enumerate();
@@ -140,7 +151,7 @@ export class DjOutputs {
       list = [];
     }
     const { devices, unnamed } = listOutputs(list);
-    const was = this.v.state;
+    const was = this.v.known ? this.v.state : null;
     const state = decideOutputs({
       devices,
       speakersId: this.env.speakersId(),
@@ -150,6 +161,7 @@ export class DjOutputs {
     // the headphones found by default are remembered (37r: "remembered by
     // name"), so they're missed when they go rather than quietly forgotten
     if (
+      this.started &&
       state.case === 'two' &&
       state.headphones &&
       !this.v.prefs.headphones &&
@@ -159,9 +171,10 @@ export class DjOutputs {
       saveOutputPrefs(this.env.storage, prefs);
       this.set({ prefs });
     }
-    this.set({ state, devices, unnamed });
-    if (was.case !== state.case) this.sayChange(was, state);
-    if (state.case === 'speakersLost' && was.case !== 'speakersLost') this.session.speakersLost();
+    this.set({ state, devices, unnamed, known: true });
+    if (!this.started) return;
+    if (was && was.case !== state.case && !quiet) this.sayChange(was, state);
+    if (state.case === 'speakersLost' && was?.case !== 'speakersLost') this.session.speakersLost();
     await this.route();
   }
 
@@ -181,7 +194,7 @@ export class DjOutputs {
       this.dropRouter();
       return;
     }
-    if (parts.context !== this.routedFor) void this.route();
+    if (parts.context !== this.routedFor && this.v.known) void this.route();
     const m = this.session.snapshot().monitor;
     const key = `${m.mix}|${m.volume}`;
     if (this.router && key !== this.lastMonitor) {
@@ -191,6 +204,7 @@ export class DjOutputs {
   }
 
   private async route(): Promise<void> {
+    if (!this.started || !this.v.known) return;
     const parts = this.session.engineParts();
     const g = parts?.graph;
     const tap = this.env.tap();
@@ -237,15 +251,16 @@ export class DjOutputs {
 
   setSplit(on: boolean): void {
     this.save({ ...this.v.prefs, split: on });
-    this.say(
-      on ? 'Split cue on: the cue in the left ear, the speakers in the right' : 'Split cue off',
-    );
+    if (this.started)
+      this.say(
+        on ? 'Split cue on: the cue in the left ear, the speakers in the right' : 'Split cue off',
+      );
   }
 
   private save(prefs: DjOutputPrefs): void {
     saveOutputPrefs(this.env.storage, prefs);
     this.set({ prefs });
-    void this.refresh();
+    void this.refresh({ quiet: true });
   }
 
   get muted(): boolean {

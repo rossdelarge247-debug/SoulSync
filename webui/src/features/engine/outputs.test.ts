@@ -53,7 +53,7 @@ function param() {
   return { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {} };
 }
 
-function router() {
+function router(over: { cueEar?: 'left' | 'right'; refuse?: boolean } = {}) {
   const ctx = new FakeCtx();
   const mix = new Node('mix');
   const analyser = new Node('analyser');
@@ -63,10 +63,14 @@ function router() {
   const sinks: string[] = [];
   const el = {
     srcObject: null as unknown,
+    played: 0,
     setSinkId: async (id: string) => {
       sinks.push(id);
+      if (over.refuse) throw new Error('NotAllowedError');
     },
-    play: async () => {},
+    play: async () => {
+      el.played += 1;
+    },
     pause() {},
   };
   const r = new CueRouter({
@@ -75,6 +79,7 @@ function router() {
     mixTarget: analyser as unknown as AudioNode,
     cueBus: cueBus as unknown as AudioNode,
     makeElement: () => el as never,
+    cueEar: over.cueEar,
   });
   return { ctx, mix, analyser, cueBus, r, el, sinks };
 }
@@ -142,6 +147,27 @@ describe('headphones (23b)', () => {
     expect(cueBus.out.size).toBe(1);
     r.dispose();
     expect(el.srcObject).toBeNull();
+  });
+
+  it('split with the cue left (DJ mode, 37r): the cue into channel 0, the speakers into 1', async () => {
+    const { ctx, analyser, cueBus, r } = router({ cueEar: 'left' });
+    await r.apply({ mode: 'split', deviceId: '' });
+    const merger = ctx.made.find((n) => n.name === 'merger')!;
+    const channelOf = (from: Node) => merger.inputs.find(([n]) => n === [...from.out][0])![1];
+    expect(channelOf(cueBus)).toBe(0);
+    expect(channelOf(analyser)).toBe(1);
+    // and Decks keeps its cue right
+    const d = router();
+    await d.r.apply({ mode: 'split', deviceId: '' });
+    const m2 = d.ctx.made.find((n) => n.name === 'merger')!;
+    expect(m2.inputs.find(([n]) => n === [...d.cueBus.out][0])![1]).toBe(1);
+  });
+
+  it('a refused device: false, and the element never plays on the default output', async () => {
+    const { r, el, sinks } = router({ refuse: true });
+    expect(await r.apply({ mode: 'device', deviceId: 'airpods' })).toBe(false);
+    expect(sinks).toEqual(['airpods']);
+    expect(el.played).toBe(0);
   });
 
   it('tests one ear at a time', async () => {

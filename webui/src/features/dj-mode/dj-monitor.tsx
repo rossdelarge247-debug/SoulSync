@@ -40,7 +40,7 @@ export function MonitorBlock({
       back.current?.focus();
     });
   }, [open, addCloser]);
-  if (!monitorShown(o.state)) return null;
+  if (!o.known || !monitorShown(o.state)) return null;
   const cued = (['A', 'B'] as const).filter((d) => v.decks[d].phones);
   const cuedWords =
     cued.length === 2 ? 'A and B' : cued.length ? `${cued[0]} alone` : 'nothing cued';
@@ -172,14 +172,22 @@ export function OutputsPanel({ outputs }: { outputs: DjOutputs }) {
   const others = o.devices.filter((d) => d.id !== st.speakers.id);
   const chosen = o.prefs.none ? '' : (st.headphones?.id ?? '');
   useEffect(() => {
-    void outputs.refresh();
+    // listing only: the settings panel never says anything
+    void outputs.refresh({ quiet: true });
   }, [outputs]);
   return (
     <div className={styles.outputs} data-dj-outputs="">
       <p className={styles.outputsRow}>
         <span className={styles.outputsLabel}>Speakers</span>
-        <span className={styles.outputsValue} data-tone={st.speakers.connected ? 'ok' : 'warn'}>
-          {st.speakers.connected ? st.speakers.label : `${st.speakers.label} isn’t connected`}
+        <span
+          className={styles.outputsValue}
+          data-tone={!o.known || st.speakers.connected ? 'ok' : 'warn'}
+        >
+          {!o.known
+            ? 'Looking for outputs…'
+            : st.speakers.connected
+              ? st.speakers.label
+              : `${st.speakers.label} isn’t connected`}
         </span>
       </p>
       <p className={styles.outputsNote}>

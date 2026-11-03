@@ -388,6 +388,7 @@ export function DjMixer({
         return phase === 'playing' ? session.pauseB() : session.playB();
       },
       positionB: () => session.positionB(),
+      positionA: () => session.positionA(),
       holdsTrack: () => session.snapshot().aOnDeck,
       togglePhones: (d) => session.setPhones(d, !session.snapshot().decks[d].phones),
       toggleKeyLock: (d) => session.setKeyLock(d, !session.snapshot().decks[d].keyLock),
@@ -552,13 +553,18 @@ export function DjMixer({
             why:
               deck === 'A' && !v.aOnDeck
                 ? 'A’s tempo moves once A is on its deck (Play B): the player’s own speed is untouched'
-                : null,
+                : v.phase === 'starting'
+                  ? TEMPO_STARTING_WHY
+                  : null,
           }}
         />
       ))}
     </section>
   );
 }
+
+/** B on its way in (on A's next bar, L2): both Tempos wait, as B's map is being laid. */
+export const TEMPO_STARTING_WHY = 'Tempo moves once B is in, on A’s next bar';
 
 /** The one line under the buttons: where the blend is, in words (not a live region). */
 export function statusWords(v: MixView, a: string, b: string): string {

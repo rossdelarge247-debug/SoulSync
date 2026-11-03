@@ -249,12 +249,22 @@ function SettingsPortal() {
  * player's own output), the headphones and split cue. Laptops and desktops
  * only, as DJ mode is (417).
  */
-function DjOutputsPortal() {
+export function DjOutputsPortal() {
   const [target, setTarget] = useState<HTMLElement | null>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     setTarget(document.getElementById('ss-dj-outputs-settings'));
+    // mounted (and so listing the outputs) only while Player settings is
+    // open: with DJ mode off, opening Visuals lists, says and saves nothing
+    const panel = document.getElementById('np-v2-settings-panel');
+    if (!panel) return;
+    const check = () => setOpen(!panel.hidden && !panel.classList.contains('hidden'));
+    check();
+    const watch = new MutationObserver(check);
+    watch.observe(panel, { attributes: true, attributeFilter: ['class', 'hidden'] });
+    return () => watch.disconnect();
   }, []);
-  if (!target || isPhone(window)) return null;
+  if (!target || !open || isPhone(window)) return null;
   return createPortal(
     <>
       <p className="ss-player-section">DJ outputs</p>
