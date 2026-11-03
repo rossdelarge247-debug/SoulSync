@@ -760,6 +760,7 @@ export class DjMixSession {
     this.endPreviewTimer();
     // B's own play stops with it: the lanes changed (review L-1)
     this.dropHand();
+    this.nudgeBase = null;
     if (this.v.previewB && this.engine) {
       try {
         this.engine.stop('B', Math.round((this.now() + 0.01) * this.engine.sampleRate));
@@ -1275,8 +1276,9 @@ export class DjMixSession {
       aBeat = a.grid.barBeat(nb.bar);
     }
     this.started = { T, posA, bFrom, Tb };
-    // a hand on B gives way to the blend (review M-3)
+    // a hand on B gives way to the blend (review M-3), and an arrow's base goes (N-3)
     this.dropHand();
+    this.nudgeBase = null;
     // B's own play before the blend gives way to the synced start (step 4b)
     this.endPreviewTimer();
     if (this.v.previewB || this.v.parkB !== null) this.update({ previewB: false, parkB: null });
@@ -2252,7 +2254,7 @@ export class DjMixSession {
     const h = this.handOn;
     const engine = this.engine;
     if (!h || h.deck !== deck) return;
-    this.dropHand();
+    this.dropHand(false);
     // the deck has moved on since (Play B, Hand over, Back): it's not the hand's any more
     if (!engine || h.phase !== this.v.phase) return;
     const sr = engine.sampleRate;
@@ -2274,11 +2276,35 @@ export class DjMixSession {
     this.update({ hand: null });
   }
 
-  private dropHand(): void {
+  /**
+   * The hand comes off. `settle` (a phase change took it, not a let-go): a
+   * playing deck goes back to its speed from where it is (Sync's lock for
+   * B, re-review N-2), a scrubbed one stops there.
+   */
+  private dropHand(settle = true): void {
     const h = this.handOn;
     if (!h) return;
     this.d.clearTimeout(h.timer);
     this.handOn = null;
+    const engine = this.engine;
+    if (settle && engine) {
+      try {
+        const sr = engine.sampleRate;
+        const t = this.now() + 0.03;
+        if (h.stopped) engine.stop(h.deck, Math.round((t + 0.01) * sr));
+        else if (h.deck === 'B' && this.lockedB()) this.lockInPlace(t);
+        else {
+          const p = engine.position(h.deck, t);
+          if (p !== null) engine.map(h.deck, t * sr, [{ f: t * sr, p, r: h.base }]);
+        }
+        engine.mode(
+          h.deck,
+          this.modeFor(h.deck, h.deck === 'A' ? this.rateA / this.rateA0 : h.base),
+        );
+      } catch {
+        /* a closed context */
+      }
+    }
     if (this.v.hand !== null) this.update({ hand: null });
   }
 
@@ -2289,6 +2315,9 @@ export class DjMixSession {
    */
   nudge(deck: DeckId, dir: -1 | 0 | 1): boolean {
     const engine = this.engine;
+    // a let-go always forgets the base, even when the deck stopped meanwhile (re-review N-3)
+    const heldBase = this.nudgeBase;
+    if (dir === 0) this.nudgeBase = null;
     if (!engine) return false;
     const playing =
       deck === 'A'
@@ -2299,12 +2328,10 @@ export class DjMixSession {
     const t = this.now() + 0.03;
     const p = engine.position(deck, t);
     if (p === null) return false;
-    const base =
-      deck === 'A' ? this.rateA : (this.nudgeBase ?? rateAt(engine.current('B'), t, sr) ?? 1);
+    const base = deck === 'A' ? this.rateA : (heldBase ?? rateAt(engine.current('B'), t, sr) ?? 1);
     if (dir === 0) {
       if (deck === 'B' && this.lockedB()) this.lockInPlace(t);
       else engine.map(deck, t * sr, [{ f: t * sr, p, r: base }]);
-      this.nudgeBase = null;
       return true;
     }
     if (deck === 'B' && this.nudgeBase === null) this.nudgeBase = base;

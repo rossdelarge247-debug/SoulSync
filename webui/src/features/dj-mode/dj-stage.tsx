@@ -158,6 +158,8 @@ function laneKeys(store: DjModeStore, deck: 'a' | 'b') {
 function laneLeft(store: DjModeStore, deck: 'a' | 'b') {
   return (e: React.FocusEvent<HTMLElement>) => {
     if (e.target !== e.currentTarget) return;
+    // the focus staying in the lane (onto its CUE as it's pressed) isn't leaving it (re-review N-1)
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
     store.releaseHeld(deck);
   };
 }

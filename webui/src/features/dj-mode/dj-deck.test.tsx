@@ -721,3 +721,38 @@ describe('review round 1 (step 4b)', () => {
     spy.mockRestore();
   });
 });
+
+describe('review round 2 (step 4b)', () => {
+  it('N-1: CUE held with the pointer from a focused lane keeps playing as the focus moves onto it (B and A)', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    const cueB = screen.getByRole('button', { name: 'Deck B cue' });
+    act(() => laneB.focus());
+    act(() => {
+      fireEvent.pointerDown(cueB, { button: 0, pointerId: 3 });
+    });
+    act(() => cueB.focus());
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.pointerUp(cueB, { pointerId: 3 });
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // deck A on the player, paused at its cue
+    r.el.paused = true;
+    r.el.currentTime = store.snapshot().a!.cue;
+    const laneA = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
+    const cueA = screen.getByRole('button', { name: 'Deck A cue' });
+    act(() => laneA.focus());
+    playerCalls.length = 0;
+    act(() => {
+      fireEvent.pointerDown(cueA, { button: 0, pointerId: 4 });
+    });
+    act(() => cueA.focus());
+    expect(playerCalls).toEqual([`seek ${store.snapshot().a!.cue}`, 'play']);
+    expect(r.el.paused).toBe(false);
+    // leaving the lane for elsewhere still lets go
+    act(() => {
+      fireEvent.blur(laneA, { relatedTarget: document.body });
+    });
+  });
+});

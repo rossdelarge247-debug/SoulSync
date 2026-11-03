@@ -239,3 +239,39 @@ describe('review round 1 (step 4b)', () => {
     expect(r.engine.port.rate('B', r.engine.port.time + 0.5)).toBeCloseTo(0.96, 2);
   });
 });
+
+describe('review round 2 (step 4b)', () => {
+  it('N-2: a hand on A taken by Back leaves A at its own speed, not the hand’s', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.grab('A')).toBeNull();
+    r.session.moveHand('A', 2);
+    await r.advance(0.05);
+    expect(r.engine.port.rate('A', r.engine.port.time)).toBeGreaterThan(2);
+    r.session.backOverBar(null);
+    expect(r.session.snapshot().hand).toBeNull();
+    expect(r.engine.port.rate('A', r.engine.port.time + 0.2)).toBeCloseTo(1, 4);
+  });
+
+  it('N-3: an arrow let go after B stopped forgets its base; the next nudge uses B’s speed now', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    // held → on B at Sync's 0.96
+    expect(r.session.nudge('B', 1)).toBe(true);
+    r.session.backOverBar(null);
+    await r.advance(2.2);
+    expect(r.session.snapshot().phase).not.toBe('playing');
+    // let go now B's stopped: nothing to remap, but the base is forgotten
+    expect(r.session.nudge('B', 0)).toBe(false);
+    await r.advance(0.6);
+    r.session.setSync(false);
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.engine.port.rate('B', r.engine.port.time)).toBeCloseTo(1, 3);
+    r.session.nudge('B', 1);
+    expect(r.engine.port.rate('B', r.engine.port.time + 0.2)).toBeCloseTo(1.04, 3);
+  });
+});
