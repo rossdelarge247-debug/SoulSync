@@ -106,6 +106,8 @@ declare global {
       beforeLoad(index: number, options?: { automix?: boolean }): void;
       /** other audio than the queue's next row is loading: the decks let go (H2) */
       stop(): void;
+      /** DJ mode holds the playing track on its own deck (Brief F step 3): no plans, no mixes */
+      hold?(on: boolean): void;
       next(): boolean;
       previous(): void;
       key(k: string): boolean;
@@ -502,6 +504,7 @@ export function AutomixHost() {
       crossfade: (current, next) => ctl.crossfade(current, next),
       beforeLoad: (index, options) => ctl.beforeLoad(index, options),
       stop: () => ctl.otherAudio(),
+      hold: (on) => ctl.hold(on),
       next: () => ctl.next(),
       previous: () => ctl.previous(),
       key: (k) => ctl.key(k),
