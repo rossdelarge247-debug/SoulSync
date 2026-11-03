@@ -34,6 +34,7 @@ import type { DragItem } from '@/features/dnd/dnd-model';
 import { AnalysisBar, AnalysisLine, useAnalysis } from '@/features/dj/analysis-line';
 import { KeyChip } from '@/features/dj/key-chip';
 import { refreshOver, useDndSelect, useDropTarget } from '@/features/dnd/dnd-engine';
+import { pyRound } from '@/features/dnd/dnd-model';
 
 import type { DjModeSnapshot, DjModeStore, LaneState, LaneTrack } from './dj-mode-store';
 
@@ -52,6 +53,7 @@ import {
   type LaneGrid,
 } from './dj-mode.logic';
 import styles from './dj-mode.module.css';
+import { syncRatioFromBpm } from './dj-sync';
 
 export const LANE_B_TARGET = 'dj-lane-b';
 
@@ -186,6 +188,7 @@ function LaneHead({
   time,
   timeRef,
   strip,
+  rate,
 }: {
   deck: 'a' | 'b';
   lane: LaneState;
@@ -193,9 +196,14 @@ function LaneHead({
   time: string;
   timeRef?: React.Ref<HTMLSpanElement>;
   strip?: ReactNode;
+  /** B with Sync on: the speed it plays at (37g's "124.0 (−1.6%)") */
+  rate?: number | null;
 }) {
   const { track, info, grid } = lane;
-  const bpm = info?.bpm ?? grid?.bpm ?? null;
+  const own = info?.bpm ?? grid?.bpm ?? null;
+  const bpm = own && rate ? own * rate : own;
+  const pct = rate ? pyRound((rate - 1) * 100, 1) : 0;
+  const note = rate && pct !== 0 ? ` (${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%)` : '';
   return (
     <div className={styles.head}>
       {track.image ? (
@@ -217,6 +225,7 @@ function LaneHead({
             <span className={`${styles.mono} ${styles.bpm}`}>
               {info?.key ? '· ' : ''}
               {bpm.toFixed(1)}
+              {note}
             </span>
           ) : null}
         </span>
@@ -513,6 +522,8 @@ function LaneB({
   lineEnd?: ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const timeB = useRef<HTMLSpanElement>(null);
+  const lineB = useRef<HTMLParagraphElement>(null);
   useDropTarget(LANE_B_TARGET, () => laneTarget(store, () => ref.current));
   const drag = useDndSelect((d) => d.drag);
   const over = useDndSelect((d) => (d.over?.id === LANE_B_TARGET ? d.over : null));
@@ -572,17 +583,35 @@ function LaneB({
   } else {
     const duration = lane.duration ?? 0;
     const ready = lane.phase === 'ready' && lane.grid && duration > 0;
+    const mix = s.mix;
+    const moving = mix.phase === 'playing' || mix.phase === 'backing';
+    // Sync's speed: as it plays, else as it will (37g, before Play B)
+    const planned = mix.sync
+      ? (mix.rateB ??
+        syncRatioFromBpm(s.a?.info?.bpm ?? s.a?.grid?.bpm, lane.info?.bpm ?? lane.grid?.bpm)
+          ?.rate ??
+        null)
+      : null;
     const line = ready ? cuedLine(lane.grid!) : '';
     body = (
       <>
         <LaneHead
           deck="b"
           lane={lane}
-          label="B · cued"
+          label={laneBLabel(mix.phase, mix.sync)}
           time={`${clock(lane.cue)} · ${clock(duration)}`}
+          timeRef={timeB}
           strip={strip}
+          rate={planned}
         />
-        <WaveformB lane={lane} />
+        <WaveformB
+          lane={lane}
+          store={store}
+          moving={moving}
+          window={mix.window}
+          timeRef={timeB}
+          lineRef={lineB}
+        />
         {ready ? <GridRows grid={lane.grid!} duration={duration} /> : null}
         {lane.phase === 'analysing' || lane.phase === 'waiting' ? (
           <Analysing lane={lane} onRemove={remove} />
@@ -591,15 +620,23 @@ function LaneB({
           <NoGrid lane={lane} onBrowse={browse} onRemove={remove} />
         ) : null}
         <div className={styles.foot}>
-          <p id={lineId} className={styles.line} data-dj-line="b">
-            {line}
+          <p ref={lineB} id={lineId} className={styles.line} data-dj-line="b">
+            {/* while B plays, written each second by WaveformB */}
+            {moving ? null : line}
           </p>
           {lineEnd}
         </div>
       </>
     );
   }
-  const name = lane ? laneGroupName('B', lane.track.title, 'cued') : laneGroupName('B', null, '');
+  const playingB = s.mix.phase === 'playing' || s.mix.phase === 'backing';
+  const name = lane
+    ? laneGroupName(
+        'B',
+        lane.track.title,
+        playingB ? 'playing' : s.mix.phase === 'paused' ? 'paused' : 'cued',
+      )
+    : laneGroupName('B', null, '');
   return (
     <section
       ref={ref}
@@ -620,14 +657,85 @@ function LaneB({
   );
 }
 
-/** B's waveform, its playhead at the cue (step 3 starts it there). */
-function WaveformB({ lane }: { lane: LaneState }) {
+/** Lane B's label (37g, 37h): cued, playing on A's beat, paused. */
+export function laneBLabel(phase: string, sync: boolean): string {
+  if (phase === 'playing' || phase === 'backing')
+    return sync ? 'B · playing · on A’s beat' : 'B · playing';
+  if (phase === 'paused') return 'B · paused';
+  if (phase === 'ready' || phase === 'starting') return 'B · cued · plays on A’s next bar';
+  return 'B · cued';
+}
+
+/**
+ * B's waveform: its playhead at the cue, and while B plays it follows the
+ * deck every frame (no render), with the elapsed time each second. The thin
+ * cyan line over it is the deck's 3-minute window (424), from its mix-in (434).
+ */
+function WaveformB({
+  lane,
+  store,
+  moving,
+  window: win,
+  timeRef,
+  lineRef,
+}: {
+  lane: LaneState;
+  store: DjModeStore;
+  moving: boolean;
+  window: { start: number; end: number } | null;
+  timeRef: React.RefObject<HTMLSpanElement | null>;
+  /** B's line in words while it plays (37h: "bar 11 of 128 · …"), each second */
+  lineRef: React.RefObject<HTMLParagraphElement | null>;
+}) {
+  const grid = lane.phase === 'ready' ? lane.grid : null;
   const ref = useRef<HTMLDivElement>(null);
   const d = lane.duration ?? 0;
   useEffect(() => {
-    ref.current?.style.setProperty('--played', d > 0 ? String(Math.min(1, lane.cue / d)) : '0');
-  }, [lane.cue, d]);
-  return <Waveform peaks={lane.peaks} playhead waveRef={ref} />;
+    const put = (t: number) =>
+      ref.current?.style.setProperty(
+        '--played',
+        d > 0 ? String(Math.min(1, Math.max(0, t / d))) : '0',
+      );
+    if (!moving) {
+      put(store.positionB() ?? lane.cue);
+      return;
+    }
+    let id = 0;
+    let second = Number.NaN;
+    const tick = () => {
+      const t = store.positionB() ?? lane.cue;
+      put(t);
+      const sec = Math.floor(t);
+      if (sec !== second) {
+        second = sec;
+        if (timeRef.current) timeRef.current.textContent = `${clock(t)} · ${clock(d)}`;
+        if (lineRef.current) lineRef.current.textContent = grid ? laneLine(grid, t) : '';
+      }
+      id = window.requestAnimationFrame(tick);
+    };
+    tick();
+    return () => window.cancelAnimationFrame(id);
+  }, [lane.cue, d, moving, store, timeRef, lineRef, grid]);
+  const span =
+    win && d > 0
+      ? {
+          left: Math.max(0, Math.min(1, win.start / d)),
+          right: Math.max(0, Math.min(1, win.end / d)),
+        }
+      : null;
+  return (
+    <div className={styles.waveB}>
+      {span && span.right > span.left ? (
+        <span
+          className={styles.window}
+          data-dj-window=""
+          title="The deck’s 3 minutes"
+          style={{ left: `${span.left * 100}%`, width: `${(span.right - span.left) * 100}%` }}
+        />
+      ) : null}
+      <Waveform peaks={lane.peaks} playhead waveRef={ref} />
+    </div>
+  );
 }
 
 /* ── the stage ────────────────────────────────────────────────────────── */

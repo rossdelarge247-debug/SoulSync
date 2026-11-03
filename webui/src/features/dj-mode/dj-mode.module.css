@@ -438,3 +438,28 @@
   );
   pointer-events: none;
 }
+
+/* B's 3-minute window on its deck (424; 434: from its mix-in), a thin cyan
+   line over its waveform */
+.window {
+  position: absolute;
+  top: -5px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dj-b);
+  pointer-events: none;
+}
+
+/* lane B's waveform with its window line over it */
+.waveB {
+  position: relative;
+  flex: 1;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+}
+@container djstage (max-width: 1327px) {
+  .waveB {
+    min-height: 44px;
+  }
+}

@@ -3149,10 +3149,18 @@ function handlePlayerKeyboardShortcuts(event) {
             break;
         }
         case 'p':
-        case 'P':
+        case 'P': {
+            // ⇧P is DJ mode's Play B while it's on with B loaded (37p); else Previous
+            const djActions = event.shiftKey ? NP_LETTER_KEYS['⇧P'] : null;
+            if (djActions && !(event.ctrlKey || event.metaKey || event.altKey) &&
+                djActions.some((action) => npLetterKeyAction(action))) {
+                event.preventDefault();
+                break;
+            }
             event.preventDefault();
             playPreviousInQueue();
             break;
+        }
         case 's':
         case 'S':
             // 24a: S stars or unstars the playing track everywhere (the
@@ -3183,8 +3191,10 @@ function handlePlayerKeyboardShortcuts(event) {
 // radio or spoken audio), else the key is the page's. D is DJ mode (Brief F,
 // 37p; src/features/dj-mode): on or off in the Visuals, and from the tray it
 // opens them in DJ mode; only for a library track on a laptop or desktop, else
-// the key is the page's. B is Browse while DJ mode is on (once step 3 adds it),
-// and while DJ mode is on T says the lyrics come back when it's off.
+// the key is the page's. B is Browse while DJ mode is on, ⇧P is Play B (or
+// Pause B) while it's on with B loaded (else Previous, as P), and while DJ
+// mode is on T says the lyrics come back when it's off. H stays free for
+// step 4's Hand over.
 const NP_LETTER_KEYS = {
     'M': ['mix:M', 'mute'],
     '⇧M': ['mute'],
@@ -3195,6 +3205,7 @@ const NP_LETTER_KEYS = {
     'T': ['dj:T', 'lyrics:T'],
     'D': ['dj:D'],
     'B': ['dj:B'],
+    '⇧P': ['dj:⇧P'],
 };
 
 // true when the action acted (the key is then the page's no more)

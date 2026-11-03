@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 
 import { Button, LabelledSwitch, Select } from '@/components/form';
-import { DjStage } from '@/features/dj-mode/dj-stage';
+import { DjModeStage } from '@/features/dj-mode/dj-mode-stage';
 
 import type { VisualsSnapshot } from './visuals-controller';
 import type { OverlayKey } from './visuals.logic';
@@ -78,13 +78,13 @@ function HeaderBridge() {
   return null;
 }
 
-/** DJ mode's lanes (Brief F, 37b): in their own box before the transport, so focus goes Back → DJ mode → A → B → the transport (37p). */
+/** DJ mode's lanes, mixer and Browse (Brief F, 37b, 37f, 37g): in their own box before the transport, so focus goes Back → DJ mode → A → B → the mixer → the transport (37p). */
 function DjStagePortal() {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setTarget(document.getElementById('ss-dj-stage-root'));
   }, []);
-  return target ? createPortal(<DjStage />, target) : null;
+  return target ? createPortal(<DjModeStage />, target) : null;
 }
 
 function OverlayPieces() {

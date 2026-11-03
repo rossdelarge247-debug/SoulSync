@@ -9,10 +9,13 @@
  * - **D** (NP_LETTER_KEYS in static/media-player.js): in the overlay, DJ mode
  *   on or off; from the tray, the overlay opens in DJ mode. Elsewhere the key
  *   stays the page's (the Artist map's D, the Import inbox's).
- * - **B** opens Browse while DJ mode is on, once step 3 registers it.
+ * - **B** opens Browse while DJ mode is on (step 3 registers it).
+ * - **⇧P** is Play B (or Pause B) while DJ mode is on with B loaded; else
+ *   P and ⇧P stay the player's Previous.
  * - **T** while DJ mode is on says "Lyrics come back when DJ mode is off".
- * - **Esc** (static/media-player-v2.js) is Back while DJ mode is on: in step
- *   2 nothing is ever blending.
+ * - **Esc** (static/media-player-v2.js) closes Browse first; mid-blend it
+ *   only says "Back ends it over a bar" (413: a stray key never ends a
+ *   blend); otherwise it's Back.
  *
  * The lanes themselves are dj-stage.tsx, mounted with the Visuals' pieces.
  */
@@ -80,6 +83,7 @@ export function syncDjChrome(doc: Document, store: DjModeStore): void {
           b: s.b?.track.title || null,
           bPhase: s.b?.phase ?? null,
           browse: s.browse,
+          mix: s.mix.phase,
         })
       : '';
     if (line.textContent !== words) line.textContent = words;
@@ -216,6 +220,7 @@ export function mountDjMode(win: Window = window): DjModeStore {
       }
       if (!s.on || !open) return false;
       if (k === 'B') return store.openBrowse();
+      if (k === '⇧P') return store.playB();
       if (k === 'T') {
         say(LYRICS_WAIT);
         return true;
@@ -223,9 +228,7 @@ export function mountDjMode(win: Window = window): DjModeStore {
       return false;
     },
     escape(): boolean {
-      if (!store.snapshot().on) return false;
-      store.back();
-      return true;
+      return store.escape();
     },
     on: () => store.snapshot().on,
     store,

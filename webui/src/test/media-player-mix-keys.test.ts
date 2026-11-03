@@ -30,7 +30,8 @@ function handler() {
     'handleNpMuteToggle',
     'playNextInQueue',
     `const audioPlayer = null, npQueue = [{ id: '2' }], npVolumePercent = 50, currentTrack = { id: '1' };
-     const npSetVolume = () => {}, togglePlayback = () => {}, playPreviousInQueue = () => {};
+     const npSetVolume = () => {}, togglePlayback = () => {};
+     const playPreviousInQueue = () => window.__previous && window.__previous();
      ${table}
      ${automixFn}
      ${action}
@@ -61,7 +62,7 @@ afterEach(() => {
 });
 
 describe('the table (one place for 287)', () => {
-  it('maps M, ⇧M, N, ⇧N, A, X, T, D and B, and nothing else', () => {
+  it('maps M, ⇧M, N, ⇧N, A, X, T, D, B and ⇧P, and nothing else', () => {
     expect(handler().table).toEqual({
       M: ['mix:M', 'mute'],
       '⇧M': ['mute'],
@@ -72,7 +73,36 @@ describe('the table (one place for 287)', () => {
       T: ['dj:T', 'lyrics:T'],
       D: ['dj:D'],
       B: ['dj:B'],
+      '⇧P': ['dj:⇧P'],
     });
+  });
+
+  it('⇧P is DJ mode’s Play B while it acts; otherwise P and ⇧P are Previous (37p)', () => {
+    const djKey = vi.fn(() => true);
+    const previous = vi.fn();
+    const w = window as unknown as { SoulSyncDj?: unknown; __previous?: unknown };
+    w.SoulSyncDj = { key: djKey };
+    w.__previous = previous;
+    try {
+      const { handle } = handler();
+      const shiftP = key('P', { shiftKey: true });
+      handle(shiftP);
+      expect(djKey).toHaveBeenCalledWith('⇧P');
+      expect(shiftP.defaultPrevented).toBe(true);
+      expect(previous).not.toHaveBeenCalled();
+      // plain P never asks DJ mode
+      djKey.mockClear();
+      handle(key('p'));
+      expect(djKey).not.toHaveBeenCalled();
+      expect(previous).toHaveBeenCalledTimes(1);
+      // DJ mode off (or no B): ⇧P is Previous as before
+      djKey.mockImplementation(() => false);
+      handle(key('P', { shiftKey: true }));
+      expect(previous).toHaveBeenCalledTimes(2);
+    } finally {
+      delete w.SoulSyncDj;
+      delete w.__previous;
+    }
   });
 
   it('d and b: DJ mode’s (37p), left to the page when it doesn’t act; T asks DJ mode first', () => {
@@ -87,7 +117,7 @@ describe('the table (one place for 287)', () => {
       handle(d);
       expect(djKey).toHaveBeenCalledWith('D');
       expect(d.defaultPrevented).toBe(true);
-      // B: no Browse yet (step 3), so the key stays the page's
+      // B: Browse not there (DJ mode off), so the key stays the page's
       const b = key('b');
       handle(b);
       expect(djKey).toHaveBeenCalledWith('B');
