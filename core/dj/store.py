@@ -25,6 +25,7 @@ What analysis heard is kept beside a tag's value (``analyzed_bpm``,
 from __future__ import annotations
 
 import json
+import math
 import time
 from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -286,7 +287,13 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
 
 # ── the Library's Tracks view and "Mixes well with…" ─────────────────────────
 
-SORTS = ("bpm", "key", "energy", "title", "artist", "recent")
+SORTS = ("bpm", "key", "energy", "title", "artist", "recent", "closest")
+#: DJ mode's Browse (37f, 418): how many tracks it lists at most, and how many
+#: ids ``exclude`` may name
+CLOSEST_LIMIT = 100
+MAX_EXCLUDE = 5
+#: "Recently played": the caller's listening history over this many days
+RECENT_PLAYED_DAYS = 14
 
 #: the grid's measured BPM, from a done grid at this version that's ready to
 #: mix (HANDOFF 300; since grid v5's review only a ready one: a grid held back
@@ -413,9 +420,33 @@ def _shape_track(row, fix_art=None) -> Dict[str, Any]:
     }
 
 
+def _key_step_sql(code: Optional[Dict[str, Any]]) -> Optional[Tuple[str, List[Any]]]:
+    """Steps on the Camelot wheel from ``code`` to the row's key, in SQL
+    (dnd-model.ts ``wheelSteps``: the numbers apart round the wheel, plus one
+    to change letter), NULL for a row without a key."""
+    if not code:
+        return None
+    camelot = code["camelot"]
+    number, letter = int(camelot[:-1]), camelot[-1]
+    apart = "(ABS(CAST(d.musical_key AS INTEGER) - ?) % 12)"
+    return (f"(CASE WHEN d.musical_key IS NULL OR d.musical_key = '' THEN NULL "
+            f"ELSE MIN({apart}, 12 - {apart}) + (SUBSTR(d.musical_key, -1) != ?) END)",
+            [number, number, letter])
+
+
+def _tempo_gap_sql(near: float) -> Tuple[str, List[Any]]:
+    """How far the row's BPM is from ``near``, as a fraction, at the same
+    tempo or played half or double time (the closest of the three), to
+    0.1%; NULL without a BPM."""
+    gap = (f"MIN(ABS({_BPM_SQL} - ?), ABS({_BPM_SQL} * 2.0 - ?), ABS({_BPM_SQL} / 2.0 - ?)) / ?")
+    return f"ROUND(({gap}) * 1000)", [near, near, near, near]
+
+
 def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", sort: str = "bpm",
            page: int = 1, limit: int = 50, fix_art=None, profile_id: Optional[int] = None,
-           starred: bool = False) -> Dict[str, Any]:
+           starred: bool = False, near: Optional[float] = None, near_key: str = "",
+           tempo_near: bool = False, recent: bool = False,
+           exclude: Iterable[str] = ()) -> Dict[str, Any]:
     """Library tracks with a file, filtered by a BPM range, a Camelot key
     (``key``, or ``key:mix`` for the key and the keys that mix with it) and
     text, sorted. Tracks without the sort's value go last.
@@ -423,7 +454,17 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
     With ``profile_id`` each track says whether that profile starred it
     (``starred``). ``starred`` (Tracks' Starred filter, 24a) keeps only that
     profile's starred tracks, and keeps a starred track whose file has gone
-    missing too, marked ``file_missing`` (it keeps its star, BACKLOG)."""
+    missing too, marked ``file_missing`` (it keeps its star, BACKLOG).
+
+    DJ mode's Browse (37f, 418) adds: ``near`` (the playing track's BPM) and
+    ``near_key`` (its Camelot key), what "closest" means; ``tempo_near``
+    keeps tracks within ±6% of ``near``, at the same tempo or half or double
+    time; ``recent`` keeps the ones the profile played in the last
+    RECENT_PLAYED_DAYS days; ``exclude`` leaves out up to MAX_EXCLUDE ids
+    (the playing track); ``sort="closest"`` orders by the tempo gap (to
+    0.1%), then the steps on the wheel, then the title, and lists at most
+    CLOSEST_LIMIT tracks. Every row says whether its beat grid is done
+    (``grid_ready``). Energy is never used (418)."""
     where, params = _scope(database)
     only_starred = bool(starred and profile_id is not None)
     clauses = [where] if only_starred else [where, "t.file_path IS NOT NULL", "t.file_path != ''"]
@@ -449,7 +490,38 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
         like = f"%{q.strip()}%"
         clauses.append("(t.title LIKE ? OR ar.name LIKE ? OR t.track_artist LIKE ? OR al.title LIKE ?)")
         values.extend([like] * 4)
+    near = float(near) if near is not None and math.isfinite(float(near)) and float(near) > 0 else None
+    if tempo_near and near is not None:
+        windows = bpm_windows(near)
+        clauses.append("(" + " OR ".join(f"({_BPM_SQL} BETWEEN ? AND ?)" for _ in windows) + ")")
+        for low, high in windows:
+            values.extend([low, high])
+    if recent and profile_id is not None:
+        from core.listening_scope import listening_owner
+
+        since = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() - RECENT_PLAYED_DAYS * 86400))
+        clauses.append("t.id IN (SELECT lh.db_track_id FROM listening_history lh WHERE +lh.profile_id = ? "
+                       "AND lh.db_track_id IS NOT NULL AND lh.played_at >= ?)")
+        values.extend([int(listening_owner(database, int(profile_id))), since])
+    gone = [str(i) for i in exclude if str(i).strip()][:MAX_EXCLUDE]
+    if gone:
+        clauses.append(f"CAST(t.id AS TEXT) NOT IN ({','.join('?' * len(gone))})")
+        values.extend(gone)
     sort = sort if sort in SORTS else "bpm"
+    order_values: List[Any] = []
+    if sort == "closest":
+        parts = []
+        if near is not None:
+            gap_sql, gap_values = _tempo_gap_sql(near)
+            parts += [f"{_BPM_SQL} IS NULL", gap_sql]
+            order_values += gap_values
+        step = _key_step_sql(parse_key(near_key) if near_key else None)
+        if step:
+            parts += [f"{step[0]} IS NULL", step[0]]
+            order_values += step[1] + step[1]
+        parts.append("t.title COLLATE NOCASE")
+        closest = ", ".join(parts)
+        limit = min(int(limit or 50), CLOSEST_LIMIT)
     order = {
         "bpm": f"{_BPM_SQL} IS NULL, {_BPM_SQL}, t.title COLLATE NOCASE",
         "key": "d.musical_key IS NULL, CAST(d.musical_key AS INTEGER), SUBSTR(d.musical_key, -1), "
@@ -458,6 +530,7 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
         "title": "t.title COLLATE NOCASE",
         "artist": "artist_name COLLATE NOCASE, al.title COLLATE NOCASE, t.track_number",
         "recent": "t.created_at DESC, t.rowid DESC",
+        "closest": closest if sort == "closest" else "",
     }[sort]
     limit = max(1, min(200, int(limit or 50)))
     page = max(1, int(page or 1))
@@ -467,8 +540,10 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
     with closing(database._get_connection()) as conn:
         total = int(conn.execute(f"SELECT COUNT(*) {base}", values).fetchone()[0])
         rows = conn.execute(f"{_track_select()} WHERE {' AND '.join(clauses)} ORDER BY {order} LIMIT ? OFFSET ?",
-                            values + [limit, (page - 1) * limit]).fetchall()
+                            values + order_values + [limit, (page - 1) * limit]).fetchall()
     tracks = [_shape_track(r, fix_art) for r in rows]
+    for track, row in zip(tracks, rows, strict=True):
+        track["grid_ready"] = bool(row["grid_done"])
     if profile_id is not None:
         if only_starred:
             mine = {t["id"] for t in tracks}
