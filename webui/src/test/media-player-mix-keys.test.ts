@@ -64,7 +64,7 @@ afterEach(() => {
 describe('the table (one place for 287)', () => {
   it('maps M, ⇧M, N, ⇧N, A, X, T, D, B and ⇧P, and nothing else', () => {
     expect(handler().table).toEqual({
-      M: ['mix:M', 'mute'],
+      M: ['dj:M', 'mix:M', 'mute'],
       '⇧M': ['mute'],
       N: ['mix:N', 'next'],
       '⇧N': ['next'],
@@ -74,7 +74,38 @@ describe('the table (one place for 287)', () => {
       D: ['dj:D'],
       B: ['dj:B'],
       '⇧P': ['dj:⇧P'],
+      '1': ['dj:1'],
+      '2': ['dj:2'],
+      '3': ['dj:3'],
+      '4': ['dj:4'],
+      Z: ['dj:Z'],
+      '-': ['dj:-'],
+      '+': ['dj:+'],
+      '⇧+': ['dj:+'],
+      '=': ['dj:+'],
     });
+  });
+
+  it('3b: M, 1–4, Z, − and + ask DJ mode first; M mutes when DJ mode doesn’t take it', () => {
+    const djKey = vi.fn((k: string) => k !== 'M');
+    const w = window as unknown as { SoulSyncDj?: unknown; SoulSyncMix?: unknown };
+    w.SoulSyncDj = { key: djKey };
+    delete w.SoulSyncMix;
+    try {
+      const { handle } = handler();
+      for (const k of ['1', '4', 'z', '-', '+', '=']) {
+        const e = key(k);
+        handle(e);
+        expect(e.defaultPrevented).toBe(true);
+      }
+      expect(djKey.mock.calls.map(([k]) => k)).toEqual(['1', '4', 'Z', '-', '+', '+']);
+      const m = key('m');
+      handle(m);
+      expect(djKey).toHaveBeenCalledWith('M');
+      expect(mute).toHaveBeenCalledTimes(1);
+    } finally {
+      delete w.SoulSyncDj;
+    }
   });
 
   it('⇧P is DJ mode’s Play B while it acts; otherwise P and ⇧P are Previous (37p)', () => {

@@ -29,6 +29,7 @@ describe('the columns are a list (3b makes them faders)', () => {
       ['Mid', 'mid'],
       ['Low', 'low'],
       ['Filter', null],
+      ['Tempo', null],
     ]);
     expect(ECHO_CONTROLS.map((c) => c.label)).toEqual(['Echo · Send A', 'Time', 'Feedback']);
   });

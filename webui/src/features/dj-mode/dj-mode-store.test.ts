@@ -160,6 +160,8 @@ describe('on and off', () => {
     expect(a.grid?.bars).toBe(142);
     // the player's own reads, scoped by the server to the caller's library; nothing touches audio
     expect(f.calls.sort()).toEqual([
+      // 3b: the person's cue points on the track
+      'GET /api/library/dj/cues/2',
       'GET /api/library/dj/grid/2',
       'GET /api/library/tracks/2/peaks',
       'POST /api/library/dj/tracks',

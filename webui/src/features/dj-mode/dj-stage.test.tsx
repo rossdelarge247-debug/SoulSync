@@ -131,11 +131,8 @@ describe('lane A (37b)', () => {
     expect(a.querySelector('[aria-live]')).toBeNull();
     expect(line).toHaveTextContent('bar 61 of 142 · drop in 0:40 · mix-out from bar 121 (4:01)');
     // the playhead and the elapsed time follow the player's element
-    expect(
-      (a.querySelector('[data-dj-playhead]')!.parentElement as HTMLElement).style.getPropertyValue(
-        '--played',
-      ),
-    ).toBe(String(121 / 286));
+    // (3b: --played is on the lane, so the zoom layer and the beat map read it too)
+    expect((a as HTMLElement).style.getPropertyValue('--played')).toBe(String(121 / 286));
     expect(a.querySelector('[data-dj-time="a"]')).toHaveTextContent('2:01');
   });
 

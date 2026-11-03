@@ -42,10 +42,19 @@ import type { DeckId, ParamKey, ParamName } from '@/features/engine/score';
 import { glideKnots } from '@/features/engine/clock';
 import { MAX_WINDOW_S } from '@/features/engine/loader';
 import { rampFor } from '@/features/engine/score';
+import { windowLevels } from '@/features/engine/windows';
 
 import type { Band, DeckControlId, MixValues } from './dj-mixer.logic';
 
-import { defaultMix, engineTargets, killWords } from './dj-mixer.logic';
+import {
+  DEFAULT_TEMPO_RANGE,
+  defaultMix,
+  engineTargets,
+  killWords,
+  tempoRate,
+  tempoWords,
+  type TempoRange,
+} from './dj-mixer.logic';
 import {
   cueBeat,
   lockedKnots,
@@ -102,12 +111,51 @@ export interface MixView {
   window: { start: number; end: number } | null;
   /** A is playing on deck A (the element muted under it) */
   aOnDeck: boolean;
+  /** each deck's strip and Tempo (3b): its range, Key lock, Headphones */
+  decks: Record<DeckId, DeckSettings>;
+  /** the Monitor block (441): Cue mix 0 (cue only) … 100 (the speakers), Cue volume in dB */
+  monitor: { mix: number; volume: number };
+  /** each deck's window as levels, for a zoomed lane's detail (37s: "the transient shapes") */
+  levels: Record<DeckId, DeckLevels | null>;
+}
+
+/** A window's level every `step` seconds from `offset` (track seconds), 0–1. */
+export interface DeckLevels {
+  offset: number;
+  step: number;
+  levels: Float32Array;
+}
+
+/** A zoomed lane's detail: 20 ms a level (a 3-minute window is 9,000). */
+export const LEVEL_STEP_S = 0.02;
+
+export interface DeckSettings {
+  /** Tempo's range, ±% (438) */
+  range: TempoRange;
+  /** the key stays as the tempo moves (440; on by default): time-stretch; off, varispeed */
+  keyLock: boolean;
+  /** heard in the headphones (443) */
+  phones: boolean;
+}
+
+export function defaultDecks(): Record<DeckId, DeckSettings> {
+  return {
+    A: { range: DEFAULT_TEMPO_RANGE, keyLock: true, phones: false },
+    // 443: B goes into the headphones when it loads (open for Ross: keep the auto-on?)
+    B: { range: DEFAULT_TEMPO_RANGE, keyLock: true, phones: true },
+  };
 }
 
 export interface EngineLike {
   context: BaseAudioContext;
   sampleRate: number;
-  graph: { master: { gain: AudioParam } };
+  graph: {
+    master: { gain: AudioParam };
+    /** each deck's send to the cue bus (the headphones, 3b) */
+    decks?: Record<DeckId, { cueSend: { gain: AudioParam } }>;
+    out?: AudioNode;
+    cueBus?: AudioNode;
+  };
   params(deck: DeckId): Record<ParamName, AutomatedParam>;
   load(deck: DeckId, data: DeckData): void;
   unload(deck: DeckId): void;
@@ -128,6 +176,8 @@ export interface EngineLike {
 export interface PlayerPort {
   audio(): HTMLAudioElement | null;
   state(): { volume?: number; muted?: boolean } | null;
+  /** the player's own seek (a cue on A while A is on its element) */
+  seek?(seconds: number): void;
 }
 
 export interface SessionDeps {
@@ -163,6 +213,8 @@ export const FADE_S = 0.08;
 export const HARD_S = 0.04;
 /** A control's change is a ramp this long: no zipper, no click. */
 export const RAMP_S = 0.02;
+/** the element further than this from deck A is put where A is before A goes back onto it (M1) */
+export const ALIGN_S = 0.04;
 /** A window starts this far before where it's needed. */
 const PRE_S = 0.5;
 /**
@@ -217,6 +269,12 @@ export class DjMixSession {
   private applied: Partial<Record<ParamKey, number>> = {};
   private ratio: SyncRatio | null = null;
   private rateA = 1;
+  /** the element's own speed when A went onto its deck: A goes back at it (413) */
+  private rateA0 = 1;
+  /** the session's own seek of the element (a cue on A): not a person's */
+  private ownSeek = false;
+  /** A has left its own speed during this take-over: its mode stays stretch (L3) */
+  private aMoved = false;
   private ended = false;
   /** a lane was waiting for its grid: Sync arriving with it is said (420) */
   private waited = false;
@@ -248,6 +306,9 @@ export class DjMixSession {
       rateB: null,
       window: null,
       aOnDeck: false,
+      decks: defaultDecks(),
+      monitor: { mix: 0, volume: -6 },
+      levels: { A: null, B: null },
     };
   }
 
@@ -299,6 +360,16 @@ export class DjMixSession {
 
   get blending(): boolean {
     return ['starting', 'playing', 'backing'].includes(this.v.phase);
+  }
+
+  /**
+   * A's place in its track while it's on its deck (deck A's own position:
+   * the muted element under it keeps time, but only near enough), else null.
+   * Cue placement, lane A's playhead and zoom read this first (review M1).
+   */
+  positionA(): number | null {
+    if (!this.engine || !this.v.aOnDeck) return null;
+    return this.engine.position('A');
   }
 
   /** B's place in its track now, while it plays (lane B's playhead), else null. */
@@ -415,6 +486,7 @@ export class DjMixSession {
       if (engine.node) engine.node.onprocessorerror = null;
     };
     this.applyAll();
+    this.applyPhones();
     return engine;
   }
 
@@ -439,6 +511,8 @@ export class DjMixSession {
     } catch {
       /* a closed context */
     }
+    // whoever routes off the engine's graph (the Monitor) lets it go too
+    this.update({});
   }
 
   /** Auto-mix held or let go (review H1). */
@@ -552,7 +626,14 @@ export class DjMixSession {
           this.signal(),
         );
         if (gen !== this.gen) return;
+        // the levels are read before the samples go to the worklet (they're handed over)
+        const levels = {
+          offset: data.offset,
+          step: LEVEL_STEP_S,
+          levels: windowLevels(data, LEVEL_STEP_S),
+        };
         engine.load('B', data);
+        this.update({ levels: { ...this.v.levels, B: levels } });
         this.bWin = { offset: data.offset, duration: data.duration };
       }
       await this.loadA(gen);
@@ -585,7 +666,13 @@ export class DjMixSession {
         this.signal(),
       );
       if (gen !== this.gen || this.v.aOnDeck) return;
+      const levels = {
+        offset: data.offset,
+        step: LEVEL_STEP_S,
+        levels: windowLevels(data, LEVEL_STEP_S),
+      };
       engine.load('A', data);
+      this.update({ levels: { ...this.v.levels, A: levels } });
       this.aWin = { offset: data.offset, duration: data.duration };
     } finally {
       this.loadingA = false;
@@ -617,9 +704,217 @@ export class DjMixSession {
   // ── the controls ───────────────────────────────────────────────────────
 
   setDeck(deck: DeckId, id: DeckControlId, value: number): void {
+    if (id === 'tempo') {
+      this.setTempo(deck, value);
+      return;
+    }
     const values = { ...this.v.values, [deck]: { ...this.v.values[deck], [id]: value } };
     this.update({ values });
     this.applyAll();
+  }
+
+  // ── Tempo, Key lock, Headphones (3b: 438, 440, 443) ────────────────────
+
+  /** A deck's mode: Key lock time-stretches (the key stays); off, the deck varispeeds. */
+  private modeFor(deck: DeckId, rate: number): 'resample' | 'stretch' {
+    if (!this.v.decks[deck].keyLock) return 'resample';
+    if (deck === 'B') return 'stretch';
+    // at its own speed the two are the same samples; A stretches once it
+    // moves, and stays stretched for the rest of this take-over, so a Tempo
+    // passing 0 doesn't flip the mode back and forth (review L3)
+    if (Math.abs(rate - 1) > 1e-6) this.aMoved = true;
+    return this.aMoved ? 'stretch' : 'resample';
+  }
+
+  /**
+   * Tempo (438): A's moves deck A (and the element under it, which keeps
+   * time) and B with it when Sync holds B to A; B's turns Sync off (B is set
+   * by Sync while it's on) and moves B on its own. Each change is from now,
+   * the place carried on: no jump, so no click.
+   */
+  setTempo(deck: DeckId, value: number): void {
+    // B on its way in: its start (and Sync's lock) is laid for A's next
+    // bar, so both Tempos wait until it's in (the faders say so, L2)
+    if (this.v.phase === 'starting') return;
+    const range = this.v.decks[deck].range;
+    const v = Math.max(-range, Math.min(range, Math.round(value * 10) / 10));
+    if (deck === 'B' && this.v.sync && this.v.syncable) {
+      this.update({ sync: false });
+      if (this.v.phase === 'playing') this.ratio = null;
+      this.say(`Sync off: ${this.b?.title || 'B'} at ${tempoWords(v)}`);
+    }
+    this.update({ values: { ...this.v.values, [deck]: { ...this.v.values[deck], tempo: v } } });
+    try {
+      this.retime(deck);
+    } catch {
+      this.hardStop('The blend stopped: the decks couldn’t change speed');
+    }
+  }
+
+  private retime(deck: DeckId): void {
+    const engine = this.engine;
+    if (!engine) return;
+    const sr = engine.sampleRate;
+    const t = this.now() + 0.03;
+    if (deck === 'A') {
+      if (!this.v.aOnDeck) return;
+      const p = engine.position('A', t);
+      if (p === null) return;
+      this.rateA = this.rateA0 * tempoRate(this.v.values.A.tempo);
+      engine.mode('A', this.modeFor('A', this.rateA / this.rateA0));
+      engine.map('A', t * sr, [{ f: t * sr, p, r: this.rateA }]);
+      // the muted element keeps time with deck A (so the player's clock and
+      // its end stay A's); the player's speed control ignores a change while
+      // DJ mode holds the track and never saves it (media-player-v2.js), and
+      // lane A and the cues read deck A itself (positionA, review M1)
+      if (this.el) this.el.playbackRate = this.rateA;
+      // B held to A follows A's new tempo, where it is
+      if (this.v.rateB !== null && (this.v.phase === 'playing' || this.v.phase === 'backing'))
+        this.lockInPlace(t);
+      return;
+    }
+    if (this.v.phase !== 'playing' && this.v.phase !== 'backing') return;
+    const p = engine.position('B', t);
+    if (p === null) return;
+    const r = tempoRate(this.v.values.B.tempo);
+    engine.mode('B', this.modeFor('B', r));
+    engine.map('B', t * sr, [{ f: t * sr, p, r }]);
+    this.update({ rateB: null });
+  }
+
+  /** B kept on A's beat where both are now, at A's new speed (A's tempo moved). */
+  private lockInPlace(t: number): void {
+    const engine = this.engine!;
+    const { a, b } = this;
+    if (!a?.grid || !b?.grid || !this.ratio) return;
+    const posA = engine.position('A', t);
+    const posB = engine.position('B', t);
+    if (posA === null || posB === null) return;
+    const knots = lockedKnots({
+      gridA: a.grid,
+      a0: a.grid.beatAt(posA),
+      rateA: this.rateA,
+      gridB: b.grid,
+      b0: b.grid.beatAt(posB),
+      m: this.ratio.m,
+      t0: t,
+      sampleRate: engine.sampleRate,
+      untilB: (this.bWin ? this.bWin.offset + this.bWin.duration : Infinity) + 1,
+    });
+    engine.map('B', t * engine.sampleRate, knots);
+    this.update({ rateB: knots[0]?.r ?? this.v.rateB });
+  }
+
+  setRange(deck: DeckId, range: TempoRange): void {
+    // a narrower range would move the tempo, which waits while B starts (L2)
+    if (this.v.phase === 'starting' && Math.abs(this.v.values[deck].tempo) > range) return;
+    const decks = { ...this.v.decks, [deck]: { ...this.v.decks[deck], range } };
+    this.update({ decks });
+    const tempo = this.v.values[deck].tempo;
+    if (Math.abs(tempo) > range) this.setTempo(deck, Math.sign(tempo) * range);
+    this.say(`Deck ${deck} tempo range ±${range}%`);
+  }
+
+  setKeyLock(deck: DeckId, on: boolean): void {
+    if (this.v.decks[deck].keyLock === on) return;
+    this.update({ decks: { ...this.v.decks, [deck]: { ...this.v.decks[deck], keyLock: on } } });
+    const engine = this.engine;
+    const playing =
+      deck === 'A' ? this.v.aOnDeck : ['playing', 'starting', 'backing'].includes(this.v.phase);
+    if (engine && playing) {
+      const rate =
+        deck === 'A'
+          ? this.rateA / this.rateA0
+          : (this.v.rateB ?? tempoRate(this.v.values.B.tempo));
+      engine.mode(deck, this.modeFor(deck, rate));
+    }
+    this.say(`Deck ${deck} key lock ${on ? 'on' : 'off: the pitch moves with the tempo'}`);
+  }
+
+  setPhones(deck: DeckId, on: boolean, quiet = false): void {
+    if (this.v.decks[deck].phones === on) return;
+    this.update({ decks: { ...this.v.decks, [deck]: { ...this.v.decks[deck], phones: on } } });
+    this.applyPhones();
+    if (!quiet) this.say(`Deck ${deck} ${on ? 'in the headphones' : 'out of the headphones'}`);
+  }
+
+  private applyPhones(): void {
+    const decks = this.engine?.graph.decks;
+    if (!decks) return;
+    const t = this.now();
+    for (const d of ['A', 'B'] as const) {
+      try {
+        decks[d].cueSend.gain.setTargetAtTime(this.v.decks[d].phones ? 1 : 0, t, 0.01);
+      } catch {
+        /* a closed context */
+      }
+    }
+  }
+
+  setMonitor(mix: number, volume: number): void {
+    this.update({ monitor: { mix, volume } });
+  }
+
+  /** The engine's context and graph for the Monitor (null until it's made, and once it's gone). */
+  engineParts(): { context: BaseAudioContext; graph: EngineLike['graph'] } | null {
+    return this.engine ? { context: this.engine.context, graph: this.engine.graph } : null;
+  }
+
+  /**
+   * The speakers went (37r) while A is on its deck: both decks pause where
+   * they are (the player's Pause: the element pauses, the context with it),
+   * and nothing is moved to the headphones.
+   */
+  speakersLost(): boolean {
+    const el = this.el;
+    if (!this.v.aOnDeck || !el || el.paused) return false;
+    el.pause();
+    return true;
+  }
+
+  // ── cues (3b: 439) ─────────────────────────────────────────────────────
+
+  /**
+   * A set cue pressed: deck A (on its element) seeks the player; on its
+   * deck it jumps within its window, the element with it (the session's own
+   * seek), B eased back onto its beat. B cued: Play B starts there (the
+   * store moves B's cue). B playing or paused: B comes in from the cue on
+   * A's next bar. Outside the deck's 3 minutes it says so.
+   */
+  jump(deck: DeckId, seconds: number): 'seek' | 'cue' | 'jumped' | 'outside' {
+    const engine = this.engine;
+    if (deck === 'A') {
+      if (!this.v.aOnDeck || !engine) {
+        this.d.player.seek?.(seconds);
+        return 'seek';
+      }
+      if (!covers(this.aWin, seconds, 4)) return 'outside';
+      const sr = engine.sampleRate;
+      const t = this.now() + 0.03;
+      const el = this.el;
+      if (el) {
+        this.ownSeek = true;
+        el.currentTime = seconds;
+      }
+      engine.map('A', 0, [{ f: t * sr, p: seconds + 0.03 * this.rateA, r: this.rateA }], true);
+      if (this.v.rateB !== null && this.v.phase === 'playing') this.relock();
+      return 'jumped';
+    }
+    if (!['playing', 'starting', 'paused'].includes(this.v.phase) || !engine) return 'cue';
+    if (!covers(this.bWin, seconds, 2)) return 'outside';
+    if (this.v.phase === 'paused') {
+      this.pausedAt = seconds;
+      return 'jumped';
+    }
+    const T = this.now() + 0.03;
+    const posA = engine.position('A', T);
+    if (posA === null) return 'outside';
+    try {
+      this.startB(T, posA, seconds, true);
+    } catch {
+      this.hardStop('The blend stopped: the decks couldn’t start');
+    }
+    return 'jumped';
   }
 
   setCentre(id: 'xf' | 'echoSend' | 'echoTime' | 'echoFeedback', value: number): void {
@@ -757,11 +1052,15 @@ export class DjMixSession {
     this.stopFresh();
     this.hold(true);
     const ctx = engine.context;
-    this.rateA = el.playbackRate > 0 ? el.playbackRate : 1;
+    this.rateA0 = el.playbackRate > 0 ? el.playbackRate : 1;
+    this.rateA = this.rateA0 * tempoRate(this.v.values.A.tempo);
+    this.aMoved = false;
     const T = ctx.currentTime + AHEAD_S;
     const from = el.currentTime + AHEAD_S * this.rateA;
     this.applyAll(ctx.currentTime);
-    engine.mode('A', 'resample');
+    engine.mode('A', this.modeFor('A', this.rateA / this.rateA0));
+    // the element keeps time with deck A, at deck A's speed (it's muted)
+    if (this.rateA !== this.rateA0) el.playbackRate = this.rateA;
     // the whole map replaced: nothing of an earlier go plays before T (review H3)
     engine.stop('A', Infinity);
     engine.map('A', 0, [{ f: T * engine.sampleRate, p: from, r: this.rateA }], true);
@@ -791,7 +1090,7 @@ export class DjMixSession {
   }
 
   /** B on its deck from A's next bar after A's position `posA` at context second `T`. */
-  private startB(T: number, posA: number, bFrom: number | null): void {
+  private startB(T: number, posA: number, bFrom: number | null, onBeat = false): void {
     const engine = this.engine!;
     const { a, b } = this;
     if (!a || !b) return;
@@ -814,7 +1113,10 @@ export class DjMixSession {
       else {
         // resuming: B's next bar from where it paused
         const g = b.grid!;
-        b0 = g.barBeat(Math.ceil((g.beatAt(bFrom) - g.downbeatIndex) / 4 - 1e-6));
+        // a cue (on its beat) comes in from that beat; a resume from B's next bar
+        b0 = onBeat
+          ? Math.round(g.beatAt(bFrom))
+          : g.barBeat(Math.ceil((g.beatAt(bFrom) - g.downbeatIndex) / 4 - 1e-6));
       }
       const ratio = syncRatio(pa, b.grid!.periodAt(b0), this.rateA);
       if (ratio) {
@@ -830,15 +1132,16 @@ export class DjMixSession {
           sampleRate: sr,
           untilB: (this.bWin ? this.bWin.offset + this.bWin.duration : Infinity) + 1,
         });
-        engine.mode('B', 'stretch');
+        engine.mode('B', this.modeFor('B', ratio.rate));
         // from frame 0: B's whole map replaced, silent until Tb (review H3)
         engine.map('B', 0, knots, true);
         rateB = knots[0]!.r;
       }
     }
     if (rateB === null) {
-      engine.mode('B', 'resample');
-      engine.map('B', 0, [{ f: Tb * sr, p: bFrom ?? b.cue, r: 1 }], true);
+      const r = tempoRate(this.v.values.B.tempo);
+      engine.mode('B', this.modeFor('B', r));
+      engine.map('B', 0, [{ f: Tb * sr, p: bFrom ?? b.cue, r }], true);
     }
     this.pausedAt = null;
     this.update({ phase: 'starting', rateB });
@@ -1049,6 +1352,7 @@ export class DjMixSession {
     if (engine && this.v.aOnDeck) {
       const now = engine.context.currentTime;
       const level = this.level();
+      this.alignElement();
       if (el && !el.paused && !el.ended && !this.suspended) {
         el.volume = 0;
         el.muted = false;
@@ -1064,12 +1368,35 @@ export class DjMixSession {
   }
 
   /**
+   * The element to where deck A is (review M1): it follows A's speed, but a
+   * browser's rate is only near enough, so before A goes back onto it the
+   * element is put where A is when they've drifted apart (the session's own
+   * seek, not a person's).
+   */
+  private alignElement(): void {
+    const el = this.el;
+    if (!el || !this.v.aOnDeck || el.ended) return;
+    const p = this.engine?.position('A') ?? null;
+    if (p === null || !Number.isFinite(p)) return;
+    if (Math.abs(el.currentTime - p) <= ALIGN_S) return;
+    this.ownSeek = true;
+    try {
+      el.currentTime = p;
+    } catch {
+      this.ownSeek = false;
+    }
+  }
+
+  /**
    * The hard stop (a close, DJ mode off, a seek, another track, the track's
    * end): the decks out over 40 ms, the element unmuted at its level at once.
+   * `align`: the element put where deck A is first (not for a person's seek
+   * or the track's end, where the element is already where it should be).
    */
-  private hardStop(words: string | null, keep = true): void {
+  private hardStop(words: string | null, keep = true, align = true): void {
     const engine = this.engine;
     this.clearLater();
+    if (align) this.alignElement();
     if (this.v.aOnDeck) {
       if (engine) this.silence(engine, this.el, this.level());
       else if (this.el) {
@@ -1096,6 +1423,14 @@ export class DjMixSession {
   }
 
   private afterRelease(keep: boolean): void {
+    // A goes back onto its element at its own tempo (413)
+    const el = this.el;
+    if (el && this.v.aOnDeck && el.playbackRate !== this.rateA0) el.playbackRate = this.rateA0;
+    this.rateA = this.rateA0;
+    this.aMoved = false;
+    this.ownSeek = false;
+    if (this.v.values.A.tempo !== 0)
+      this.update({ values: { ...this.v.values, A: { ...this.v.values.A, tempo: 0 } } });
     this.unbind();
     this.started = null;
     this.hold(false);
@@ -1266,19 +1601,23 @@ export class DjMixSession {
   };
 
   private readonly onSeeking = () => {
-    this.hardStop(`The blend stopped: ${this.a?.title || 'the track'} moved`);
+    if (this.ownSeek) {
+      this.ownSeek = false;
+      return;
+    }
+    this.hardStop(`The blend stopped: ${this.a?.title || 'the track'} moved`, true, false);
   };
 
   /** A ran out on its deck's watch: the player goes on as it always does (Hand over is step 4). */
   private readonly onEnded = () => {
     if (this.ended) return;
     this.ended = true;
-    this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false);
+    this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
   };
 
   private readonly onOther = () => {
     if (!this.v.aOnDeck) return;
-    this.hardStop('The blend stopped', false);
+    this.hardStop('The blend stopped', false, false);
   };
 
   dispose(): void {

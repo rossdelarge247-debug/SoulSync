@@ -463,3 +463,137 @@
     min-height: 44px;
   }
 }
+
+/* ── 3b: zoom (37s), cues on the beat map (37g), the lane strip ── */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wave {
+  overflow: hidden;
+}
+/* the whole track on one layer; zoomed, it's --zoom-scale lanes wide and
+   moved so the playhead (--played) stays at the centre */
+.zoomLayer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+}
+.body[data-zoomed] .zoomLayer {
+  left: 50%;
+  width: calc(var(--zoom-scale, 1) * 100%);
+  transform: translateX(calc(var(--played, 0) * -100%));
+}
+.body[data-zoomed] .playhead {
+  left: 50%;
+}
+.map {
+  overflow: hidden;
+}
+.tick[data-beat] {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.22);
+}
+/* the part on show, outlined on the sections strip (whole track) */
+.outline {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: calc((var(--played, 0) - 0.5 / var(--zoom-scale, 1)) * 100%);
+  width: calc(100% / var(--zoom-scale, 1));
+  box-sizing: border-box;
+  border: 1.5px solid #fff;
+  border-radius: 4px;
+  pointer-events: none;
+}
+/* cue discs (439): a band under the bar numbers; the map is 40px tall with them */
+.map[data-cues] {
+  height: 40px;
+}
+.cueDisc {
+  position: absolute;
+  top: 12px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: var(--deck);
+  color: #0b0b0d;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.cueDisc[data-picked] {
+  box-shadow: 0 0 0 2px #fff;
+}
+/* a picked cue: the pointer's dashed line and its label (37g) */
+.wave[data-picking] {
+  cursor: crosshair;
+}
+.placeCursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px dashed #fff;
+  pointer-events: none;
+}
+.placeLabel {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stripRow {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+/* 37m: at 1280 the strip sits in the head's fourth column */
+@container djstage (max-width: 1327px) {
+  .lane[data-has-strip] .head {
+    padding-right: 470px;
+  }
+  .stripRow {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+.lane {
+  overflow: hidden;
+}
+@container djstage (max-width: 1327px) {
+  .map[data-cues] {
+    height: 30px;
+  }
+  .cueDisc {
+    top: 10px;
+  }
+  .body {
+    gap: 4px;
+  }
+}
+
+/* zoomed with the deck's window: its detail over the dimmed peaks (37s) */
+.waveSvg[data-dimmed] {
+  opacity: 0.25;
+}
+@container djstage (max-width: 1327px) {
+  .lane[data-has-strip] .head {
+    padding-right: 520px;
+  }
+}

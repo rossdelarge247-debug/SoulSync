@@ -155,11 +155,13 @@ describe('the mixer (37g)', () => {
       'Deck A Mid',
       'Deck A Low',
       'Deck A Filter',
+      'Deck A Tempo',
       'Deck B Volume',
       'Deck B Hi',
       'Deck B Mid',
       'Deck B Low',
       'Deck B Filter',
+      'Deck B Tempo',
     ]);
     for (const s of sliders) {
       expect(s.tagName).toBe('INPUT');

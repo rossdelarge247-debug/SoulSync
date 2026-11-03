@@ -3759,6 +3759,26 @@ function npv2WireTransport() {
     } catch (e) {}
 }
 
+// The element's rate changed by something else (e.g. OS media keys): adopt
+// it rather than fight it. Not while DJ mode holds the track: deck A's Tempo
+// drives the muted element's rate then (Brief F 3b, review M1), and that is
+// neither snapped to a speed preset nor saved; A goes back to the player's
+// own speed when it leaves its deck.
+function npv2OnRateChange(e) {
+    const el = (e && e.target) || npv2AudioEl();
+    if (!el) return;
+    try {
+        if (window.SoulSyncDj && window.SoulSyncDj.holdsTrack && window.SoulSyncDj.holdsTrack()) return;
+    } catch (err) { /* DJ mode's bridge failing never blocks the player */ }
+    try {
+        if (isFinite(el.playbackRate) && el.playbackRate !== NPV2.speed) {
+            NPV2.speed = npv2ClampSpeed(el.playbackRate);
+            npv2Set('speed', String(NPV2.speed));
+            npv2SetSpeed(NPV2.speed, { silent: true });
+        }
+    } catch (err) {}
+}
+
 function npv2HandleKeys(event) {
     // v2 shortcuts only live while the theater is open (v1 owns the global
     // space/arrows/m/n/p set). '?' overlay gets Esc-first-close via capture.
@@ -3827,6 +3847,11 @@ function npv2HandleKeys(event) {
     switch (event.key) {
         case 'l':
         case 'L':
+            // DJ mode's key lock on the focused lane, or B's (3b, 37p); else the A–B loop
+            if (window.SoulSyncDj && window.SoulSyncDj.key && window.SoulSyncDj.key('L')) {
+                event.preventDefault();
+                break;
+            }
             event.preventDefault();
             npv2AbToggle();
             break;
@@ -3920,17 +3945,7 @@ function npv2Init() {
         const el = npv2AudioEl();
         if (el) {
             el.addEventListener('timeupdate', npv2LoopTick);
-            el.addEventListener('ratechange', () => {
-                // Something else changed the rate (e.g. OS media keys);
-                // adopt it rather than fight it.
-                try {
-                    if (isFinite(el.playbackRate) && el.playbackRate !== NPV2.speed) {
-                        NPV2.speed = npv2ClampSpeed(el.playbackRate);
-                        npv2Set('speed', String(NPV2.speed));
-                        npv2SetSpeed(NPV2.speed, { silent: true });
-                    }
-                } catch (e) {}
-            });
+            el.addEventListener('ratechange', npv2OnRateChange);
         }
 
         // The Web Audio graph only exists after v1 builds it on first play;

@@ -170,7 +170,8 @@ describe('Play B (421, 432)', () => {
     r.session.playB();
     const b = r.engine.port.maps.B[0]!;
     expect(b.r).toBe(1);
-    expect(r.engine.port.modes.B).toBe('resample');
+    // Key lock is on by default (440): B is time-stretched, the same samples at its own speed
+    expect(r.engine.port.modes.B).toBe('stretch');
     r.session.end();
     await r.advance(0.3);
     r.session.setLanes(laneA({ grid: null }), laneB());
@@ -547,7 +548,7 @@ describe('review round 1', () => {
     expect(r.engine.port.maps.B[0]!.r).toBeCloseTo(0.96);
     expect(r.session.setSync(false)).toBe(true);
     expect(r.engine.port.maps.B).toEqual([{ f: Tb, p: 0.5, r: 1 }]);
-    expect(r.engine.port.modes.B).toBe('resample');
+    expect(r.engine.port.modes.B).toBe('stretch');
     await r.advance(2.2);
     // said once, as it is now
     expect(r.said.filter((w) => w.includes('playing'))).toEqual([
@@ -718,5 +719,206 @@ describe('review round 2', () => {
     r.session.playB();
     expect(r.session.snapshot().aOnDeck).toBe(true);
     expect(r.windows.length).toBe(fetched);
+  });
+});
+
+describe('3b: Tempo, Key lock, Headphones, cue jumps (438–443)', () => {
+  it('A’s tempo on its deck: deck A and the element under it at the new speed, B kept on A’s beat', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    const t = r.engine.port.time + 0.03;
+    const posA = r.engine.position('A', t)!;
+    r.session.setDeck('A', 'tempo', 2);
+    expect(r.engine.port.rate('A', t + 0.5)).toBeCloseTo(1.02, 4);
+    // no jump: where A was, it is
+    expect(r.engine.position('A', t)).toBeCloseTo(posA, 4);
+    expect(r.el.playbackRate).toBeCloseTo(1.02);
+    // Key lock on: time-stretched, the key held
+    expect(r.engine.port.modes.A).toBe('stretch');
+    // B follows: 0.96 × 1.02
+    expect(r.engine.port.rate('B', t + 0.6)).toBeCloseTo(0.96 * 1.02, 3);
+    // back on its element A is at its own tempo (413), and its fader at 0
+    r.session.backOverBar(null);
+    await r.advance(2.5);
+    expect(r.el.playbackRate).toBe(1);
+    expect(r.session.snapshot().values.A.tempo).toBe(0);
+  });
+
+  it('M1: an element whose rate is snapped to a speed preset: A’s place is deck A’s, and Back puts the element there', async () => {
+    // the element as the player's speed control used to leave it: 1.05 snapped to 1
+    let rate = 1;
+    Object.defineProperty(r.el, 'playbackRate', {
+      configurable: true,
+      get: () => rate,
+      set: (v: number) => {
+        const presets = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+        rate = presets.reduce((b, p) => (Math.abs(p - v) < Math.abs(b - v) ? p : b), presets[0]!);
+      },
+    });
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    r.session.setDeck('A', 'tempo', 5);
+    await r.advance(10);
+    // the element ran at 1×, deck A at 1.05×: half a second apart
+    const deckA = r.engine.position('A')!;
+    expect(Math.abs(r.el.currentTime - deckA)).toBeGreaterThan(0.4);
+    // lane A, the cues and zoom read deck A itself
+    expect(r.session.positionA()).toBeCloseTo(deckA, 6);
+    // Back: the element put where deck A is before it's heard again, and
+    // that's the session's own seek, not a person's (no hard stop)
+    const seeks: { el: number; deck: number }[] = [];
+    r.el.addEventListener('seeking', () =>
+      seeks.push({ el: r.el.currentTime, deck: r.engine.position('A')! }),
+    );
+    r.session.backOverBar(null);
+    await r.advance(2.5);
+    expect(seeks).toHaveLength(1);
+    expect(seeks[0]!.el).toBeCloseTo(seeks[0]!.deck, 3);
+    expect(r.said.some((w) => w.includes('moved'))).toBe(false);
+    expect(r.el.muted).toBe(false);
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    expect(r.session.positionA()).toBeNull();
+    expect(rate).toBe(1);
+  });
+
+  it('M1: a person’s seek mid-blend still hard-stops, and the element isn’t put back', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    r.session.setDeck('A', 'tempo', 5);
+    await r.advance(5);
+    r.el.currentTime = 40;
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    expect(r.el.currentTime).toBe(40);
+    expect(r.el.muted).toBe(false);
+  });
+
+  it('L2: while B is starting both Tempos wait (nothing moves, Sync stays on)', async () => {
+    await cued();
+    r.session.playB();
+    expect(r.session.snapshot().phase).toBe('starting');
+    r.session.setDeck('B', 'tempo', 2);
+    r.session.setDeck('A', 'tempo', 2);
+    expect(r.session.snapshot().sync).toBe(true);
+    expect(r.session.snapshot().values.A.tempo).toBe(0);
+    expect(r.session.snapshot().values.B.tempo).toBe(0);
+    expect(r.said.some((w) => w.startsWith('Sync off'))).toBe(false);
+  });
+
+  it('L3: A stays time-stretched once it has left its speed, through Tempo 0', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    expect(r.engine.port.modes.A).toBe('resample');
+    r.session.setDeck('A', 'tempo', 1);
+    expect(r.engine.port.modes.A).toBe('stretch');
+    r.session.setDeck('A', 'tempo', 0);
+    expect(r.engine.port.modes.A).toBe('stretch');
+    r.session.setDeck('A', 'tempo', -1);
+    expect(r.engine.port.modes.A).toBe('stretch');
+  });
+
+  it('B’s tempo is set by Sync; moving it turns Sync off and moves B on its own', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    r.session.setDeck('B', 'tempo', -1.6);
+    expect(r.session.snapshot().sync).toBe(false);
+    expect(r.said.at(-1)).toBe('Sync off: Harbour Lights at −1.6%');
+    const t = r.engine.port.time + 0.5;
+    expect(r.engine.port.rate('B', t)).toBeCloseTo(0.984, 4);
+    expect(r.session.snapshot().rateB).toBeNull();
+  });
+
+  it('the range clamps Tempo (±6/8/10/16) and says so', async () => {
+    await cued();
+    r.session.setDeck('B', 'tempo', 12);
+    expect(r.session.snapshot().values.B.tempo).toBe(8);
+    r.session.setRange('B', 16);
+    r.session.setDeck('B', 'tempo', 12);
+    expect(r.session.snapshot().values.B.tempo).toBe(12);
+    r.session.setRange('B', 6);
+    expect(r.session.snapshot().values.B.tempo).toBe(6);
+    expect(r.said).toContain('Deck B tempo range ±6%');
+  });
+
+  it('Key lock off is varispeed (the engine’s resample): the pitch moves with the tempo', async () => {
+    await cued();
+    r.session.setKeyLock('B', false);
+    r.session.playB();
+    expect(r.engine.port.modes.B).toBe('resample');
+    r.session.setKeyLock('B', true);
+    expect(r.engine.port.modes.B).toBe('stretch');
+    expect(r.said.slice(-2)).toEqual([
+      'Deck B key lock off: the pitch moves with the tempo',
+      'Deck B key lock on',
+    ]);
+  });
+
+  it('Headphones: each deck’s cue send; B in them from the start (443)', async () => {
+    await cued();
+    expect(r.engine.cueSends.B.gain.value).toBe(1);
+    expect(r.engine.cueSends.A.gain.value).toBe(0);
+    r.session.setPhones('A', true);
+    r.session.setPhones('B', false);
+    expect(r.engine.cueSends.A.gain.value).toBe(1);
+    expect(r.engine.cueSends.B.gain.value).toBe(0);
+    expect(r.said.slice(-2)).toEqual(['Deck A in the headphones', 'Deck B out of the headphones']);
+  });
+
+  it('a cue on A while A is on its element is the player’s own seek', async () => {
+    const seek = vi.fn();
+    r.session.dispose();
+    r = rig(vi, {
+      player: { audio: () => r.el as never, state: () => r.player, seek },
+    });
+    await cued();
+    expect(r.session.jump('A', 60)).toBe('seek');
+    expect(seek).toHaveBeenCalledWith(60);
+  });
+
+  it('a cue on A on its deck jumps deck A and the element together: not a seek that ends the blend', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.jump('A', 150)).toBe('jumped');
+    await r.advance(0.05);
+    expect(r.session.snapshot()).toMatchObject({ aOnDeck: true, phase: 'playing' });
+    expect(r.el.currentTime).toBeCloseTo(150.05, 1);
+    expect(r.engine.position('A')).toBeCloseTo(150.05, 1);
+    expect(r.el.muted).toBe(true);
+    // outside A's window: said, nothing moves
+    expect(r.session.jump('A', 10)).toBe('outside');
+  });
+
+  it('a cue on B: cued, Play B starts there (the store moves the cue); playing, B comes in from it on the bar', async () => {
+    await cued();
+    expect(r.session.jump('B', 33)).toBe('cue');
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.jump('B', 9.14)).toBe('jumped');
+    expect(r.engine.port.maps.B[0]!.p).toBeCloseTo(9.14, 2);
+    expect(r.session.jump('B', 500)).toBe('outside');
+  });
+});
+
+describe('3b on the real worklet: a tempo move carries on where it is', () => {
+  it('deck A keeps sounding through a tempo change (no gap), B too', async () => {
+    r.session.dispose();
+    r = rig(vi, {}, { worklet: true });
+    const w = r.engine as WorkletEngine;
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    w.peaks();
+    r.session.setDeck('A', 'tempo', 4);
+    for (let i = 0; i < 10; i++) {
+      await r.advance(0.05);
+      const p = w.peaks();
+      expect(p.A).toBeGreaterThan(0.4);
+      expect(p.B).toBeGreaterThan(0.4);
+    }
   });
 });

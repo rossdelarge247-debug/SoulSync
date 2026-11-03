@@ -3136,7 +3136,16 @@ function handlePlayerKeyboardShortcuts(event) {
         case 'x':
         case 'X':
         case 't':
-        case 'T': {
+        case 'T':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case 'z':
+        case 'Z':
+        case '-':
+        case '+':
+        case '=': {
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
             if (!actions) return;
@@ -3196,7 +3205,7 @@ function handlePlayerKeyboardShortcuts(event) {
 // mode is on T says the lyrics come back when it's off. H stays free for
 // step 4's Hand over.
 const NP_LETTER_KEYS = {
-    'M': ['mix:M', 'mute'],
+    'M': ['dj:M', 'mix:M', 'mute'],
     '⇧M': ['mute'],
     'N': ['mix:N', 'next'],
     '⇧N': ['next'],
@@ -3206,6 +3215,18 @@ const NP_LETTER_KEYS = {
     'D': ['dj:D'],
     'B': ['dj:B'],
     '⇧P': ['dj:⇧P'],
+    // DJ mode's lane keys (3b, 37p): M, 1–4, Z, − and + act only with a lane
+    // focused (or, for M and 1–4, B loaded); otherwise M mutes as before and
+    // the rest are nobody's
+    '1': ['dj:1'],
+    '2': ['dj:2'],
+    '3': ['dj:3'],
+    '4': ['dj:4'],
+    'Z': ['dj:Z'],
+    '-': ['dj:-'],
+    '+': ['dj:+'],
+    '⇧+': ['dj:+'],
+    '=': ['dj:+'],
 };
 
 // true when the action acted (the key is then the page's no more)

@@ -45,6 +45,12 @@ GET  /api/library/dj/mixes/<track_id>
     track), ``set_at`` (while the set plays: the number Add puts tracks
     after; the direction is read from the tracks up to it) and ``limit``
     (5 by default then). Without them the answer is as before.
+GET  /api/library/dj/cues/<track_id>
+PUT  /api/library/dj/cues/<track_id>
+    DJ mode's cue points (Brief F 3b, 37g; core/dj/cues.py): the caller's
+    own, four at most, ``{cues: [{slot: 1-4, bar, seconds}]}``; a cue's
+    seconds follow the track's grid when it has a bar. PUT replaces them
+    (``[]`` clears), body at most 2 KB. 404 outside the caller's library.
 GET  /api/library/dj/grid/<track_id>
     Auto-mix stage A: the track's beat grid (BPM, the first beat and the
     period, or its beats when the tempo drifts), downbeats, phrases,
@@ -436,6 +442,48 @@ def _track_for_plan(entry: dict, track_id: str, *, with_beats: bool = True) -> d
             "title": entry.get("title"), "album_id": entry.get("album_id"),
             "track_number": entry.get("track_number"), "disc_number": entry.get("disc_number"),
             "disc_last": entry.get("disc_last")}
+
+
+#: four cues fit in well under this
+MAX_CUES_BODY = 2048
+
+
+@bp.route("/api/library/dj/cues/<track_id>", methods=["GET"])
+def dj_cues(track_id: str):
+    if get_current_profile_id() is None:
+        return _no_profile()
+    from core.dj import cues
+
+    try:
+        found = cues.get(get_database(), int(get_current_profile_id()), str(track_id)[:128])
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ cues read failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read the cues"}), 500
+    if found is None:
+        return jsonify({"success": False, "error": "Not in your library"}), 404
+    return _no_store({"success": True, "cues": found})
+
+
+@bp.route("/api/library/dj/cues/<track_id>", methods=["PUT"])
+def dj_cues_save(track_id: str):
+    if get_current_profile_id() is None:
+        return _no_profile()
+    body, refused = _read_json_capped(MAX_CUES_BODY)
+    if refused is not None:
+        return refused
+    from core.dj import cues
+
+    try:
+        saved = cues.put(get_database(), int(get_current_profile_id()), str(track_id)[:128],
+                         (body or {}).get("cues"))
+    except cues.CueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ cues save failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't save the cues"}), 500
+    if saved is None:
+        return jsonify({"success": False, "error": "Not in your library"}), 404
+    return _no_store({"success": True, "cues": saved})
 
 
 @bp.route("/api/library/dj/grid/<track_id>", methods=["GET"])
@@ -1048,7 +1096,15 @@ def traktor_export():
     except Exception as exc:  # noqa: BLE001 - the file is right without ratings
         logger.warning("Traktor export: couldn't read stars: %s", exc)
         starred = set()
-    data = traktor.build_nml(name, planned["entries"], starred=starred)
+    try:
+        from core.dj import cues
+
+        hot = cues.for_export(database, int(get_current_profile_id()),
+                              [e["track"].get("id") for e in planned["entries"]])
+    except Exception as exc:  # noqa: BLE001 - the file is right without cues
+        logger.warning("Traktor export: couldn't read cues: %s", exc)
+        hot = {}
+    data = traktor.build_nml(name, planned["entries"], starred=starred, cues=hot)
     if action == "download":
         return _attachment(data, filename)
     if not admin:

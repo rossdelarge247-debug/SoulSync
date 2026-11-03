@@ -38,10 +38,9 @@ import { pyRound } from '@/features/dnd/dnd-model';
 
 import type { DjModeSnapshot, DjModeStore, LaneState, LaneTrack } from './dj-mode-store';
 
+import { LaneBody } from './dj-lane-body';
 import { djModeStore } from './dj-mode-store';
 import {
-  beatMap,
-  beatMapWords,
   clock,
   cuedLine,
   dropStepLine,
@@ -50,7 +49,6 @@ import {
   laneVerdict,
   noGridWords,
   inMixOut,
-  type LaneGrid,
 } from './dj-mode.logic';
 import styles from './dj-mode.module.css';
 import { syncRatioFromBpm } from './dj-sync';
@@ -77,117 +75,12 @@ function playerAudio(): AudioLike | null {
 
 /* ── the pieces ───────────────────────────────────────────────────────── */
 
-/** The player's 200 peaks as bars, the played part tinted, a white playhead. */
-function Waveform({
-  peaks,
-  playhead,
-  waveRef,
-}: {
-  peaks: number[] | null;
-  playhead: boolean;
-  waveRef?: React.Ref<HTMLDivElement>;
-}) {
-  const bars = useMemo(() => {
-    const list = peaks && peaks.length ? peaks : Array.from({ length: 200 }, () => 0.04);
-    return list.map((v, i) => {
-      const h = Math.max(0.02, Math.min(1, Number(v) || 0)) * 100;
-      return <rect key={i} x={i + 0.18} y={(100 - h) / 2} width={0.64} height={h} />;
-    });
-  }, [peaks]);
-  const n = peaks && peaks.length ? peaks.length : 200;
-  return (
-    <div
-      ref={waveRef}
-      className={styles.wave}
-      data-empty={peaks ? undefined : ''}
-      aria-hidden="true"
-    >
-      <svg className={styles.waveSvg} viewBox={`0 0 ${n} 100`} preserveAspectRatio="none">
-        {bars}
-      </svg>
-      {playhead ? (
-        <>
-          <span className={styles.played} />
-          <span className={styles.playhead} data-dj-playhead="" />
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-/** The sections strip (18px) and the beat map (22px) from the grid (37b). */
-function GridRows({ grid, duration }: { grid: LaneGrid; duration: number }) {
-  const layout = useMemo(() => beatMap(grid, duration), [grid, duration]);
-  return (
-    <>
-      {layout.sections.length ? (
-        <div className={styles.sections} aria-hidden="true" data-dj-sections="">
-          {layout.sections.map((s, i) => (
-            <span
-              key={i}
-              className={styles.section}
-              data-kind={s.kind}
-              style={{ left: `${s.x0 * 100}%`, width: `${(s.x1 - s.x0) * 100}%` }}
-            >
-              {s.kind}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <div className={styles.map} role="img" aria-label={beatMapWords(grid)} data-dj-beat-map="">
-        {layout.mixIn ? (
-          <span
-            className={styles.region}
-            data-region="in"
-            style={{
-              left: `${layout.mixIn.x0 * 100}%`,
-              width: `${(layout.mixIn.x1 - layout.mixIn.x0) * 100}%`,
-            }}
-          />
-        ) : null}
-        {layout.mixOut ? (
-          <span
-            className={styles.region}
-            data-region="out"
-            style={{
-              left: `${layout.mixOut.x0 * 100}%`,
-              width: `${(layout.mixOut.x1 - layout.mixOut.x0) * 100}%`,
-            }}
-          />
-        ) : null}
-        {layout.analysedTo !== null ? (
-          <span
-            className={styles.beyond}
-            data-dj-beyond=""
-            style={{ left: `${layout.analysedTo * 100}%` }}
-          />
-        ) : null}
-        {layout.ticks.map((t) => (
-          <span key={t.bar}>
-            <span
-              className={styles.tick}
-              data-phrase={t.phrase ? '' : undefined}
-              style={{ left: `${t.x * 100}%` }}
-            />
-            {t.label !== null ? (
-              <span className={`${styles.num} ${styles.mono}`} style={{ left: `${t.x * 100}%` }}>
-                {t.label}
-              </span>
-            ) : null}
-          </span>
-        ))}
-      </div>
-    </>
-  );
-}
-
 function LaneHead({
   deck,
   lane,
   label,
   time,
   timeRef,
-  strip,
   rate,
 }: {
   deck: 'a' | 'b';
@@ -195,7 +88,6 @@ function LaneHead({
   label: string;
   time: string;
   timeRef?: React.Ref<HTMLSpanElement>;
-  strip?: ReactNode;
   /** B with Sync on: the speed it plays at (37g's "124.0 (−1.6%)") */
   rate?: number | null;
 }) {
@@ -233,9 +125,30 @@ function LaneHead({
           {time}
         </span>
       </div>
-      {strip}
     </div>
   );
+}
+
+/**
+ * A lane's keys (3b, 37p) on the lane itself: Enter places the picked cue at
+ * the playhead (cues without a pointer), Delete takes the picked cue off.
+ */
+function laneKeys(store: DjModeStore, deck: 'a' | 'b') {
+  return (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Enter' && store.placeAtPlayhead(deck)) e.preventDefault();
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && store.removeCue(deck))
+      e.preventDefault();
+  };
+}
+
+/** The lane strip's row (37g): under the line; in the head's corner at 1280 (37m, CSS). */
+function StripRow({ strip }: { strip?: ReactNode }) {
+  return strip ? (
+    <div className={styles.stripRow} data-dj-strip-row="">
+      {strip}
+    </div>
+  ) : null;
 }
 
 /** Brief A's bar and line while the grid is worked out (37e), or the drive it waits for (37d). */
@@ -323,12 +236,13 @@ function usePlayhead(
   lane: LaneState,
   duration: number,
   refs: {
-    wave: React.RefObject<HTMLDivElement | null>;
+    wave: React.RefObject<HTMLElement | null>;
     time: React.RefObject<HTMLSpanElement | null>;
     line: React.RefObject<HTMLParagraphElement | null>;
   },
   announce: (words: string) => void,
   onElementDuration: (seconds: number) => void,
+  posA: () => number | null,
 ): void {
   const grid = lane.phase === 'ready' ? lane.grid : null;
   const title = lane.track.title;
@@ -339,6 +253,8 @@ function usePlayhead(
   const trackId = lane.track.id;
   const durRef = useRef(onElementDuration);
   durRef.current = onElementDuration;
+  const posRef = useRef(posA);
+  posRef.current = posA;
   useEffect(() => {
     let id = 0;
     let second = Number.NaN;
@@ -346,7 +262,8 @@ function usePlayhead(
     let elDur = Number.NaN;
     const tick = () => {
       const el = playerAudio();
-      const t = el?.currentTime ?? 0;
+      // deck A's own place while it's on its deck (M1), else the element's
+      const t = posRef.current() ?? el?.currentTime ?? 0;
       const ed = el && Number.isFinite(el.duration) ? el.duration : 0;
       // the element's length as it loads (review N2): the lane draws its map once it's known
       if (ed !== elDur) {
@@ -383,15 +300,18 @@ function usePlayhead(
 function LaneA({
   lane,
   store,
+  s,
   strip,
   lineEnd,
 }: {
   lane: LaneState;
   store: DjModeStore;
+  s: DjModeSnapshot;
   strip?: ReactNode;
   lineEnd?: ReactNode;
 }) {
-  const wave = useRef<HTMLDivElement>(null);
+  // the lane carries --played: the waveform, its zoom layer and the beat map read it
+  const wave = useRef<HTMLElement>(null);
   const time = useRef<HTMLSpanElement>(null);
   const lineEl = useRef<HTMLParagraphElement>(null);
   const refs = useMemo(() => ({ wave, time, line: lineEl }), []);
@@ -400,17 +320,26 @@ function LaneA({
   // kept in state as the element's loads (N2)
   const [elementDuration, setElementDuration] = useState(0);
   const duration = lane.duration || elementDuration;
-  usePlayhead(lane, duration, refs, (w) => store.announce(w), setElementDuration);
-  const ready = lane.phase === 'ready' && lane.grid && duration > 0;
+  usePlayhead(
+    lane,
+    duration,
+    refs,
+    (w) => store.announce(w),
+    setElementDuration,
+    () => store.positionA(),
+  );
   return (
     <section
+      ref={wave}
       className={styles.lane}
       data-deck="a"
       data-dj-lane="a"
+      data-has-strip={strip ? '' : undefined}
       role="group"
       aria-label={laneGroupName('A', lane.track.title, 'playing')}
       aria-describedby={lineId}
       tabIndex={0}
+      onKeyDown={laneKeys(store, 'a')}
     >
       <LaneHead
         deck="a"
@@ -419,10 +348,17 @@ function LaneA({
         // the elapsed time is written each second by usePlayhead, not rendered
         time=""
         timeRef={time}
-        strip={strip}
       />
-      <Waveform peaks={lane.peaks} playhead waveRef={wave} />
-      {ready ? <GridRows grid={lane.grid!} duration={duration} /> : null}
+      <LaneBody
+        deck="a"
+        lane={lane}
+        // the real length even without a grid (M4): zoom falls back to 2 s
+        // a bar and cues can still be placed; LaneBody gates the grid's layers
+        duration={duration}
+        store={store}
+        s={s}
+        now={() => store.positionA() ?? 0}
+      />
       {lane.phase === 'analysing' || lane.phase === 'waiting' ? <Analysing lane={lane} /> : null}
       {lane.phase === 'no_grid' ? <NoGrid lane={lane} /> : null}
       <div className={styles.foot}>
@@ -430,6 +366,7 @@ function LaneA({
         <p ref={lineEl} id={lineId} className={styles.line} data-dj-line="a" />
         {lineEnd}
       </div>
+      <StripRow strip={strip} />
     </section>
   );
 }
@@ -601,18 +538,25 @@ function LaneB({
           label={laneBLabel(mix.phase, mix.sync)}
           time={`${clock(lane.cue)} · ${clock(duration)}`}
           timeRef={timeB}
-          strip={strip}
           rate={planned}
         />
-        <WaveformB
+        <LanePlayheadB
           lane={lane}
           store={store}
           moving={moving}
-          window={mix.window}
+          target={ref}
           timeRef={timeB}
           lineRef={lineB}
         />
-        {ready ? <GridRows grid={lane.grid!} duration={duration} /> : null}
+        <LaneBody
+          deck="b"
+          lane={lane}
+          duration={duration}
+          store={store}
+          s={s}
+          now={() => store.positionB() ?? lane.cue}
+          window={mix.window}
+        />
         {lane.phase === 'analysing' || lane.phase === 'waiting' ? (
           <Analysing lane={lane} onRemove={remove} />
         ) : null}
@@ -626,6 +570,7 @@ function LaneB({
           </p>
           {lineEnd}
         </div>
+        <StripRow strip={strip} />
       </>
     );
   }
@@ -645,11 +590,13 @@ function LaneB({
       data-dj-lane="b"
       data-drag={dragState}
       data-dnd-target={LANE_B_TARGET}
+      data-has-strip={lane && strip ? '' : undefined}
       role="group"
       aria-label={lane ? name : 'Deck B, empty: drag a track here'}
       aria-describedby={lane && !over ? lineId : undefined}
       // with Browse there, it takes the focus in the lane's place (37p)
       tabIndex={lane || !s.browse ? 0 : -1}
+      onKeyDown={laneKeys(store, 'b')}
     >
       {!lane || over ? <p className={styles.label}>B · the second track</p> : null}
       {body}
@@ -667,32 +614,30 @@ export function laneBLabel(phase: string, sync: boolean): string {
 }
 
 /**
- * B's waveform: its playhead at the cue, and while B plays it follows the
- * deck every frame (no render), with the elapsed time each second. The thin
- * cyan line over it is the deck's 3-minute window (424), from its mix-in (434).
+ * B's playhead: at the cue, and while B plays it follows the deck every
+ * frame (`--played` on the lane, no render), with the elapsed time and the
+ * line in words each second (37h: "bar 11 of 128 · …").
  */
-function WaveformB({
+function LanePlayheadB({
   lane,
   store,
   moving,
-  window: win,
+  target,
   timeRef,
   lineRef,
 }: {
   lane: LaneState;
   store: DjModeStore;
   moving: boolean;
-  window: { start: number; end: number } | null;
+  target: React.RefObject<HTMLElement | null>;
   timeRef: React.RefObject<HTMLSpanElement | null>;
-  /** B's line in words while it plays (37h: "bar 11 of 128 · …"), each second */
   lineRef: React.RefObject<HTMLParagraphElement | null>;
 }) {
   const grid = lane.phase === 'ready' ? lane.grid : null;
-  const ref = useRef<HTMLDivElement>(null);
   const d = lane.duration ?? 0;
   useEffect(() => {
     const put = (t: number) =>
-      ref.current?.style.setProperty(
+      target.current?.style.setProperty(
         '--played',
         d > 0 ? String(Math.min(1, Math.max(0, t / d))) : '0',
       );
@@ -715,27 +660,8 @@ function WaveformB({
     };
     tick();
     return () => window.cancelAnimationFrame(id);
-  }, [lane.cue, d, moving, store, timeRef, lineRef, grid]);
-  const span =
-    win && d > 0
-      ? {
-          left: Math.max(0, Math.min(1, win.start / d)),
-          right: Math.max(0, Math.min(1, win.end / d)),
-        }
-      : null;
-  return (
-    <div className={styles.waveB}>
-      {span && span.right > span.left ? (
-        <span
-          className={styles.window}
-          data-dj-window=""
-          title="The deck’s 3 minutes"
-          style={{ left: `${span.left * 100}%`, width: `${(span.right - span.left) * 100}%` }}
-        />
-      ) : null}
-      <Waveform peaks={lane.peaks} playhead waveRef={ref} />
-    </div>
-  );
+  }, [lane.cue, d, moving, store, target, timeRef, lineRef, grid]);
+  return null;
 }
 
 /* ── the stage ────────────────────────────────────────────────────────── */
@@ -762,7 +688,7 @@ export function DjStage({
     <div className={styles.stage} data-dj-stage="" aria-label="DJ mode">
       <div className={styles.lanes}>
         {s.a ? (
-          <LaneA lane={s.a} store={store} strip={slots.strip?.a} lineEnd={slots.lineEnd?.a} />
+          <LaneA lane={s.a} store={store} s={s} strip={slots.strip?.a} lineEnd={slots.lineEnd?.a} />
         ) : (
           <section className={styles.lane} data-deck="a" role="group" aria-label="Deck A, empty" />
         )}

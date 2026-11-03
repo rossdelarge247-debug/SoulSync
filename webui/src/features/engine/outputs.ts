@@ -8,10 +8,11 @@
  *   Firefox 116+, Safari 18.4+). Where the browser can't, it's said, not
  *   hidden: CUE_WHY_NOT.
  * - "Split one output": headphones in the main output, the mix in the left
- *   ear and the cue in the right (each summed to mono). For practice, not for
- *   a room. While it's on, everything the speakers got goes to the left ear
- *   (the player's analyser is rerouted after it, so the visualisers still
- *   hear the mix), and back when it's off.
+ *   ear and the cue in the right (each summed to mono; DJ mode's Monitor
+ *   has them the other way round, `cueEar`). For practice, not for a room.
+ *   While it's on, everything the speakers got goes to the mix's ear (the
+ *   player's analyser is rerouted after it, so the visualisers
+ *   still hear the mix), and back when it's off.
  *
  * Kept per browser (CUE_KEY). Each test plays a short tone in one ear only,
  * so a swapped cable shows at once.
@@ -119,6 +120,11 @@ export interface CueRouterOptions {
   /** where the mix goes: the player's analyser (which goes on to the speakers), or the destination */
   mixTarget: AudioNode;
   cueBus: AudioNode;
+  /**
+   * Split: the ear the cue goes to (the mix takes the other). Decks (23b)
+   * keeps the cue right; DJ mode's Monitor (37r) puts it left.
+   */
+  cueEar?: 'left' | 'right';
   /** makes the <audio> element for "on another output" (tests pass a fake) */
   makeElement?: () => SinkElement;
 }
@@ -170,8 +176,9 @@ export class CueRouter {
       // ear only; the visualisers still hear the mix
       const point = this.speakerFeed();
       disconnect(point, ctx.destination);
-      point.connect(this.mixMono).connect(this.merger, 0, 0);
-      this.o.cueBus.connect(this.cueMono).connect(this.merger, 0, 1);
+      const cueIn = this.o.cueEar === 'left' ? 0 : 1;
+      point.connect(this.mixMono).connect(this.merger, 0, 1 - cueIn);
+      this.o.cueBus.connect(this.cueMono).connect(this.merger, 0, cueIn);
       this.merger.connect(ctx.destination);
       this.mode = 'split';
       return true;
@@ -190,7 +197,9 @@ export class CueRouter {
         () => false,
       );
     }
-    await el.play().catch(() => undefined);
+    // a refused device leaves the element on the default output (the
+    // speakers): it stays paused, so the cue is never heard there
+    if (ok) await el.play().catch(() => undefined);
     return ok;
   }
 

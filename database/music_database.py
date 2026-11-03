@@ -854,6 +854,9 @@ class MusicDatabase:
             # sections and mix regions (core/dj/grid_store.py)
             self._add_track_grid_table(cursor)
 
+            # DJ mode's cue points: four per track, a profile's own (core/dj/cues.py)
+            self._add_track_dj_cues_table(cursor)
+
             # The tempo's octave (drum and bass at 174, not 87): the DJ data
             # and grids it can't change move to the new versions undecoded
             self._promote_settled_tempos(cursor)
@@ -2192,6 +2195,7 @@ class MusicDatabase:
         'track_stars_v1':            ('table', 'track_stars'),
         'dj_working_sets_v1':        ('table', 'dj_working_sets'),
         'track_grid_v1':             ('table', 'track_grid'),
+        'track_dj_cues_v1':          ('table', 'track_dj_cues'),
         'dj_tempo_octave_v5':        ('flag', 'dj_tempo_octave_v5'),
         'dj_grid_v4':                ('flag', 'dj_grid_v4'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
@@ -4086,6 +4090,35 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_grid_version ON track_grid (grid_version)")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'track_grid_v1')
+
+    #: DJ mode's cue points (core/dj/cues.py, Brief F 3b): slot 1–4 of a
+    #: profile's track, at a bar on the grid (the truth while there's one)
+    #: and in seconds
+    _TRACK_DJ_CUES_COLUMNS = (
+        ('profile_id', 'INTEGER NOT NULL'),
+        ('track_id', 'TEXT NOT NULL'),
+        ('slot', 'INTEGER NOT NULL'),
+        ('bar', 'REAL'),
+        ('seconds', 'REAL'),
+        ('updated_at', 'REAL'),
+    )
+
+    def _add_track_dj_cues_table(self, cursor):
+        """The cue points table. Only adds (atomic=False): a failure is an
+        ERROR naming the step, in schema_health, and the step runs again on
+        the next start."""
+        with self._migration_step(cursor, 'add_track_dj_cues', atomic=False):
+            columns = ",\n".join(f"    {name} {kind}" for name, kind in self._TRACK_DJ_CUES_COLUMNS)
+            cursor.execute("CREATE TABLE IF NOT EXISTS track_dj_cues (\n"
+                           f"{columns},\n    PRIMARY KEY (profile_id, track_id, slot)\n)")
+            cursor.execute("PRAGMA table_info(track_dj_cues)")
+            have = {row[1] for row in cursor.fetchall()}
+            for name, kind in self._TRACK_DJ_CUES_COLUMNS:
+                if name not in have:
+                    with self._migration_step(cursor, f"add track_dj_cues.{name}"):
+                        cursor.execute(f"ALTER TABLE track_dj_cues ADD COLUMN {name} {kind.replace(' NOT NULL', '')}")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'track_dj_cues_v1')
 
     def _promote_settled_tempos(self, cursor):
         """One-time, for the tempo-octave fix (analyzer v5, grid v3;

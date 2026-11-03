@@ -851,3 +851,25 @@ def test_a_track_the_caller_starred_goes_out_with_traktors_top_rating(client, db
     root = ET.fromstring(res.data)
     ranks = {e.get("TITLE"): e.find("INFO").get("RANKING") for e in root.findall("COLLECTION/ENTRY")}
     assert ranks == {"Night Ferry": None, "Low Tide": "255"}
+
+
+@pytest.mark.gauntlet
+def test_gauntlet_the_export_route_writes_only_the_callers_cues(client, db):
+    """Through the real route, two profiles: each one's download has its own
+    hot cues and never the other's (review L4)."""
+    from core.dj import cues
+
+    cues.put(db, 1, "1", [{"slot": 1, "bar": None, "seconds": 1.0}])
+    cues.put(db, 2, "1", [{"slot": 3, "bar": None, "seconds": 9.0}, {"slot": 4, "bar": None, "seconds": 20.0}])
+
+    def hot_cues():
+        res = _export(client, action="download", source="tracks", track_ids=["1"])
+        assert res.status_code == 200
+        root = ET.fromstring(res.data)
+        return [(c.get("HOTCUE"), c.get("START")) for c in root.findall("COLLECTION/ENTRY/CUE_V2")]
+
+    assert hot_cues() == [("0", "1000.000000")]
+    client.state["profile"] = 2
+    assert hot_cues() == [("2", "9000.000000"), ("3", "20000.000000")]
+    client.state["profile"] = 3
+    assert hot_cues() == []
