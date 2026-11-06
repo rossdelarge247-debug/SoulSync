@@ -29,14 +29,30 @@ const CLIP_HOLD_MS = 1500;
 const CLIP_DB = -0.5;
 /**
  * What goes out past full scale is a clip too (step 6: the element strip
- * isn't limited, so a sum or a boost on it shows here). Just past 1.0: a
- * full-scale track on its own at unity peaks at 1.0 and never lights it.
+ * isn't limited, so a sum or a boost on it shows here), but not a lossy
+ * file's own inter-sample overs at unity (review L7): it takes three
+ * samples in a row over 1.0005, or one over 1.01 (+0.09 dB). A full-scale
+ * track on its own at unity peaks at 1.0 and never lights it.
  */
 export const CLIP_OUT = 1.0005;
+export const CLIP_RUN = 3;
+export const CLIP_HARD = 1.01;
 
-/** A clip: the limiter holding the decks down, or what goes out past full scale. */
-export function clips(outPeak: number, reductionDb: number): boolean {
-  return outPeak >= CLIP_OUT || reductionDb <= CLIP_DB;
+/** Whether what goes out (an analyser's block) clips by that rule. */
+export function clipsOut(buf: Float32Array): boolean {
+  let run = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = Math.abs(buf[i]!);
+    if (v >= CLIP_HARD) return true;
+    run = v >= CLIP_OUT ? run + 1 : 0;
+    if (run >= CLIP_RUN) return true;
+  }
+  return false;
+}
+
+/** A clip: the limiter holding the decks down, or what goes out past full scale (`clipsOut`). */
+export function clips(outClips: boolean, reductionDb: number): boolean {
+  return outClips || reductionDb <= CLIP_DB;
 }
 
 /** A peak (linear) as the meter's fill, 0–1 over METER_FLOOR_DB … 0 dBFS. */
@@ -96,13 +112,15 @@ export function useMeters(
     let clipUntil = 0;
     const shown: Record<string, number> = { a: 0, b: 0, out: 0 };
     const bufs = new Map<AnalyserNode, Float32Array<ArrayBuffer>>();
-    const read = (n: AnalyserNode): number => {
+    let outOver = false;
+    const read = (n: AnalyserNode, over = false): number => {
       let b = bufs.get(n);
       if (!b) {
         b = new Float32Array(n.fftSize);
         bufs.set(n, b);
       }
       n.getFloatTimeDomainData(b);
+      if (over) outOver = clipsOut(b);
       return peakOf(b);
     };
     const put = (key: string, fill: number) => {
@@ -125,7 +143,7 @@ export function useMeters(
       const peaks: Record<string, number> = {
         a: read(meters.A),
         b: read(meters.B),
-        out: read(meters.out),
+        out: read(meters.out, true),
       };
 
       for (const key of Object.keys(peaks)) {
@@ -135,7 +153,7 @@ export function useMeters(
         put(key, shown[key]!);
       }
       const reduction = session.engineParts()?.graph.limiter?.reduction ?? 0;
-      if (clips(peaks.out!, reduction)) clipUntil = now + CLIP_HOLD_MS;
+      if (clips(outOver, reduction)) clipUntil = now + CLIP_HOLD_MS;
       const led = root.current?.querySelector('[data-dj-clip]');
       if (now < clipUntil) led?.setAttribute('data-on', '');
       else led?.removeAttribute('data-on');

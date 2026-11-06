@@ -126,11 +126,19 @@ export function rateAt(knots: readonly Knot[], t: number, sampleRate: number): n
 /**
  * The phase meter's reading (step 6): how far deck X's beat is from deck
  * Y's, in beats, −0.5 … +0.5 (+: X ahead). From each deck's place on its
- * own grid, so it reads true at any tempo.
+ * own grid, so it reads true at any tempo. `m` is X's beats per Y's beat
+ * (Sync's: 2 when X runs at double time, ½ at half): they're compared in
+ * the slower deck's beats (review L4).
  */
-export function phaseOffset(gridX: BeatGrid, px: number, gridY: BeatGrid, py: number): number {
-  const fx = gridX.beatAt(px);
-  const fy = gridY.beatAt(py);
+export function phaseOffset(
+  gridX: BeatGrid,
+  px: number,
+  gridY: BeatGrid,
+  py: number,
+  m = 1,
+): number {
+  const fx = gridX.beatAt(px) / Math.max(1, m);
+  const fy = gridY.beatAt(py) * Math.min(1, m);
   let d = fx - Math.floor(fx) - (fy - Math.floor(fy));
   if (d > 0.5) d -= 1;
   if (d <= -0.5) d += 1;

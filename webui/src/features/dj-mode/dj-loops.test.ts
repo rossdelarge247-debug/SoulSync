@@ -208,8 +208,9 @@ describe('loops and the blend’s paths', () => {
     await r.advance(6);
     const l = r.session.snapshot().loops.A!;
     expect(posA()).toBeLessThan(l.end);
-    // the element (running on at A's speed) is put back by the watch
-    expect(Math.abs(r.el.currentTime - posA())).toBeLessThan(0.6);
+    // the element (running on at A's speed) is put back by the watch once it's past the loop
+    expect(r.el.currentTime).toBeGreaterThan(l.start - 0.8);
+    expect(r.el.currentTime).toBeLessThan(l.end + 0.8);
     expect(r.session.snapshot().phase).toBe('playing');
   });
 
@@ -278,5 +279,112 @@ describe('the phase meter’s reading', () => {
     expect(phaseWords(0.1, 0.5)).toBe('50 ms ahead of');
     expect(phaseWords(-0.06, 0.5)).toBe('30 ms behind');
     expect(phaseWords(0.004, 0.5)).toBe('in phase with');
+  });
+});
+
+describe('review round 1 (step 6)', () => {
+  function handingDeps(): Partial<SessionDeps> {
+    seeks = [];
+    return {
+      player: {
+        audio: () => r.el as never,
+        state: () => ({
+          ...r.player,
+          index: 0,
+          queue: [{ id: '2', title: 'Night Ferry', file_path: '/m/2.flac' }],
+        }),
+        seek: (t) => {
+          seeks.push(t);
+          r.el.currentTime = t;
+        },
+        insertNext: () => 1,
+        playIndex: async () => ({ status: 'played' }),
+      },
+    };
+  }
+
+  it('M2: A looping its outro never runs out; out of the loop its end comes as before (a Hand over)', async () => {
+    r.session.dispose();
+    r = rig(vi, handingDeps());
+    r.session.setLanes(
+      laneA(),
+      laneB({ queue: { id: '8', title: 'Harbour Lights', file_path: '/m/8.flac' } }),
+    );
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.jump('A', 270)).toBe('jumped');
+    r.session.setLoopSize('A', 32);
+    expect(r.session.autoLoop('A')).toBe(true);
+    const l = r.session.snapshot().loops.A!;
+    // kept inside the track (review L1)
+    expect(l.end).toBeLessThanOrEqual(286);
+    await r.advance(40);
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(r.session.snapshot().loops.A!.active).toBe(true);
+    expect(posA()).toBeLessThan(l.end);
+    r.session.exitLoop('A');
+    await r.advance(18);
+    expect(r.said.some((w) => w.includes('handed over to Harbour Lights'))).toBe(true);
+  });
+
+  it('M2: B looping in the blend near its 3 minutes isn’t taken back by the window’s end', async () => {
+    await playing();
+    r.session.jump('B', 170);
+    r.session.setLoopSize('B', 8);
+    expect(r.session.autoLoop('B')).toBe(true);
+    await r.advance(20);
+    expect(r.session.snapshot().phase).toBe('playing');
+  });
+
+  it('L1: a loop past B’s window is cut short, and refused when nothing fits', async () => {
+    await cued();
+    r.session.parkB(179.0);
+    r.session.setLoopSize('B', 8);
+    expect(r.session.autoLoop('B')).toBe(true);
+    expect(r.session.snapshot().loops.B!.end).toBeLessThanOrEqual(179.75 + 1e-9);
+    r.session.exitLoop('B');
+    r.session.setQuantize(false);
+    r.session.parkB(179.9);
+    expect(r.session.autoLoop('B')).toBe(false);
+    expect(r.said.at(-1)).toBe('No room for a loop here: deck B’s 3 minutes end');
+  });
+
+  it('L2: B on its own looping, then Back: B goes out from where it is (unwound, no jump)', async () => {
+    await cued();
+    r.el.paused = true;
+    r.el.ended = true;
+    r.session.playB();
+    await r.advance(0.5);
+    expect(r.session.snapshot().solo).toBe(true);
+    r.session.autoLoop('B');
+    await r.advance(5.3);
+    const before = posB(0.03);
+    r.session.backOverBar(null);
+    expect(posB(0.03)).toBeCloseTo(before, 4);
+    expect(r.session.snapshot().loops.B!.active).toBe(false);
+  });
+
+  it('L3: while A loops the element is put back about once a loop, not every quarter second', async () => {
+    await playing();
+    let n = 0;
+    r.el.addEventListener('seeking', () => (n += 1));
+    r.session.autoLoop('A');
+    await r.advance(10);
+    // a 4-beat loop is 2 s: about five
+    expect(n).toBeLessThanOrEqual(6);
+    expect(n).toBeGreaterThanOrEqual(3);
+    // out of it, the element is where A is heard
+    r.session.exitLoop('A');
+    expect(Math.abs(r.el.currentTime - posA())).toBeLessThan(0.05);
+  });
+
+  it('L4: the phase meter compares a double-time pair in the slower deck’s beats', async () => {
+    const { phaseOffset } = await import('./dj-sync');
+    const a = gridA();
+    const b = gridB();
+    // B at double time (2 B beats an A beat): B half a beat past one is a quarter of A's
+    expect(phaseOffset(b, b.timeAt(20.5), a, a.timeAt(10), 2)).toBeCloseTo(0.25, 6);
+    expect(phaseOffset(a, a.timeAt(10), b, b.timeAt(20.5), 0.5)).toBeCloseTo(-0.25, 6);
   });
 });

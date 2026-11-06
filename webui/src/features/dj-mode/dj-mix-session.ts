@@ -1242,7 +1242,8 @@ export class DjMixSession {
       const el = this.el;
       if (el) {
         this.ownSeek = true;
-        el.currentTime = target;
+        // where deck A is heard: the limiter's lookahead behind it (review L5)
+        el.currentTime = Math.max(0, target - this.look() * this.rateA);
       }
       engine.map('A', 0, [{ f: t * sr, p: target + 0.03 * this.rateA, r: this.rateA }], true);
       if (this.v.rateB !== null && this.v.phase === 'playing') this.relock();
@@ -1367,6 +1368,26 @@ export class DjMixSession {
     return beats === null ? `Deck ${deck} loop` : `Deck ${deck} loop ${beatWords(beats)}`;
   }
 
+  /**
+   * A loop's end kept inside what the deck has: its window (its 3 minutes)
+   * and the track's end, a little short of either (review L1); null when
+   * nothing sensible fits (under a 1/32 beat).
+   */
+  private fitEnd(deck: DeckId, start: number, end: number): number | null {
+    const win = deck === 'A' ? this.aWin : this.bWin;
+    const track = (deck === 'A' ? this.a : this.b)?.duration ?? Infinity;
+    const limit = Math.min(win ? win.offset + win.duration - 0.25 : Infinity, track - 0.1);
+    const e = Math.min(end, limit);
+    const shortest = this.beatAt(deck, start) / 32;
+    return e - start >= shortest ? e : null;
+  }
+
+  /** Beats between two places on a deck's grid (to a 1/32), or null without one. */
+  private beatsBetween(deck: DeckId, start: number, end: number): number | null {
+    const g = this.gridOf(deck);
+    return g ? Math.round((g.beatAt(end) - g.beatAt(start)) * 32) / 32 : null;
+  }
+
   /** The deck loops over `region` from now (its In … Out), from where it is. */
   private startLoop(deck: DeckId, start: number, end: number, beats: number | null): void {
     const engine = this.engine!;
@@ -1389,12 +1410,19 @@ export class DjMixSession {
     if (this.v.loops[deck]?.active) return this.exitLoop(deck);
     const pos = this.deckPos(deck);
     if (pos === null) return false;
-    const beats = this.v.loopSize[deck];
+    const want = this.v.loopSize[deck];
     const start = this.snap(deck, pos);
-    const end = this.beatsFrom(deck, start, beats);
-    this.startLoop(deck, start, end, this.gridOf(deck) ? beats : null);
+    const end = this.fitEnd(deck, start, this.beatsFrom(deck, start, want));
+    if (end === null) {
+      this.say(
+        `No room for a loop here: deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'} end`,
+      );
+      return false;
+    }
+    const beats = this.gridOf(deck) ? this.beatsBetween(deck, start, end) : null;
+    this.startLoop(deck, start, end, beats);
     this.say(
-      `${this.loopName(deck, beats)}${this.gridOf(deck) ? '' : ': no beat grid, the length is by its BPM'}`,
+      `${this.loopName(deck, beats ?? want)}${this.gridOf(deck) ? '' : ': no beat grid, the length is by its BPM'}`,
     );
     return true;
   }
@@ -1427,13 +1455,13 @@ export class DjMixSession {
       this.say(`Set deck ${deck}’s loop in first (I)`);
       return false;
     }
-    const end = this.snap(deck, pos);
-    if (end - from < 0.01) {
+    const at = this.snap(deck, pos);
+    const end = at - from < 0.01 ? null : this.fitEnd(deck, from, at);
+    if (end === null) {
       this.say('The loop’s out has to be after its in');
       return false;
     }
-    const g = this.gridOf(deck);
-    const beats = g ? Math.round((g.beatAt(end) - g.beatAt(from)) * 32) / 32 : null;
+    const beats = this.beatsBetween(deck, from, end);
     this.startLoop(deck, from, end, beats);
     this.say(this.loopName(deck, beats));
     return true;
@@ -1471,6 +1499,8 @@ export class DjMixSession {
     const f = (this.now() + 0.03) * this.engine.sampleRate;
     this.engine.endLoop?.(deck, f);
     this.update({ loops: { ...this.v.loops, [deck]: { ...l, active: false } } });
+    // the element where A is again (it was let run while A looped)
+    if (deck === 'A') this.alignElement();
     if (words) this.say(`Deck ${deck} out of the loop`);
     return true;
   }
@@ -1482,8 +1512,23 @@ export class DjMixSession {
     this.update({ loopSize: { ...this.v.loopSize, [deck]: b } });
     const l = this.v.loops[deck];
     if (l?.active && this.engine?.loop) {
-      const end = this.beatsFrom(deck, l.start, b);
-      this.startLoop(deck, l.start, end, this.gridOf(deck) ? b : null);
+      // smaller: the part of the loop the deck is in, so it doesn't jump (it
+      // wraps as usual, crossfaded); larger, from its start; kept inside the deck's window
+      const pos = this.deckRuns(deck) ? this.engine.position(deck, this.now() + 0.03) : null;
+      let start = l.start;
+      const g = this.gridOf(deck);
+      if (pos !== null && g && l.beats !== null && b < l.beats) {
+        const into = g.beatAt(pos) - g.beatAt(l.start);
+        start = g.timeAt(g.beatAt(l.start) + Math.max(0, Math.floor(into / b)) * b);
+      }
+      const end = this.fitEnd(deck, start, this.beatsFrom(deck, start, b));
+      if (end === null) {
+        this.say(
+          `No room for that loop: deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'} end`,
+        );
+        return;
+      }
+      this.startLoop(deck, start, end, g ? this.beatsBetween(deck, start, end) : null);
     }
     this.say(`${this.loopName(deck, b)}${l?.active ? '' : ' size'}`);
   }
@@ -1517,6 +1562,13 @@ export class DjMixSession {
     const target = by !== null ? pos + by : this.beatsFrom(deck, pos, dir * beats);
     const delta = target - pos;
     const noGrid = !this.gridOf(deck);
+    // a loop moved with the jump has to fit the deck's window and track (review L1)
+    if (looping && this.fitEnd(deck, l!.start + delta, l!.end + delta) !== l!.end + delta) {
+      this.say(
+        `The loop would run past deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'}: no jump`,
+      );
+      return false;
+    }
     if (deck === 'A' && !this.v.aOnDeck) {
       // A on the player's element: the player's own seek
       this.d.player.seek?.(Math.max(0, target));
@@ -1555,7 +1607,7 @@ export class DjMixSession {
       const el = this.el;
       if (el) {
         this.ownSeek = true;
-        el.currentTime = Math.max(0, target);
+        el.currentTime = Math.max(0, target - this.look() * this.rateA);
       }
       if (this.v.rateB !== null && this.v.phase === 'playing') this.relock();
     } else if (!this.quantizes('B') && this.v.rateB !== null && this.v.phase === 'playing') {
@@ -1585,8 +1637,13 @@ export class DjMixSession {
   private dropLoops(): void {
     const engine = this.engine;
     if (engine?.loop) {
-      const f = this.now() * engine.sampleRate;
-      for (const d of ['A', 'B'] as const) if (this.v.loops[d]?.active) engine.loop(d, null, f);
+      // unwound: each deck plays on from where it is, no jump (review L2)
+      const f = (this.now() + 0.03) * engine.sampleRate;
+      for (const d of ['A', 'B'] as const)
+        if (this.v.loops[d]?.active) {
+          if (engine.endLoop) engine.endLoop(d, f);
+          else engine.loop(d, null, f);
+        }
     }
     const off = (l: DeckLoop | null) => (l ? { ...l, active: false } : null);
     if (
@@ -3035,7 +3092,12 @@ export class DjMixSession {
       }
       // A looping on its deck: the muted element is kept where A is, so the
       // player's clock, its end and Back's join stay A's (step 6)
-      if (this.v.loops.A?.active) this.alignElement(0.25);
+      // (seeked only once it's run past the loop, about once a loop, review L3)
+      const la = this.v.loops.A;
+      if (la?.active && this.el) {
+        const t = this.el.currentTime;
+        if (t < la.start - 0.5 || t > la.end + 0.5) this.alignElement(0.25);
+      }
       // A running out while B plays is a Hand over (37j), over what's left of A
       const leftA = this.trackLeftA();
       if (
@@ -3074,6 +3136,8 @@ export class DjMixSession {
   /** Output seconds until A's track ends on its deck, or null. */
   private trackLeftA(): number | null {
     if (!this.v.aOnDeck || !this.a?.duration) return null;
+    // looping, A can't run out: its end is weighed again once it's out of the loop (review M2)
+    if (this.v.loops.A?.active) return null;
     const posA = this.engine?.position('A') ?? null;
     return posA === null ? null : (this.a.duration - posA) / this.rateA;
   }

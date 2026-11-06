@@ -163,7 +163,7 @@ export class FakeEngine {
   /** each deck's loops, as the engine keeps them (loops.ts) */
   spans: Record<DeckId, LoopSpan[]> = { A: [], B: [] };
   loop(deck: DeckId, region: { start: number; end: number } | null, atFrame: number) {
-    this.spans[deck] = withLoop(this.spans[deck], atFrame, region);
+    this.spans[deck] = withLoop(this.spans[deck], atFrame, region, this.sampleRate);
   }
   endLoop(deck: DeckId, atFrame: number) {
     const l = loopAt(this.spans[deck], atFrame);

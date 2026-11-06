@@ -309,6 +309,9 @@ function PhaseMeter({
   const bRuns =
     Boolean(mix.previewB) || ['starting', 'playing', 'backing', 'handing'].includes(mix.phase);
   const rateA = mix.rates?.A ?? 1;
+  // B's beats per A's (Sync's half and double time): compared in the slower's (review L4)
+  const mBA =
+    syncRatioFromBpm(s.a?.info?.bpm ?? s.a?.grid?.bpm, s.b?.info?.bpm ?? s.b?.grid?.bpm)?.m ?? 1;
   useEffect(() => {
     const el = ref.current;
     if (!el || !s.open) return;
@@ -326,6 +329,7 @@ function PhaseMeter({
           deck === 'b' ? posB : posA,
           deck === 'b' ? gridA : gridB,
           deck === 'b' ? posA : posB,
+          deck === 'b' ? mBA : 1 / mBA,
         );
         el.dataset.mode = 'phase';
         el.style.setProperty('--phase', d.toFixed(3));
@@ -373,7 +377,7 @@ function PhaseMeter({
       stop();
       doc.removeEventListener('visibilitychange', vis);
     };
-  }, [deck, store, s.open, gridA, gridB, bRuns, rateA]);
+  }, [deck, store, s.open, gridA, gridB, bRuns, rateA, mBA]);
   return (
     <span
       ref={ref}
