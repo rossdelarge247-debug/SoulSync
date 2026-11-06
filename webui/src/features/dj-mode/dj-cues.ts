@@ -114,6 +114,12 @@ export function cueButtonName(slot: number, cue: Cue | null, picked: boolean): s
   return `Cue ${slot}, ${where}${picked ? ', picked: click the waveform to move it' : ''}`;
 }
 
+/** A set cue's tooltip (M1): a press jumps; moving it takes ⌥. */
+export function cueButtonTitle(slot: number, cue: Cue | null): string {
+  if (!cue) return `Cue ${slot}: pick it, then click the waveform to place it (${slot})`;
+  return `Cue ${slot}: jump to it (${slot}) · ⌥-click to move it`;
+}
+
 /** The pointer's label over the waveform while a cue is picked (37g). */
 export function placeLabel(slot: number, grid: BeatGrid | null, seconds: number): string {
   if (grid) {
@@ -130,7 +136,7 @@ function clock(s: number): string {
 
 /** One announcement per change (37p). */
 export function cueWords(
-  kind: 'picked' | 'placed' | 'moved' | 'cleared' | 'jumped',
+  kind: 'picked' | 'picked to move' | 'placed' | 'moved' | 'cleared' | 'jumped',
   deck: 'A' | 'B',
   cue: Cue | { slot: number },
 ): string {
@@ -139,6 +145,8 @@ export function cueWords(
   switch (kind) {
     case 'picked':
       return `Cue ${cue.slot} on deck ${deck} picked: click the waveform to place it`;
+    case 'picked to move':
+      return `Cue ${cue.slot} on deck ${deck}, ${where}, picked: click the waveform to move it`;
     case 'placed':
       return `Cue ${cue.slot} on deck ${deck} at ${where}`;
     case 'moved':

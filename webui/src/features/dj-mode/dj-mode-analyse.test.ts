@@ -9,6 +9,7 @@ import { requestAnalysis, resetAnalysisRequests } from '@/features/dj/analysis.a
 import { HttpResponse, http, server } from '@/test/msw';
 
 import { DjModeStore } from './dj-mode-store';
+import { DjPrefsStore } from './dj-prefs';
 
 afterEach(() => {
   resetAnalysisRequests();
@@ -36,6 +37,7 @@ describe('DJ mode’s analysis ask (review M1)', () => {
     // a page asked for it automatically (Up next, a set) just now
     void requestAnalysis(['42'], { reason: 'auto' }).catch(() => undefined);
     const store = new DjModeStore({
+      prefs: new DjPrefsStore(null),
       fetch: async (url: string) =>
         url.includes('/dj/grid/')
           ? new Response(
@@ -80,6 +82,7 @@ describe('DJ mode’s analysis ask (review M1)', () => {
       }),
     };
     const store = new DjModeStore({
+      prefs: new DjPrefsStore(null),
       fetch: async (url: string) =>
         url.includes('/dj/grid/')
           ? new Response(

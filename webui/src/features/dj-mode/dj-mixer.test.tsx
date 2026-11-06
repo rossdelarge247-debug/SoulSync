@@ -15,6 +15,7 @@ import { DjModeStage } from './dj-mode-stage';
 import { DjModeStore } from './dj-mode-store';
 import { apiGrid } from './dj-mode.fixtures';
 import { headerLine } from './dj-mode.logic';
+import { DjPrefsStore } from './dj-prefs';
 
 const FERRY = {
   id: '2',
@@ -30,6 +31,7 @@ let reduce = false;
 
 function makeStore(): DjModeStore {
   return new DjModeStore({
+    prefs: new DjPrefsStore(null),
     fetch: async (url: string, init?: RequestInit) => {
       if (url.endsWith('/peaks'))
         return new Response(JSON.stringify({ peaks: [0.2, 0.9], duration_s: 286 }));
@@ -283,13 +285,15 @@ describe('Play B and the blend (37g, 37h)', () => {
     expect(screen.getByRole('group', { name: /Deck B, Harbour Lights, playing/ })).toBeTruthy();
     // 37g: B's tempo as Sync plays it
     expect(document.querySelector('[data-deck="b"] [class*="bpm"]')!.textContent).toMatch(
-      /120\.0 \(−4\.0%\)/,
+      /120\.00 \(−4\.00%\)/,
     );
     expect(said).toContain('Harbour Lights playing, on Night Ferry’s beat');
   });
 
   it('the thin cyan line over B is its 3-minute window from its mix-in (424, 434)', async () => {
     await withB();
+    // drawn at whole track (zoomed, the time left counts to it, S4)
+    act(() => store.zoom('b', 'whole'));
     const line = document.querySelector<HTMLElement>('[data-dj-window]')!;
     expect(line).not.toBeNull();
     expect(Number.parseFloat(line.style.left)).toBeCloseTo(0, 1);

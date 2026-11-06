@@ -835,7 +835,7 @@ describe('3b: Tempo, Key lock, Headphones, cue jumps (438–443)', () => {
     await r.advance(3);
     r.session.setDeck('B', 'tempo', -1.6);
     expect(r.session.snapshot().sync).toBe(false);
-    expect(r.said.at(-1)).toBe('Sync off: Harbour Lights at −1.6%');
+    expect(r.said.at(-1)).toBe('Sync off: Harbour Lights at −1.60%');
     const t = r.engine.port.time + 0.5;
     expect(r.engine.port.rate('B', t)).toBeCloseTo(0.984, 4);
     expect(r.session.snapshot().rateB).toBeNull();

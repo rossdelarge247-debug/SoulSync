@@ -125,3 +125,39 @@ describe('the decks need a secure page', () => {
     expect(djDeckSupport({ isSecureContext: true, AudioWorkletNode: class {} })).toBeNull();
   });
 });
+
+describe('step 5: Tempo to a hundredth (S1) and the BPM that plays (M2)', () => {
+  it('words, steps and BPM', async () => {
+    const { tempoWords, tempoStep, bpmWords, ratePctWords } = await import('./dj-mixer.logic');
+    expect(tempoWords(0)).toBe('0.00%');
+    expect(tempoWords(1.26)).toBe('+1.26%');
+    expect(tempoWords(-0.02)).toBe('−0.02%');
+    expect(tempoStep(6)).toBe(0.02);
+    expect(tempoStep(8)).toBe(0.02);
+    expect(tempoStep(10)).toBe(0.05);
+    expect(tempoStep(16)).toBe(0.05);
+    expect(bpmWords(124, 1)).toBe('124.0');
+    expect(bpmWords(124, null)).toBe('124.0');
+    expect(bpmWords(124, 1.04)).toBe('128.96');
+    expect(ratePctWords(1)).toBe('');
+    expect(ratePctWords(0.984)).toBe('−1.60%');
+    expect(ratePctWords(1.0002)).toBe('+0.02%');
+  });
+});
+
+describe('step 5: the mixer’s words (S6, M6) and the meters (S5)', () => {
+  it('Auto-gain in words; why deck A’s channel waits; a meter’s fill', async () => {
+    const { gainWords, channelWhy } = await import('./dj-mixer');
+    const { meterFill, peakOf } = await import('./dj-meters');
+    expect(gainWords(0)).toBe('Gain 0 dB');
+    expect(gainWords(2.46)).toBe('Gain +2.5 dB');
+    expect(gainWords(-9)).toBe('Gain −9.0 dB');
+    expect(channelWhy({ aOnDeck: false, elementLive: true, solo: false })).toBeNull();
+    expect(channelWhy({ aOnDeck: true, elementLive: false, solo: false })).toBeNull();
+    expect(channelWhy({ aOnDeck: false, elementLive: false, solo: false })).toMatch(/Play B/);
+    expect(meterFill(1)).toBe(1);
+    expect(meterFill(0)).toBe(0);
+    expect(meterFill(Math.pow(10, -24 / 20))).toBeCloseTo(0.5, 6);
+    expect(peakOf(new Float32Array([0.1, -0.7, 0.3]))).toBeCloseTo(0.7, 6);
+  });
+});

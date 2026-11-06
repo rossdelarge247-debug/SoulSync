@@ -14,6 +14,7 @@ import { HttpResponse, http, server } from '@/test/msw';
 
 import { DjModeStore } from './dj-mode-store';
 import { apiGrid } from './dj-mode.fixtures';
+import { DjPrefsStore } from './dj-prefs';
 import { DjStage, LANE_B_TARGET } from './dj-stage';
 
 const FERRY = {
@@ -31,6 +32,7 @@ function makeStore(
   { peaksFail = false }: { peaksFail?: boolean } = {},
 ): DjModeStore {
   return new DjModeStore({
+    prefs: new DjPrefsStore(null),
     fetch: async (url: string, init?: RequestInit) => {
       let m = /\/peaks$/.exec(url);
       if (m && peaksFail) return new Response('{}', { status: 500 });
@@ -133,7 +135,7 @@ describe('lane A (37b)', () => {
     // the playhead and the elapsed time follow the player's element
     // (3b: --played is on the lane, so the zoom layer and the beat map read it too)
     expect((a as HTMLElement).style.getPropertyValue('--played')).toBe(String(121 / 286));
-    expect(a.querySelector('[data-dj-time="a"]')).toHaveTextContent('2:01');
+    expect(a.querySelector('[data-dj-time="a"]')).toHaveTextContent('2:01 · −2:45');
   });
 
   it('the line you see keeps up every second (review M2), without a render or a live region', async () => {
@@ -159,7 +161,8 @@ describe('lane A (37b)', () => {
       audio.currentTime = t;
       await act(async () => new Promise((r) => setTimeout(r, 40)));
     }
-    expect(said).toEqual(['Night Ferry: mix-out reached']);
+    // and the last 30 s once, when they're reached playing (S4)
+    expect(said).toEqual(['Night Ferry: mix-out reached', 'Night Ferry: 24 seconds left']);
     audio.currentTime = 121;
   });
 
@@ -264,7 +267,8 @@ describe('lane B (37b, 37d)', () => {
       description: 'cued at bar 1 of 128 · mix-out from bar 121',
     });
     expect(b).toHaveTextContent('B · cued');
-    expect(b).toHaveTextContent('0:01 · 4:46');
+    // the time gone and the time left (S4)
+    expect(b).toHaveTextContent('0:01 · −4:45');
     expect(b.querySelector('[data-dj-line="b"]')).toHaveTextContent('cued at bar 1 of 128');
   });
 
@@ -412,5 +416,31 @@ describe('lane B is the `dj` drop target (37c, 37d; 436)', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(store.snapshot().b).toBeNull();
+  });
+});
+
+describe('step 5: the time left and the end coming (S4)', () => {
+  it('words and the warning: amber in the last 30 s, faster in the last 15, playing only', async () => {
+    const { timeWords, endingFor } = await import('./dj-stage');
+    expect(timeWords(121, 286)).toBe('2:01 · −2:45');
+    expect(timeWords(285.5, 286)).toBe('4:45 · −0:01');
+    expect(timeWords(10, 0)).toBe('0:10');
+    expect(endingFor(45, true)).toBeNull();
+    expect(endingFor(29, true)).toBe('near');
+    expect(endingFor(12, true)).toBe('soon');
+    expect(endingFor(12, false)).toBeNull();
+    expect(endingFor(0, true)).toBeNull();
+  });
+
+  it('lane A’s frame says it, while the player plays, and lets go when it’s not ending', async () => {
+    const store = makeStore();
+    await on(store);
+    const a = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
+    audio.currentTime = 275;
+    await act(async () => new Promise((r) => setTimeout(r, 60)));
+    expect(a.dataset.ending).toBe('soon');
+    audio.currentTime = 121;
+    await act(async () => new Promise((r) => setTimeout(r, 60)));
+    expect(a.dataset.ending).toBeUndefined();
   });
 });

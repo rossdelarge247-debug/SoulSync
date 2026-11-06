@@ -68,6 +68,33 @@
   box-shadow: 0 0 0 2px var(--deck);
 }
 
+/*
+ * The end coming (S4, a CDJ's): the last 30 s the frame is amber and pulses,
+ * faster in the last 15; with Reduce motion it stays amber, still. The time
+ * shows what's left either way.
+ */
+.lane[data-ending] {
+  border-color: rgba(var(--ss-warning-rgb), 0.55);
+  border-left-color: var(--dj-amber);
+}
+.lane[data-ending] [data-dj-time] {
+  color: var(--dj-amber);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lane[data-ending='near'] {
+    animation: dj-ending 1.2s ease-in-out infinite;
+  }
+  .lane[data-ending='soon'] {
+    animation: dj-ending 0.5s ease-in-out infinite;
+  }
+}
+@keyframes dj-ending {
+  50% {
+    border-color: rgba(var(--ss-warning-rgb), 0.15);
+    border-left-color: rgba(var(--ss-warning-rgb), 0.35);
+  }
+}
+
 .head {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto;

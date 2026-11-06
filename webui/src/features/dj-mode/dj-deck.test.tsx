@@ -17,6 +17,7 @@ import { DjModeStage } from './dj-mode-stage';
 import { DjModeStore } from './dj-mode-store';
 import { apiGrid } from './dj-mode.fixtures';
 import { DjOutputs } from './dj-outputs-host';
+import { DjPrefsStore, resetDjPrefs } from './dj-prefs';
 
 let outputs: DjOutputs;
 let devices: OutputDevice[];
@@ -74,6 +75,8 @@ let reduce = false;
 
 function makeStore(): DjModeStore {
   return new DjModeStore({
+    // the person's settings from their defaults each test (zoom 16 bars, S3)
+    prefs: new DjPrefsStore(null),
     fetch: async (url: string, init?: RequestInit) => {
       if (url.endsWith('/peaks'))
         return new Response(JSON.stringify({ peaks: [0.2, 0.9], duration_s: 286 }));
@@ -245,13 +248,13 @@ describe('the decks as vertical faders (37g)', () => {
     const box = b.closest('[data-control]') as HTMLElement;
     expect(box.dataset.tone).toBe('sync');
     expect(box.title).toBe('Set by Sync · moving it turns Sync off');
-    expect(b).toHaveAttribute('aria-valuetext', '−4.0%');
+    expect(b).toHaveAttribute('aria-valuetext', '−4.00%');
     fireEvent.change(b, { target: { value: '1.5' } });
     expect(screen.getByRole('button', { name: 'Sync' })).toHaveAttribute('aria-pressed', 'false');
-    expect(b).toHaveAttribute('aria-valuetext', '+1.5%');
+    expect(b).toHaveAttribute('aria-valuetext', '+1.50%');
     // double-click (or Backspace): back to 0
     fireEvent.keyDown(b, { key: 'Backspace' });
-    expect(b).toHaveAttribute('aria-valuetext', '0.0%');
+    expect(b).toHaveAttribute('aria-valuetext', '0.00%');
   });
 });
 
@@ -303,6 +306,10 @@ describe('the lane strip, cues and zoom (37g, 37s)', () => {
     ).toBeLessThan(1e-6);
     await flush(700);
     expect(cuesPut.at(-1)).toEqual({ cues: [store.snapshot().b!.cues[1], cue] });
+    // placed: the pick goes (one place a pick, M1)
+    expect(store.snapshot().pick.b).toBeNull();
+    fireEvent.click(document.querySelector('[data-dj-strip="b"] [data-dj-cue="4"]')!);
+    expect(store.snapshot().pick.b).toBe(4);
     expect(store.escape()).toBe(true);
     expect(store.snapshot().pick.b).toBeNull();
     expect(store.snapshot().on).toBe(true);
@@ -337,15 +344,15 @@ describe('the lane strip, cues and zoom (37g, 37s)', () => {
     expect(said.at(-1)).toBe('Deck B to cue 2, bar 5');
   });
 
-  it('the zoom pill: five levels, the lane drawn zoomed, Z back to whole', async () => {
+  it('the zoom pill: five levels from 16 bars (S3), the lane drawn zoomed, Z back to whole', async () => {
     await withB();
     const pill = document.querySelector<HTMLElement>('[data-dj-zoom="b"]')!;
-    expect(pill).toHaveTextContent('whole track');
+    // a tighter start than the whole track: bars to read, the sections strip the overview
+    expect(pill).toHaveTextContent('16 bars');
     const plus = within(pill).getByRole('button', { name: 'Zoom in deck B' });
     fireEvent.click(plus);
-    fireEvent.click(plus);
-    expect(pill).toHaveTextContent('16 bars');
-    expect(said.at(-1)).toBe('Deck B: 16 bars');
+    expect(pill).toHaveTextContent('4 bars');
+    expect(said.at(-1)).toBe('Deck B: 4 bars');
     const laneB = document.querySelector('[data-dj-lane="b"]')!;
     expect(laneB.querySelector('[data-zoomed]')).not.toBeNull();
     expect(laneB.querySelector('[data-dj-outline]')).not.toBeNull();
@@ -370,6 +377,7 @@ describe('lane A without a grid (M4)', () => {
     expect(store.snapshot().a!.phase).toBe('no_grid');
     const laneA = document.querySelector<HTMLElement>('[data-dj-lane="a"]')!;
     act(() => {
+      store.zoom('a', 'whole');
       store.zoom('a', 1);
     });
     const body = laneA.querySelector<HTMLElement>('[data-zoomed]')!;
@@ -411,7 +419,7 @@ describe('the lane keys (37p): only with a lane focused, or B loaded', () => {
     expect(r.session.snapshot().decks.A.keyLock).toBe(false);
     expect(store.laneKey('Z', null)).toBe(false);
     expect(store.laneKey('+', 'a')).toBe(true);
-    expect(store.snapshot().zoom.a).toBe(64);
+    expect(store.snapshot().zoom.a).toBe(4);
     store.removeB();
     // no B and nothing focused: M is the player's Mute again
     expect(store.laneKey('M', null)).toBe(false);
@@ -754,5 +762,186 @@ describe('review round 2 (step 4b)', () => {
     act(() => {
       fireEvent.blur(laneA, { relatedTarget: document.body });
     });
+  });
+});
+
+describe('step 5: Traktor and CDJ parity', () => {
+  const box = (w: number, h = 50) =>
+    ({
+      left: 0,
+      width: w,
+      top: 0,
+      height: h,
+      right: w,
+      bottom: h,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  it('M1: a set cue pressed jumps and nothing else; a click on the waveform then moves nothing', async () => {
+    await withB();
+    const cue2 = document.querySelector<HTMLElement>('[data-dj-strip="b"] [data-dj-cue="2"]')!;
+    expect(cue2.title).toBe('Cue 2: jump to it (2) · ⌥-click to move it');
+    fireEvent.click(cue2);
+    expect(store.snapshot().pick.b).toBeNull();
+    expect(cue2).toHaveAttribute('aria-pressed', 'false');
+    const wave = document.querySelector<HTMLElement>('[data-dj-wave="b"]')!;
+    wave.getBoundingClientRect = () => box(288);
+    fireEvent.click(wave, { clientX: 120 });
+    await flush(700);
+    expect(store.snapshot().b!.cues[1]).toMatchObject({ slot: 2, seconds: 8.18 });
+    expect(cuesPut).toEqual([]);
+  });
+
+  it('M1: ⌥-click (or ⌥ Enter) picks a set cue to move it; the next click moves it, once', async () => {
+    await withB();
+    const cue2 = document.querySelector<HTMLElement>('[data-dj-strip="b"] [data-dj-cue="2"]')!;
+    fireEvent.click(cue2, { altKey: true });
+    expect(store.snapshot().pick.b).toBe(2);
+    expect(said.at(-1)).toBe('Cue 2 on deck B, bar 5, picked: click the waveform to move it');
+    const wave = document.querySelector<HTMLElement>('[data-dj-wave="b"]')!;
+    wave.getBoundingClientRect = () => box(288);
+    fireEvent.click(wave, { clientX: 120 });
+    expect(store.snapshot().b!.cues[1]!.seconds).not.toBeCloseTo(8.18, 1);
+    expect(said.at(-1)).toMatch(/^Cue 2 on deck B moved to/);
+    // one move a pick: it's let go
+    expect(store.snapshot().pick.b).toBeNull();
+    // ⌥ Enter on the button picks it again; a plain press clears the pick (a jump)
+    fireEvent.keyDown(cue2, { key: 'Enter', altKey: true });
+    expect(store.snapshot().pick.b).toBe(2);
+    fireEvent.click(cue2);
+    expect(store.snapshot().pick.b).toBeNull();
+  });
+
+  it('M8: Tempo’s + is at the bottom (a CDJ’s) by default: ↓ is faster; the setting puts it at the top', async () => {
+    const prefs = resetDjPrefs(null);
+    await withB();
+    const b = screen.getByRole('slider', { name: 'Deck B Tempo' });
+    act(() => {
+      r.session.setSync(false);
+    });
+    expect(b).toHaveAttribute('data-plus', 'down');
+    const ends = [...b.closest('[data-control]')!.querySelectorAll('[data-end]')].map(
+      (e) => e.textContent,
+    );
+    expect(ends).toEqual(['−', '+']);
+    fireEvent.keyDown(b, { key: 'ArrowDown' });
+    expect(b).toHaveAttribute('aria-valuetext', '+0.02%');
+    fireEvent.keyDown(b, { key: 'ArrowDown', shiftKey: true });
+    expect(b).toHaveAttribute('aria-valuetext', '+1.02%');
+    fireEvent.keyDown(b, { key: 'ArrowUp' });
+    expect(b).toHaveAttribute('aria-valuetext', '+1.00%');
+    act(() => prefs.set({ tempoPlus: 'up' }));
+    expect(b).not.toHaveAttribute('data-plus');
+    expect(
+      [...b.closest('[data-control]')!.querySelectorAll('[data-end]')].map((e) => e.textContent),
+    ).toEqual(['+', '−']);
+    // the input's own ↑ is + again (not handled here)
+    const e = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    b.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it('S1: Tempo moves in 0.02% (0.05% on ±10/16) and ⇧-drag a tenth of the travel', async () => {
+    resetDjPrefs(null);
+    await withB();
+    act(() => {
+      r.session.setSync(false);
+    });
+    const b = screen.getByRole('slider', { name: 'Deck B Tempo' });
+    expect(b).toHaveAttribute('step', '0.02');
+    b.getBoundingClientRect = () => box(24, 160);
+    // + at the bottom: 80 px down is half the travel (8%), a tenth of it with ⇧
+    fireEvent.pointerDown(b, { pointerId: 1, clientY: 40, shiftKey: true });
+    fireEvent.pointerMove(b, { pointerId: 1, clientY: 120 });
+    fireEvent.pointerUp(b, { pointerId: 1 });
+    expect(r.session.snapshot().values.B.tempo).toBeCloseTo(0.8, 2);
+    act(() => r.session.setRange('B', 16));
+    expect(screen.getByRole('slider', { name: 'Deck B Tempo' })).toHaveAttribute('step', '0.05');
+  });
+
+  it('M2: lane B’s head shows the BPM it plays at, its Tempo with Sync off; lane A’s once on its deck', async () => {
+    await withB();
+    act(() => {
+      r.session.setSync(false);
+      r.session.setDeck('B', 'tempo', 2);
+    });
+    const bpm = (d: string) => document.querySelector(`[data-dj-bpm="${d}"]`)!.textContent;
+    expect(bpm('b')).toMatch(/127\.50 \(\+2\.00%\)/);
+    expect(bpm('a')).toMatch(/120\.0$/);
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    act(() => {
+      r.session.setTempo('A', 4);
+    });
+    expect(bpm('a')).toMatch(/124\.80 \(\+4\.00%\)/);
+  });
+
+  it('M6: deck A’s channel and the centre are live before Play B; a player that can’t route them says why', async () => {
+    await withB();
+    expect(screen.getByRole('slider', { name: 'Deck A Volume' })).not.toBeDisabled();
+    expect(screen.getByRole('slider', { name: 'Crossfader' })).not.toBeDisabled();
+    cleanup();
+    r.session.dispose();
+    store.dispose();
+    r = rig(vi, { say: (w) => store.announce(w) });
+    r.engine.routed = false;
+    store = makeStore();
+    store.setOn(true);
+    await withB();
+    const vol = screen.getByRole('slider', { name: 'Deck A Volume' });
+    expect(vol).toBeDisabled();
+    expect(vol.closest('[data-control]')!.getAttribute('title')).toMatch(
+      /acts once A is on its deck \(Play B\)/,
+    );
+    expect(screen.getByRole('button', { name: 'Kill deck A Low' })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: 'Crossfader' })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: 'Echo · Send A' })).toBeDisabled();
+    // B's channel is B's: never waiting
+    expect(screen.getByRole('slider', { name: 'Deck B Volume' })).not.toBeDisabled();
+    act(() => {
+      store.playB();
+    });
+    await flush(3000);
+    expect(screen.getByRole('slider', { name: 'Deck A Volume' })).not.toBeDisabled();
+  });
+
+  it('S5 and S6: a meter beside each Volume and one for what goes out, quiet for a screen reader; B’s Auto-gain', async () => {
+    await withB();
+    for (const m of ['a', 'b', 'out'])
+      expect(document.querySelector(`[data-dj-meter="${m}"]`)).toHaveAttribute(
+        'aria-hidden',
+        'true',
+      );
+    expect(document.querySelector('[data-dj-gain="b"]')).toHaveTextContent('Gain 0 dB');
+    expect(document.querySelector('[data-dj-gain="a"]')).toBeNull();
+  });
+
+  it('S4: lane B shows the time left; L-new: a held C lets go from anywhere in the lane', async () => {
+    await withB();
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    expect(laneB.querySelector('[data-dj-time="b"]')!.textContent).toMatch(/· −\d+:\d\d$/);
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    // the focus moves onto the strip first; the keyup comes from there
+    const keyLock = within(laneB).getByRole('button', { name: /Key lock/ });
+    act(() => {
+      fireEvent.keyUp(keyLock, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
+    // held again from the lane, the focus on the strip, then it leaves the lane
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'c' });
+    });
+    expect(r.session.snapshot().previewB).toBe(true);
+    act(() => {
+      fireEvent.blur(keyLock, { relatedTarget: document.body });
+    });
+    expect(r.session.snapshot().previewB).toBe(false);
   });
 });

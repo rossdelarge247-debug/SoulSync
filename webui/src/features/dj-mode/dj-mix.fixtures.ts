@@ -4,9 +4,11 @@ import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 import type { DeckData } from '@/features/engine/engine';
-import type { DeckId } from '@/features/engine/score';
+import type { DeckId, ParamName } from '@/features/engine/score';
 
+import { AutomatedParam } from '@/features/engine/automation';
 import { BeatGrid } from '@/features/engine/grid';
+import { NEUTRAL, PARAM_NAMES } from '@/features/engine/score';
 import { FakeParam, FakePort } from '@/features/engine/testing';
 
 import type { EngineLike, MixLane, SessionDeps } from './dj-mix-session';
@@ -63,15 +65,44 @@ export class FakeEngine {
       },
     },
   };
+  /** the element strip's cue send (deck A's Headphones on the element, step 5) */
+  readonly elementCue = {
+    gain: {
+      value: 0,
+      setTargetAtTime(v: number) {
+        this.value = v;
+      },
+    },
+  };
   readonly graph = {
     master: { gain: this.master as unknown as AudioParam },
     decks: {
       A: { cueSend: this.cueSends.A },
       B: { cueSend: this.cueSends.B },
     } as unknown as Record<DeckId, { cueSend: { gain: AudioParam } }>,
+    element: { cueSend: this.elementCue } as unknown as { cueSend: { gain: AudioParam } },
   };
+  /** the element strip (step 5): the player's element plays through it while the engine lives */
+  routed = true;
+  readonly elementFakes = {} as Record<ParamName, FakeParam>;
+  private readonly elementAuto = {} as Record<ParamName, AutomatedParam>;
+  elementParams(): Record<ParamName, AutomatedParam> | null {
+    return this.routed ? this.elementAuto : null;
+  }
+  /** an element strip param's value as the browser would play it at t */
+  elementValue(name: ParamName, t = this.port.time): number {
+    return this.elementFakes[name].browser.valueAt(t);
+  }
 
   constructor() {
+    for (const name of PARAM_NAMES) {
+      this.elementFakes[name] = new FakeParam(NEUTRAL[name]);
+      this.elementAuto[name] = new AutomatedParam(
+        this.elementFakes[name],
+        `E.${name}`,
+        NEUTRAL[name],
+      );
+    }
     const port = this.port;
     Object.defineProperty(this.context, 'currentTime', { get: () => port.time });
     Object.defineProperty(this.context, 'state', { get: () => this.state });
