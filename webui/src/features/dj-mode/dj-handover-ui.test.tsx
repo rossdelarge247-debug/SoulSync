@@ -14,6 +14,7 @@ import { DjModeStage } from './dj-mode-stage';
 import { DjModeStore } from './dj-mode-store';
 import { apiGrid } from './dj-mode.fixtures';
 import { DjOutputs } from './dj-outputs-host';
+import { DjPrefsStore } from './dj-prefs';
 
 const FERRY = {
   id: '2',
@@ -40,6 +41,7 @@ let index: number;
 
 function makeStore(): DjModeStore {
   return new DjModeStore({
+    prefs: new DjPrefsStore(null),
     fetch: async (url: string) => {
       if (url.endsWith('/peaks'))
         return new Response(JSON.stringify({ peaks: [0.2, 0.9], duration_s: 286 }));

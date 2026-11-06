@@ -14,6 +14,7 @@ import type { DjOutputs } from './dj-outputs-host';
 
 import styles from './dj-mixer.module.css';
 import { cueMixWords, cueVolumeWords, monitorLine, monitorShown } from './dj-outputs';
+import { djPrefs, type DjPrefsStore } from './dj-prefs';
 
 function useOutputs(outputs: DjOutputs) {
   return useSyncExternalStore(outputs.subscribe, outputs.snapshot, outputs.snapshot);
@@ -235,6 +236,57 @@ export function OutputsPanel({ outputs }: { outputs: DjOutputs }) {
       <p className={styles.outputsNote}>
         With one output: the cue in the left ear, the speakers in the right, mono each. Off unless
         you ask, because it changes what the room hears.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Player settings → Playback, under DJ outputs (step 5): the Tempo fader's
+ * direction (M8: + at the bottom, a CDJ's, by default) and Auto-gain (S6,
+ * on by default). Kept for this profile in this browser (dj-prefs.ts).
+ */
+export function DeckSettings({ prefs = djPrefs() }: { prefs?: DjPrefsStore }) {
+  const p = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot);
+  const id = useId();
+  return (
+    <div className={styles.outputs} data-dj-deck-settings="">
+      <fieldset className={styles.outputsField}>
+        <legend className={styles.outputsLabel}>Tempo fader</legend>
+        <label className={styles.outputsChoice}>
+          <input
+            type="radio"
+            name={`${id}-tempo`}
+            checked={p.tempoPlus === 'down'}
+            onChange={() => prefs.set({ tempoPlus: 'down' })}
+          />
+          + down (CDJ)
+        </label>
+        <label className={styles.outputsChoice}>
+          <input
+            type="radio"
+            name={`${id}-tempo`}
+            checked={p.tempoPlus === 'up'}
+            onChange={() => prefs.set({ tempoPlus: 'up' })}
+          />
+          + up
+        </label>
+      </fieldset>
+      <p className={styles.outputsNote}>
+        Which end of a deck’s Tempo fader is faster. A CDJ’s and a turntable’s is at the bottom:
+        pulled towards you, faster.
+      </p>
+      <label className={styles.outputsRow}>
+        <span className={styles.outputsLabel}>Auto-gain</span>
+        <input
+          type="checkbox"
+          checked={p.autoGain}
+          onChange={(e) => prefs.set({ autoGain: e.target.checked })}
+        />
+      </label>
+      <p className={styles.outputsNote}>
+        B comes in at A’s loudness, from the analysis (within ±9 dB), and eases back to its own
+        level as you hand over. The player’s Normalize, if it’s on, works on both after it.
       </p>
     </div>
   );

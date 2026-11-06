@@ -125,6 +125,8 @@ export interface LaneGrid {
   truncated: boolean;
   /** how far the analysis read (a long file: its first part), seconds */
   analysedS: number | null;
+  /** the analysed loudness (Auto-gain, step 5) */
+  loudness: { replaygain_db: number | null; level_db: number | null } | null;
 }
 
 export function laneGrid(api: LaneApiGrid | null | undefined): LaneGrid | null {
@@ -144,6 +146,12 @@ export function laneGrid(api: LaneApiGrid | null | undefined): LaneGrid | null {
     confident: api.grid?.confident !== false,
     truncated: Boolean(api.truncated),
     analysedS: typeof api.analysed_s === 'number' && api.analysed_s > 0 ? api.analysed_s : null,
+    loudness: api.loudness
+      ? {
+          replaygain_db: api.loudness.replaygain_db ?? null,
+          level_db: api.loudness.level_db ?? null,
+        }
+      : null,
   };
 }
 

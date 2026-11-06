@@ -59,6 +59,7 @@ import {
   noGridWords,
   PENDING_REASONS,
 } from './dj-mode.logic';
+import { djPrefs, type DjPrefsStore } from './dj-prefs';
 import { DeckTransport } from './dj-transport';
 import { zoomStep, zoomWords } from './dj-zoom';
 
@@ -121,7 +122,7 @@ export interface DjModeSnapshot {
   mix: MixState;
   /** the cue picked on each lane (a white ring; a click on the waveform places it) */
   pick: Record<Deck, number | null>;
-  /** each lane's zoom (442), kept for the session */
+  /** each lane's zoom (442): the person's last (16 bars to start, S3), kept per profile */
   zoom: Record<Deck, ZoomLevel>;
 }
 
@@ -154,6 +155,8 @@ export interface MixState {
   previewB?: boolean;
   /** a hand on a deck's platter */
   hand?: 'A' | 'B' | null;
+  /** each deck's speed against its own tempo as it plays, or will (M2: the heads' BPM) */
+  rates?: { A: number | null; B: number | null };
 }
 
 /** What the mixer (step 3) lends the store: it lives with the Visuals' pieces. */
@@ -230,6 +233,8 @@ export interface DjModeDeps {
   /** one polite announcement per change of state (37p) */
   say?: (words: string) => void;
   now?: () => number;
+  /** the person's DJ settings (zoom, step 5) */
+  prefs?: DjPrefsStore;
 }
 
 export const PHONE_QUERY = '(max-width: 768px)';
@@ -328,6 +333,7 @@ export class DjModeStore {
   private gridFor: Record<Deck, number | null> = { a: null, b: null };
   private readonly now: () => number;
   private readonly cueStore: CueStore;
+  private readonly prefs: DjPrefsStore;
   /** the element's time between its steps (step 4b) */
   private readonly clock = new SmoothClock();
   /** each deck's Play/Pause and CUE (step 4b, a CDJ's) */
@@ -368,6 +374,7 @@ export class DjModeStore {
     this.now = deps.now ?? (() => Date.now());
     this.libraryAway = deps.libraryAway ?? (() => false);
     this.sayFn = deps.say ?? ((w) => liveSay(w));
+    this.prefs = deps.prefs ?? djPrefs();
     this.s = {
       on: false,
       open: false,
@@ -377,7 +384,7 @@ export class DjModeStore {
       browse: false,
       mix: IDLE_MIX,
       pick: { a: null, b: null },
-      zoom: { a: 'whole', b: 'whole' },
+      zoom: { ...this.prefs.snapshot().zoom },
     };
     this.s.availability = this.availabilityNow();
   }
@@ -553,9 +560,9 @@ export class DjModeStore {
     this.aEnded = null;
     if (this.endedTimer) clearTimeout(this.endedTimer);
     this.endedTimer = null;
-    // the cues waiting to be saved go now; picks and zoom are this visit's
+    // the cues waiting to be saved go now; picks are this visit's, the zoom the person's
     this.cueStore.flush();
-    this.set({ pick: { a: null, b: null }, zoom: { a: 'whole', b: 'whole' } });
+    this.set({ pick: { a: null, b: null }, zoom: { ...this.prefs.snapshot().zoom } });
     this.clearLane('a');
     this.clearLane('b');
     this.readiness.clear();
@@ -653,7 +660,9 @@ export class DjModeStore {
       was.handed === mix.handed &&
       Boolean(was.solo) === Boolean(mix.solo) &&
       Boolean(was.previewB) === Boolean(mix.previewB) &&
-      (was.hand ?? null) === (mix.hand ?? null)
+      (was.hand ?? null) === (mix.hand ?? null) &&
+      (was.rates?.A ?? null) === (mix.rates?.A ?? null) &&
+      (was.rates?.B ?? null) === (mix.rates?.B ?? null)
     )
       return;
     this.set({ mix });
@@ -1124,24 +1133,31 @@ export class DjModeStore {
   }
 
   /**
-   * A cue pressed (or 1–4): an empty one is picked (a click on the waveform
-   * then places it; pressed again, the pick goes); a set one jumps its deck
-   * there and is picked, so a click moves it.
+   * A cue pressed (or 1–4). An empty one is picked (a click on the waveform
+   * then places it; pressed again, the pick goes). A set one jumps its deck
+   * there and nothing else (step 5, M1: a hot cue on a CDJ or in Traktor);
+   * only `move` (⌥-click, or ⌥ with Enter on the button) picks a set one, so
+   * the next click on the waveform moves it.
    */
-  pressCue(deck: Deck, slot: number): void {
+  pressCue(deck: Deck, slot: number, { move = false }: { move?: boolean } = {}): void {
     const lane = this.s[deck];
     if (!this.s.on || !lane || slot < 1 || slot > 4) return;
     const cue = lane.cues[slot - 1] ?? null;
-    if (!cue) {
+    if (!cue || move) {
       if (this.s.pick[deck] === slot) {
         this.clearPick(deck);
         return;
       }
       this.set({ pick: { ...this.s.pick, [deck]: slot } });
-      this.say(cueWords('picked', this.deckName(deck), { slot }));
+      this.say(
+        cue
+          ? cueWords('picked to move', this.deckName(deck), cue)
+          : cueWords('picked', this.deckName(deck), { slot }),
+      );
       return;
     }
-    this.set({ pick: { ...this.s.pick, [deck]: slot } });
+    // a jump never leaves this cue picked: a later click can't move it by accident
+    if (this.s.pick[deck] === slot) this.set({ pick: { ...this.s.pick, [deck]: null } });
     const grid = lane.phase === 'ready' ? (lane.grid?.grid ?? null) : null;
     const at = cueSeconds(cue, grid);
     const how = this.mixer?.jump?.(this.deckName(deck), at) ?? (deck === 'a' ? 'seek' : 'cue');
@@ -1153,7 +1169,7 @@ export class DjModeStore {
     this.say(cueWords('jumped', this.deckName(deck), cue));
   }
 
-  /** The picked cue placed (or moved) where the waveform was clicked: on the nearest beat. */
+  /** The picked cue placed (or moved) where the waveform was clicked: on the nearest beat; the pick goes. */
   placeCue(deck: Deck, seconds: number): boolean {
     const lane = this.s[deck];
     const slot = this.s.pick[deck];
@@ -1163,6 +1179,8 @@ export class DjModeStore {
     const cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
     const cues = withCue(lane.cues, cue);
     this.setLane(deck, { cues });
+    // one place (or move) a pick: a later click can't move it again by accident (M1)
+    this.set({ pick: { ...this.s.pick, [deck]: null } });
     this.saveCues(lane.track.id, cues);
     this.say(cueWords(had ? 'moved' : 'placed', this.deckName(deck), cue));
     return true;
@@ -1249,6 +1267,8 @@ export class DjModeStore {
     const next = dir === 'whole' ? 'whole' : zoomStep(was, dir);
     if (next === was) return;
     this.set({ zoom: { ...this.s.zoom, [deck]: next } });
+    // the level is kept for the next track and the next visit (S3)
+    this.prefs.set({ zoom: { ...this.prefs.snapshot().zoom, [deck]: next } });
     this.say(`Deck ${this.deckName(deck)}: ${zoomWords(next)}`);
   }
 
@@ -1329,7 +1349,7 @@ export class DjModeStore {
     void this.loadFine(deck, gen, track.id);
     // a new track on a lane: whole track again (442), nothing picked
     this.set({
-      zoom: { ...this.s.zoom, [deck]: 'whole' },
+      zoom: { ...this.s.zoom, [deck]: this.prefs.snapshot().zoom[deck] },
       pick: { ...this.s.pick, [deck]: null },
     });
   }

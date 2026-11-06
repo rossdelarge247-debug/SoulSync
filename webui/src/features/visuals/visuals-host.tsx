@@ -15,7 +15,7 @@ import { Button, LabelledSwitch, Select } from '@/components/form';
 import { djOutputs } from '@/features/dj-mode/dj-mix-host';
 import { DjModeStage } from '@/features/dj-mode/dj-mode-stage';
 import { isPhone } from '@/features/dj-mode/dj-mode-store';
-import { OutputsPanel } from '@/features/dj-mode/dj-monitor';
+import { DeckSettings, OutputsPanel } from '@/features/dj-mode/dj-monitor';
 
 import type { VisualsSnapshot } from './visuals-controller';
 import type { OverlayKey } from './visuals.logic';
@@ -269,6 +269,8 @@ export function DjOutputsPortal() {
     <>
       <p className="ss-player-section">DJ outputs</p>
       <OutputsPanel outputs={djOutputs()} />
+      <p className="ss-player-section">DJ decks</p>
+      <DeckSettings />
     </>,
     target,
   );

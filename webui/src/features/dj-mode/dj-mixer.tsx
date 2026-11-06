@@ -25,13 +25,16 @@ import type { DjMixSession, MixLane, MixView } from './dj-mix-session';
 import type { DjModeStore, LaneState } from './dj-mode-store';
 import type { DjOutputs } from './dj-outputs-host';
 
+import { DeckMeter, MasterMeter, useMeters } from './dj-meters';
 import {
   clampTo,
   controlName,
   DECK_CONTROLS,
   ECHO_CONTROLS,
   TEMPO_RANGES,
+  tempoRate,
   tempoSpan,
+  tempoStep,
   XF_CONTROL,
   type Band,
   type ControlSpec,
@@ -41,6 +44,7 @@ import {
 } from './dj-mixer.logic';
 import styles from './dj-mixer.module.css';
 import { MonitorBlock } from './dj-monitor';
+import { djPrefs, type DjPrefsStore } from './dj-prefs';
 import { useDjMode } from './dj-stage';
 import { syncRatioFromBpm } from './dj-sync';
 
@@ -62,6 +66,7 @@ export function mixLane(lane: LaneState | null): MixLane | null {
     analysing: lane.phase === 'analysing' || lane.phase === 'waiting',
     queue: lane.track.queue ?? null,
     queueWhy: lane.track.queueWhy ?? null,
+    loudness: lane.grid?.loudness ?? null,
   };
 }
 
@@ -74,6 +79,8 @@ function laneKey(lane: LaneState | null): string {
     lane.info?.bpm ?? '',
     lane.duration ?? '',
     lane.track.queue ? 'q' : lane.track.queueWhy ? 'x' : '',
+    lane.grid?.loudness?.replaygain_db ?? '',
+    lane.grid?.loudness?.level_db ?? '',
   ].join('|');
 }
 
@@ -102,6 +109,10 @@ function Slider({
   title,
   tone,
   onReset,
+  plusDown,
+  fine,
+  foot,
+  meter,
 }: {
   spec: ControlSpec;
   deck: DeckId | null;
@@ -120,13 +131,30 @@ function Slider({
   tone?: 'sync';
   /** double-click or Backspace: back to its rest (Tempo's 0) */
   onReset?: () => void;
+  /** a vertical fader with + at the bottom (Tempo, a CDJ's: M8); ↓ is + then */
+  plusDown?: boolean;
+  /** ⇧-drag moves it a tenth as far (Tempo's fine adjust, S1) */
+  fine?: boolean;
+  /** what shows under the value where a KILL would be (Volume's Auto-gain, S6) */
+  foot?: ReactNode;
+  /** beside the fader (Volume's level meter, S5) */
+  meter?: ReactNode;
 }) {
   const words = spec.words(value, killed);
   const name = controlName(deck, spec);
+  const drag = useRef<{ id: number; y: number; from: number; px: number } | null>(null);
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (onReset && (e.key === 'Backspace' || e.key === 'Delete')) {
       e.preventDefault();
       onReset();
+      return;
+    }
+    // + at the bottom: ↓ moves the thumb down, which is faster (M8)
+    if (vertical && plusDown && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      const by = e.shiftKey && spec.bigStep ? spec.bigStep : spec.step;
+      onChange(clampTo(spec, value + dir * by));
       return;
     }
     if ((e.key === 'k' || e.key === 'K') && onKill && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -159,34 +187,142 @@ function Slider({
           {spec.label}
         </span>
       )}
-      <input
-        type="range"
-        className={styles.range}
-        aria-orientation={vertical ? 'vertical' : undefined}
-        data-vertical={vertical ? '' : undefined}
-        onDoubleClick={onReset}
-        min={spec.min}
-        max={spec.max}
-        step={spec.step}
-        value={value}
-        aria-label={name}
-        aria-valuetext={words}
-        aria-keyshortcuts={onKill ? 'K' : undefined}
-        disabled={disabled}
-        data-killed={killed ? '' : undefined}
-        onChange={(e) => onChange(clampTo(spec, Number(e.target.value)))}
-        onKeyDown={onKeyDown}
-      />
+      {vertical && plusDown !== undefined ? (
+        <span className={styles.faderEnd} aria-hidden="true" data-end="top">
+          {plusDown ? '−' : '+'}
+        </span>
+      ) : null}
+      {meter ? (
+        <span className={styles.rangeRow}>
+          <input
+            type="range"
+            className={styles.range}
+            aria-orientation={vertical ? 'vertical' : undefined}
+            data-vertical={vertical ? '' : undefined}
+            data-plus={vertical && plusDown ? 'down' : undefined}
+            onDoubleClick={onReset}
+            onPointerDown={(e) => {
+              // ⇧-drag: a tenth of the travel, for a fine tempo (S1)
+              if (!fine || !e.shiftKey || disabled) return;
+              e.preventDefault();
+              const el = e.currentTarget;
+              const box = el.getBoundingClientRect();
+              const px = Math.max(40, vertical ? box.height : box.width);
+              drag.current = {
+                id: e.pointerId,
+                y: vertical ? e.clientY : e.clientX,
+                from: value,
+                px,
+              };
+              try {
+                el.setPointerCapture(e.pointerId);
+              } catch {
+                /* a synthetic event */
+              }
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current;
+              if (!d || d.id !== e.pointerId) return;
+              const at = vertical ? e.clientY : e.clientX;
+              // down the screen is + with + at the bottom; up is + otherwise (and right is +)
+              const sign = vertical ? (plusDown ? 1 : -1) : 1;
+              const moved = ((at - d.y) * sign * (spec.max - spec.min)) / d.px / 10;
+              onChange(clampTo(spec, d.from + moved));
+            }}
+            onPointerUp={() => {
+              drag.current = null;
+            }}
+            onPointerCancel={() => {
+              drag.current = null;
+            }}
+            min={spec.min}
+            max={spec.max}
+            step={spec.step}
+            value={value}
+            aria-label={name}
+            aria-valuetext={words}
+            aria-keyshortcuts={onKill ? 'K' : undefined}
+            disabled={disabled}
+            data-killed={killed ? '' : undefined}
+            onChange={(e) => onChange(clampTo(spec, Number(e.target.value)))}
+            onKeyDown={onKeyDown}
+          />
+          {meter}
+        </span>
+      ) : (
+        <input
+          type="range"
+          className={styles.range}
+          aria-orientation={vertical ? 'vertical' : undefined}
+          data-vertical={vertical ? '' : undefined}
+          data-plus={vertical && plusDown ? 'down' : undefined}
+          onDoubleClick={onReset}
+          onPointerDown={(e) => {
+            // ⇧-drag: a tenth of the travel, for a fine tempo (S1)
+            if (!fine || !e.shiftKey || disabled) return;
+            e.preventDefault();
+            const el = e.currentTarget;
+            const box = el.getBoundingClientRect();
+            const px = Math.max(40, vertical ? box.height : box.width);
+            drag.current = {
+              id: e.pointerId,
+              y: vertical ? e.clientY : e.clientX,
+              from: value,
+              px,
+            };
+            try {
+              el.setPointerCapture(e.pointerId);
+            } catch {
+              /* a synthetic event */
+            }
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d || d.id !== e.pointerId) return;
+            const at = vertical ? e.clientY : e.clientX;
+            // down the screen is + with + at the bottom; up is + otherwise (and right is +)
+            const sign = vertical ? (plusDown ? 1 : -1) : 1;
+            const moved = ((at - d.y) * sign * (spec.max - spec.min)) / d.px / 10;
+            onChange(clampTo(spec, d.from + moved));
+          }}
+          onPointerUp={() => {
+            drag.current = null;
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+          }}
+          min={spec.min}
+          max={spec.max}
+          step={spec.step}
+          value={value}
+          aria-label={name}
+          aria-valuetext={words}
+          aria-keyshortcuts={onKill ? 'K' : undefined}
+          disabled={disabled}
+          data-killed={killed ? '' : undefined}
+          onChange={(e) => onChange(clampTo(spec, Number(e.target.value)))}
+          onKeyDown={onKeyDown}
+        />
+      )}
+      {vertical && plusDown !== undefined ? (
+        <span className={styles.faderEnd} aria-hidden="true" data-end="bottom">
+          {plusDown ? '+' : '−'}
+        </span>
+      ) : null}
       <output className={styles.value} data-killed={killed ? '' : undefined} aria-hidden="true">
         {words}
       </output>
-      {onKill ? (
+      {foot ? (
+        <span className={styles.foot}>{foot}</span>
+      ) : onKill ? (
         <button
           type="button"
           className={styles.kill}
           aria-pressed={Boolean(killed)}
           aria-label={`Kill deck ${deck} ${spec.label}`}
           aria-keyshortcuts="K"
+          disabled={disabled}
+          title={disabled ? title : undefined}
           onClick={onKill}
           onKeyDown={(e) => {
             if ((e.key === 'k' || e.key === 'K') && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -217,6 +353,8 @@ export interface TempoProps {
   why: string | null;
   /** the overlay's Esc closes the open menu first (the store's) */
   addCloser?: (close: () => void) => () => void;
+  /** + at the bottom (a CDJ's, the default) or the top: the person's setting (M8) */
+  plusDown?: boolean;
 }
 
 /**
@@ -308,6 +446,8 @@ export function DeckColumn({
   onChange,
   onKill,
   tempo,
+  why,
+  gain,
 }: {
   deck: DeckId;
   values: DeckValues;
@@ -316,6 +456,10 @@ export function DeckColumn({
   onChange: (id: DeckControlId, v: number) => void;
   onKill: (band: Band) => void;
   tempo?: TempoProps;
+  /** why the channel (Volume, EQ, KILL, Filter) can't act now, or null (M6) */
+  why?: string | null;
+  /** Auto-gain's trim on this deck, dB (S6), when it's on */
+  gain?: number | null;
 }) {
   return (
     <div
@@ -329,7 +473,8 @@ export function DeckColumn({
         if (spec.id === 'tempo') {
           if (!tempo) return null;
           const r = tempo.range;
-          const ranged = { ...spec, min: -r, max: r };
+          // its finest step at the range: 0.02% on ±6/8, 0.05% on ±10/16 (S1)
+          const ranged = { ...spec, min: -r, max: r, step: tempoStep(r) };
           const shown = tempo.sync ?? values.tempo;
           return (
             <Slider
@@ -347,6 +492,8 @@ export function DeckColumn({
               }
               onChange={(v) => onChange('tempo', v)}
               onReset={() => onChange('tempo', 0)}
+              plusDown={layout === 'faders' ? tempo.plusDown !== false : undefined}
+              fine
             />
           );
         }
@@ -358,8 +505,22 @@ export function DeckColumn({
             value={values[spec.id]}
             vertical={layout === 'faders'}
             killed={spec.kill ? values.kill[spec.kill] : undefined}
+            disabled={Boolean(why)}
+            title={why ?? undefined}
             onChange={(v) => onChange(spec.id, v)}
             onKill={spec.kill ? () => onKill(spec.kill!) : undefined}
+            meter={
+              spec.id === 'volume' && layout === 'faders' ? (
+                <DeckMeter deck={deck === 'A' ? 'a' : 'b'} />
+              ) : undefined
+            }
+            foot={
+              spec.id === 'volume' && gain !== null && gain !== undefined ? (
+                <span data-dj-gain={deck.toLowerCase()} title="Auto-gain: matched to A’s loudness">
+                  {gainWords(gain)}
+                </span>
+              ) : undefined
+            }
           />
         );
       })}
@@ -373,14 +534,21 @@ export function DjMixer({
   store,
   session,
   outputs,
+  prefs = djPrefs(),
 }: {
   store: DjModeStore;
   session: DjMixSession;
   outputs?: DjOutputs;
+  prefs?: DjPrefsStore;
 }) {
   const s = useDjMode(store);
   const v = useMixView(session);
+  const p = useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot);
   const [reduce] = useState(prefersReducedMotion);
+  // Auto-gain as the person set it (S6)
+  useEffect(() => {
+    session.setAutoGain(p.autoGain);
+  }, [session, p.autoGain]);
 
   // the store borrows Back, Esc's rule, ⇧P and B's place
   useEffect(() => {
@@ -431,6 +599,15 @@ export function DjMixer({
     session.setLanes(mixLane(lanes.current.a), mixLane(lanes.current.b));
   }, [key, session]);
 
+  // the heads' BPM (M2): what each deck plays at, by its Tempo or Sync
+  const syncNow = v.sync && v.syncable && !v.solo;
+  const bpmA = s.a?.info?.bpm ?? s.a?.grid?.bpm ?? null;
+  const bpmB = s.b?.info?.bpm ?? s.b?.grid?.bpm ?? null;
+  const rateBShown = syncNow
+    ? (v.rateB ?? syncRatioFromBpm(bpmA, bpmB)?.rate ?? null)
+    : tempoRate(v.values.B.tempo);
+  const rateAShown = v.rateA;
+
   // the header's line and Esc's rule read the phase from the store
   useEffect(() => {
     store.setMix({
@@ -444,8 +621,11 @@ export function DjMixer({
       solo: v.solo,
       previewB: v.previewB,
       hand: v.hand,
+      rates: { A: rateAShown, B: rateBShown },
     });
   }, [
+    rateAShown,
+    rateBShown,
     store,
     v.phase,
     v.window,
@@ -462,6 +642,9 @@ export function DjMixer({
   const aTitle = s.a?.track.title || 'A';
   const bTitle = s.b?.track.title || 'B';
   const status = useMemo(() => statusWords(v, aTitle, bTitle), [v, aTitle, bTitle]);
+  // the meters (S5) only while the overlay shows, with the decks made
+  const root = useRef<HTMLElement>(null);
+  useMeters(session, s.on && s.open && Boolean(s.b) && v.phase !== 'idle', root);
   if (!s.on || !s.b) return null;
 
   const playing = v.phase === 'playing' || v.phase === 'starting';
@@ -477,9 +660,12 @@ export function DjMixer({
   const playWhy = canPlay ? null : status;
   const handWhy = session.handOverWhy();
   const handing = v.phase === 'handing';
+  // deck A's channel and the centre before Play B (M6): live through the element strip
+  const aWhy = channelWhy(v);
 
   return (
     <section
+      ref={root}
       className={styles.mixer}
       data-dj-mixer=""
       data-motion={reduce ? 'reduce' : 'slide'}
@@ -557,10 +743,12 @@ export function DjMixer({
             spec={XF_CONTROL}
             deck={null}
             value={v.values.xf}
-            disabled={false}
+            disabled={Boolean(aWhy)}
+            title={aWhy ?? undefined}
             className={styles.xf}
             onChange={(x) => session.setCentre('xf', x)}
           />
+          <MasterMeter />
         </div>
         <div className={styles.echo}>
           {ECHO_CONTROLS.map((spec) => (
@@ -570,6 +758,8 @@ export function DjMixer({
               deck={null}
               value={v.values[spec.id]}
               className={styles.echoBox}
+              disabled={Boolean(aWhy)}
+              title={aWhy ?? undefined}
               onChange={(x) => session.setCentre(spec.id, x)}
             />
           ))}
@@ -585,7 +775,10 @@ export function DjMixer({
           values={v.values[deck]}
           onChange={(id, x) => session.setDeck(deck, id, x)}
           onKill={(band) => session.setKill(deck, band, !v.values[deck].kill[band])}
+          why={deck === 'A' ? aWhy : null}
+          gain={v.autoGain && deck === 'B' ? v.gain.B : null}
           tempo={{
+            plusDown: p.tempoPlus !== 'up',
             range: v.decks[deck].range,
             onRange: (r: TempoRange) => session.setRange(deck, r),
             bpm: aBpm,
@@ -604,6 +797,23 @@ export function DjMixer({
   );
 }
 
+/** Auto-gain's trim in words (S6): "Gain +2.5 dB", "Gain 0 dB". */
+export function gainWords(db: number): string {
+  const r = Math.round(db * 10) / 10;
+  if (r === 0) return 'Gain 0 dB';
+  return `Gain ${r > 0 ? '+' : '−'}${Math.abs(r).toFixed(1)} dB`;
+}
+
+/**
+ * Why deck A's channel and the centre wait (M6), or null: before Play B
+ * they act on the playing track through the element strip; a player that
+ * can't route it leaves them to deck A, so they wait for Play B and say so.
+ */
+export function channelWhy(v: Pick<MixView, 'aOnDeck' | 'elementLive' | 'solo'>): string | null {
+  if (v.aOnDeck || v.elementLive || v.solo) return null;
+  return 'Deck A’s channel acts once A is on its deck (Play B): this player can’t send the playing track through it';
+}
+
 /** B on its way in (on A's next bar, L2): both Tempos wait, as B's map is being laid. */
 export const TEMPO_STARTING_WHY = 'Tempo moves once B is in, on A’s next bar';
 
@@ -615,6 +825,11 @@ export function statusWords(v: MixView, a: string, b: string): string {
     case 'failed':
       return v.error ?? 'The decks couldn’t be made ready';
     case 'ready':
+      // B running in the headphones: Play B takes it from where it is (M7)
+      if (v.previewB)
+        return v.sync && v.syncable
+          ? `${b} in the headphones · Play B brings it in from here, onto ${a}’s beat`
+          : `${b} in the headphones · Play B brings it in from here`;
       return v.sync && v.syncable
         ? `${b} starts at its mix-in on ${a}’s next bar, at ${a}’s tempo`
         : `${b} starts at its mix-in${v.syncWhy ? ` · ${v.syncWhy}` : ''}`;

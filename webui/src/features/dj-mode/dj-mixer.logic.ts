@@ -158,11 +158,34 @@ export const TEMPO_RANGES = [6, 8, 10, 16] as const;
 export type TempoRange = (typeof TEMPO_RANGES)[number];
 export const DEFAULT_TEMPO_RANGE: TempoRange = 8;
 
-/** "0.0%", "+1.6%", "−3.2%" */
+/** "0.00%", "+1.62%", "−3.20%" (S1: to a hundredth, as the fader moves in 0.02%) */
 export function tempoWords(v: number): string {
-  const r = Math.round(v * 10) / 10;
-  if (r === 0) return '0.0%';
-  return `${r > 0 ? '+' : '−'}${Math.abs(r).toFixed(1)}%`;
+  const r = Math.round(v * 100) / 100;
+  if (r === 0) return '0.00%';
+  return `${r > 0 ? '+' : '−'}${Math.abs(r).toFixed(2)}%`;
+}
+
+/**
+ * The Tempo fader's step at a range (S1): 0.02% on ±6 and ±8 (a CDJ's), 0.05%
+ * on ±10 and ±16. At 124 BPM 0.02% is 0.025 BPM: a blend holds by ear.
+ */
+export function tempoStep(range: number): number {
+  return range <= 8 ? 0.02 : 0.05;
+}
+
+/** A deck's effective BPM (M2): its own × its speed, to two decimals once it moves. */
+export function bpmWords(own: number, rate: number | null | undefined): string {
+  const r = rate && Number.isFinite(rate) && rate > 0 ? rate : 1;
+  const moved = Math.abs(r - 1) > 1e-6;
+  return (own * r).toFixed(moved ? 2 : 1);
+}
+
+/** The speed against the track's own as the head shows it: "+1.26%", "" at its own. */
+export function ratePctWords(rate: number | null | undefined): string {
+  if (!rate || !Number.isFinite(rate)) return '';
+  const pct = Math.round((rate - 1) * 10000) / 100;
+  if (pct === 0) return '';
+  return `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%`;
 }
 
 /** A range's BPM span at a tempo (438's menu): ±8 at 124 → "114.1–133.9 BPM". */
@@ -215,8 +238,9 @@ export const DECK_CONTROLS: readonly ControlSpec<DeckControlId>[] = [
     words: eqWords,
   },
   { id: 'filter', label: 'Filter', min: -100, max: 100, step: 2, bigStep: 10, words: filterWords },
-  // its range is the deck's (±6/8/10/16, the menu on its label); ↑↓ 0.1%, ⇧ 1%
-  { id: 'tempo', label: 'Tempo', min: -8, max: 8, step: 0.1, bigStep: 1, words: tempoWords },
+  // its range is the deck's (±6/8/10/16, the menu on its label); ↑↓ 0.02% (0.05% on
+  // ±10/16), ⇧ 1%, ⇧-drag a tenth of the travel (S1)
+  { id: 'tempo', label: 'Tempo', min: -8, max: 8, step: 0.02, bigStep: 1, words: tempoWords },
 ];
 
 export const XF_CONTROL: ControlSpec<'xf'> = {

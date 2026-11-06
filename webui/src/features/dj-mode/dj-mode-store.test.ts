@@ -4,6 +4,7 @@ import type { AnalysisEntry } from '@/features/dj/analysis.api';
 
 import { DjModeStore, laneTrackFromItem, peaksDelay } from './dj-mode-store';
 import { apiGrid } from './dj-mode.fixtures';
+import { DjPrefsStore } from './dj-prefs';
 
 type Track = Record<string, unknown> | null;
 
@@ -87,6 +88,7 @@ function fake(extra: { now?: () => number } = {}): Fake {
     return new Response('{}', { status: 404 });
   });
   const store = new DjModeStore({
+    prefs: new DjPrefsStore(null),
     win: window,
     fetch: fetchImpl as unknown as (u: string, i?: RequestInit) => Promise<Response>,
     analyse: (ids) => {
@@ -543,6 +545,7 @@ function pending(track: { id: string }) {
   const gridCalls: string[] = [];
   const resolvers: ((r: Response) => void)[] = [];
   const store = new DjModeStore({
+    prefs: new DjPrefsStore(null),
     win: window,
     fetch: (async (url: string) => {
       if (url.includes('/dj/grid/')) {

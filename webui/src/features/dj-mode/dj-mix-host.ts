@@ -15,7 +15,15 @@ import { djModeStore } from './dj-mode-store';
 import { browserOutputsEnv, DjOutputs } from './dj-outputs-host';
 
 interface PlayerApi extends PlayerPort {
-  audioGraph?: () => { context: AudioContext; analyser: AnalyserNode } | null;
+  audioGraph?: () => {
+    context: AudioContext;
+    analyser: AnalyserNode;
+    /** the player's chain's input: its EQ's first band, else the analyser (step 5) */
+    input?: AudioNode;
+    /** the element's source, and the unity gain it reaches the chain through */
+    source?: AudioNode | null;
+    sourceOut?: GainNode | null;
+  } | null;
 }
 
 function player(): PlayerApi | null {
@@ -71,11 +79,26 @@ export function djMixSession(): DjMixSession {
       if (typeof AudioWorkletNode === 'undefined') return null;
       const g = player()?.audioGraph?.();
       if (!g) return null;
-      return (await Engine.create({
+      // the decks into the player's chain, so its EQ and Normalize are theirs
+      // too, and the element through deck A's channel strip (step 5, M4–M6)
+      const engine = await Engine.create({
         context: g.context,
         workletUrl,
-        tap: g.analyser,
-      })) as unknown as EngineLike;
+        tap: g.input ?? g.analyser,
+        element: g.source && g.sourceOut ? { source: g.source, sourceOut: g.sourceOut } : null,
+      });
+      // the player's EQ made later (its first touch): the decks follow it
+      const follow = () => {
+        const next = player()?.audioGraph?.();
+        if (next?.input) engine.retap(next.input);
+      };
+      window.addEventListener('ss:player-graph', follow);
+      const dispose = engine.dispose.bind(engine);
+      engine.dispose = () => {
+        window.removeEventListener('ss:player-graph', follow);
+        dispose();
+      };
+      return engine as unknown as EngineLike;
     },
     fetchWindow: (ctx, id, start, dur, signal) => fetchWindow(ctx, id, start, dur, { signal }),
     // one voice for DJ mode: the store's (one announcement per change, 37p)

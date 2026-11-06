@@ -13,6 +13,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LIMIT_DELAY_S } from '@/features/engine/graph';
+
 import type { HandoffLike } from './dj-mix-session';
 
 import { UNDO_MS } from './dj-mix-session';
@@ -180,7 +182,8 @@ describe('Hand over (414, 37i)', () => {
     // while the player loads B, deck B is still what's heard
     expect(heard()).toBe(true);
     const posB = r.engine.position('B')!;
-    expect(q.plays[0]!.handoff!.currentTime).toBeCloseTo(posB, 6);
+    // where deck B is heard: its place less the limiter's lookahead (review M2)
+    expect(q.plays[0]!.handoff!.currentTime).toBeCloseTo(posB - LIMIT_DELAY_S, 6);
     await r.advance(0.25);
     // joined where deck B was (read as late as possible: after the 200 ms load), the deck faded out after
     expect(q.plays[0]!.joinedAt).toBeCloseTo(posB + 0.2 + 0.15, 1);

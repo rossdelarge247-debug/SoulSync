@@ -34,11 +34,11 @@ import type { DragItem } from '@/features/dnd/dnd-model';
 import { AnalysisBar, AnalysisLine, useAnalysis } from '@/features/dj/analysis-line';
 import { KeyChip } from '@/features/dj/key-chip';
 import { refreshOver, useDndSelect, useDropTarget } from '@/features/dnd/dnd-engine';
-import { pyRound } from '@/features/dnd/dnd-model';
 
 import type { DjModeSnapshot, DjModeStore, LaneState, LaneTrack } from './dj-mode-store';
 
 import { LaneBody } from './dj-lane-body';
+import { bpmWords, ratePctWords } from './dj-mixer.logic';
 import { djModeStore } from './dj-mode-store';
 import {
   clock,
@@ -62,6 +62,8 @@ export function useDjMode(store: DjModeStore): DjModeSnapshot {
 interface AudioLike {
   currentTime: number;
   duration: number;
+  paused?: boolean;
+  ended?: boolean;
 }
 
 function playerAudio(): AudioLike | null {
@@ -88,14 +90,16 @@ function LaneHead({
   label: string;
   time: string;
   timeRef?: React.Ref<HTMLSpanElement>;
-  /** B with Sync on: the speed it plays at (37g's "124.0 (−1.6%)") */
+  /**
+   * The speed it plays at against its own tempo (M2): its Tempo, or Sync's
+   * (37g's "124.0 (−1.6%)"); the BPM shown is what plays
+   */
   rate?: number | null;
 }) {
   const { track, info, grid } = lane;
   const own = info?.bpm ?? grid?.bpm ?? null;
-  const bpm = own && rate ? own * rate : own;
-  const pct = rate ? pyRound((rate - 1) * 100, 1) : 0;
-  const note = rate && pct !== 0 ? ` (${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%)` : '';
+  const pct = ratePctWords(rate);
+  const note = pct ? ` (${pct})` : '';
   return (
     <div className={styles.head}>
       {track.image ? (
@@ -113,10 +117,10 @@ function LaneHead({
       <div className={styles.data}>
         <span className={styles.keyBpm}>
           {info?.key ? <KeyChip code={info.key} uncertain={info.keyUncertain} /> : null}
-          {bpm ? (
-            <span className={`${styles.mono} ${styles.bpm}`}>
+          {own ? (
+            <span className={`${styles.mono} ${styles.bpm}`} data-dj-bpm={deck}>
               {info?.key ? '· ' : ''}
-              {bpm.toFixed(1)}
+              {bpmWords(own, rate)}
               {note}
             </span>
           ) : null}
@@ -154,19 +158,23 @@ function laneKeys(store: DjModeStore, deck: 'a' | 'b') {
   };
 }
 
-/** The focus left the lane: whatever its keys held lets go (review M-2). */
+/**
+ * The focus left the lane: whatever its keys held lets go (review M-2).
+ * From anything in the lane, not only the lane itself: a held C or arrow
+ * whose focus moved onto the lane's strip first still lets go when the
+ * focus then leaves (step 5, L-new); staying in the lane (onto its CUE as
+ * it's pressed) isn't leaving it (re-review N-1).
+ */
 function laneLeft(store: DjModeStore, deck: 'a' | 'b') {
   return (e: React.FocusEvent<HTMLElement>) => {
-    if (e.target !== e.currentTarget) return;
-    // the focus staying in the lane (onto its CUE as it's pressed) isn't leaving it (re-review N-1)
     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
     store.releaseHeld(deck);
   };
 }
 
+/** C and the arrows let go from anywhere in the lane (the focus may have moved in it since, L-new). */
 function laneKeysUp(store: DjModeStore, deck: 'a' | 'b') {
   return (e: React.KeyboardEvent<HTMLElement>) => {
-    if (e.target !== e.currentTarget) return;
     if (e.key === 'c' || e.key === 'C') {
       e.preventDefault();
       store.transport(deck, 'cueUp');
@@ -259,6 +267,30 @@ function NoGrid({
 
 /* ── lane A: the player's track ───────────────────────────────────────── */
 
+/** When the end is this close (s) a deck says so: its frame pulses amber (S4, a CDJ's 30 s). */
+export const ENDING_S = 30;
+/** … and faster in the last 15. */
+export const ENDING_SOON_S = 15;
+
+/** "3:12 · −1:04": the time gone and the time left (S4). */
+export function timeWords(t: number, end: number): string {
+  if (!(end > 0)) return clock(t);
+  return `${clock(t)} · −${clock(Math.max(0, Math.ceil(end - t - 1e-6)))}`;
+}
+
+/** The end-of-track warning for a deck with `left` seconds to go, or null (playing only). */
+export function endingFor(left: number, playing: boolean): 'soon' | 'near' | null {
+  if (!playing || !Number.isFinite(left) || left <= 0) return null;
+  if (left <= ENDING_SOON_S) return 'soon';
+  return left <= ENDING_S ? 'near' : null;
+}
+
+function markEnding(el: HTMLElement | null, ending: 'soon' | 'near' | null): void {
+  if (!el) return;
+  if (ending) el.setAttribute('data-ending', ending);
+  else el.removeAttribute('data-ending');
+}
+
 /**
  * The playhead follows the player's element every frame, and the elapsed
  * time and the line in words every second (review M2), written straight to
@@ -284,6 +316,8 @@ function usePlayhead(
   sayRef.current = announce;
   // the mix-out is said once per track loaded into the lane, not at every crossing (review N4)
   const saidFor = useRef<string | null>(null);
+  // and the last 30 s once per track, when they're reached playing (S4)
+  const saidEndFor = useRef<string | null>(null);
   const trackId = lane.track.id;
   const durRef = useRef(onElementDuration);
   durRef.current = onElementDuration;
@@ -293,6 +327,8 @@ function usePlayhead(
     let id = 0;
     let second = Number.NaN;
     let mixOut: boolean | null = null;
+    // the lane opening in the last 30 s isn't reaching them (nothing's said)
+    let endSaid = true;
     let elDur = Number.NaN;
     const tick = () => {
       const el = playerAudio();
@@ -312,7 +348,16 @@ function usePlayhead(
       const s = Math.floor(t);
       if (s !== second) {
         second = s;
-        if (refs.time.current) refs.time.current.textContent = clock(t);
+        // the time left too, and the end coming (S4: a CDJ's last 30 s)
+        if (refs.time.current) refs.time.current.textContent = timeWords(t, d);
+        const playing = Boolean(el && !el.paused && !el.ended) || posRef.current() !== null;
+        const ending = endingFor(d - t, playing);
+        markEnding(refs.wave.current, ending);
+        if (ending && !endSaid && saidEndFor.current !== trackId) {
+          saidEndFor.current = trackId;
+          sayRef.current(`${title || 'Deck A'}: ${Math.max(1, Math.round(d - t))} seconds left`);
+        }
+        endSaid = ending !== null;
         const words = grid && d > 0 ? laneLine(grid, t) : '';
         if (refs.line.current && refs.line.current.textContent !== words)
           refs.line.current.textContent = words;
@@ -327,7 +372,10 @@ function usePlayhead(
       id = window.requestAnimationFrame(tick);
     };
     tick();
-    return () => window.cancelAnimationFrame(id);
+    return () => {
+      window.cancelAnimationFrame(id);
+      markEnding(refs.wave.current, null);
+    };
   }, [grid, duration, title, trackId, refs]);
 }
 
@@ -384,6 +432,7 @@ function LaneA({
         // the elapsed time is written each second by usePlayhead, not rendered
         time=""
         timeRef={time}
+        rate={s.mix.rates?.A ?? null}
       />
       <LaneBody
         deck="a"
@@ -604,14 +653,16 @@ function LaneB({
                 ? 'B · in the headphones · Play B brings it in'
                 : laneBLabel(mix.phase, mix.sync)
           }
-          time={`${clock(lane.cue)} · ${clock(duration)}`}
+          time={timeWords(lane.cue, duration)}
           timeRef={timeB}
-          rate={planned}
+          rate={mix.rates ? mix.rates.B : planned}
         />
         <LanePlayheadB
           lane={lane}
           store={store}
           moving={moving}
+          playing={moving || mix.phase === 'starting' || Boolean(mix.previewB)}
+          windowEnd={mix.window?.end ?? null}
           follow={follow}
           target={ref}
           timeRef={timeB}
@@ -721,6 +772,8 @@ function LanePlayheadB({
   lane,
   store,
   moving,
+  playing,
+  windowEnd,
   follow,
   target,
   timeRef,
@@ -729,6 +782,10 @@ function LanePlayheadB({
   lane: LaneState;
   store: DjModeStore;
   moving: boolean;
+  /** B is heard (in the room or the headphones): the end warning shows (S4) */
+  playing: boolean;
+  /** B's window's end on its deck, track seconds: it ends there (3 minutes, 424) */
+  windowEnd: number | null;
   /** the playhead follows the deck every frame (it plays, or may be moved) */
   follow: boolean;
   target: React.RefObject<HTMLElement | null>;
@@ -737,6 +794,10 @@ function LanePlayheadB({
 }) {
   const grid = lane.phase === 'ready' ? lane.grid : null;
   const d = lane.duration ?? 0;
+  // the deck runs out at its window's end when that's before the track's (S4)
+  const end = windowEnd !== null && windowEnd < d ? windowEnd : d;
+  const title = lane.track.title;
+  const saidEnd = useRef<string | null>(null);
   useEffect(() => {
     const put = (t: number) =>
       target.current?.style.setProperty(
@@ -744,26 +805,61 @@ function LanePlayheadB({
         d > 0 ? String(Math.min(1, Math.max(0, t / d))) : '0',
       );
     if (!follow) {
-      put(store.positionB() ?? lane.cue);
+      const t = store.positionB() ?? lane.cue;
+      put(t);
+      if (timeRef.current) timeRef.current.textContent = timeWords(t, end);
+      markEnding(target.current, null);
       return;
     }
     let id = 0;
     let second = Number.NaN;
+    // the lane opening in the last 30 s isn't reaching them (nothing's said)
+    let endSaid = true;
     const tick = () => {
       const t = store.positionB() ?? lane.cue;
       put(t);
       const sec = Math.floor(t);
       if (sec !== second) {
         second = sec;
-        if (timeRef.current) timeRef.current.textContent = `${clock(t)} · ${clock(d)}`;
+        if (timeRef.current) timeRef.current.textContent = timeWords(t, end);
         // the line in words is the blend's; cued, it's the cued line React draws
         if (moving && lineRef.current) lineRef.current.textContent = grid ? laneLine(grid, t) : '';
+        const ending = endingFor(end - t, playing);
+        markEnding(target.current, ending);
+        const key = `${lane.track.id}@${end}`;
+        if (ending && !endSaid && saidEnd.current !== key) {
+          saidEnd.current = key;
+          const left = Math.max(1, Math.round(end - t));
+          store.announce(
+            end < d
+              ? `${title || 'Deck B'}: ${left} seconds left on its deck`
+              : `${title || 'Deck B'}: ${left} seconds left`,
+          );
+        }
+        endSaid = ending !== null;
       }
       id = window.requestAnimationFrame(tick);
     };
     tick();
-    return () => window.cancelAnimationFrame(id);
-  }, [lane.cue, d, moving, follow, store, target, timeRef, lineRef, grid]);
+    return () => {
+      window.cancelAnimationFrame(id);
+      markEnding(target.current, null);
+    };
+  }, [
+    lane.cue,
+    lane.track.id,
+    title,
+    d,
+    end,
+    moving,
+    playing,
+    follow,
+    store,
+    target,
+    timeRef,
+    lineRef,
+    grid,
+  ]);
   return null;
 }
 

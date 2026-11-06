@@ -10,7 +10,7 @@ import type { DjMixSession } from './dj-mix-session';
 import type { DjModeStore } from './dj-mode-store';
 import type { DjOutputs } from './dj-outputs-host';
 
-import { cueButtonName, cueButtonText, SLOTS } from './dj-cues';
+import { cueButtonName, cueButtonText, cueButtonTitle, SLOTS } from './dj-cues';
 import styles from './dj-mixer.module.css';
 import { headphonesWhy } from './dj-outputs';
 import { useDjMode } from './dj-stage';
@@ -86,7 +86,15 @@ export function LaneStrip({
               aria-label={cueButtonName(slot, cue, pick === slot)}
               aria-keyshortcuts={String(slot)}
               data-dj-cue={slot}
-              onClick={() => store.pressCue(deck, slot)}
+              title={cueButtonTitle(slot, cue)}
+              // ⌥ picks a set cue to move it; a plain press only jumps (M1)
+              onClick={(e) => store.pressCue(deck, slot, { move: e.altKey })}
+              onKeyDown={(e) => {
+                if (e.altKey && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  store.pressCue(deck, slot, { move: true });
+                }
+              }}
             >
               {cueButtonText(slot, cue)}
             </button>

@@ -2892,10 +2892,12 @@ function npv2AttachAudioGraph() {
         comp.attack.value = 0.003;
         comp.release.value = 0.25;
         // Rewire: source -> bands -> compressor -> analyser -> destination.
-        // v1 connected source->analyser directly; disconnect() with no args
-        // drops only that edge (it has no other outgoing connections).
-        src.disconnect();
-        src.connect(bands[0]);
+        // v1 connects source -> sourceOut (a unity gain) -> analyser; the
+        // rewire is sourceOut's, so the source's other edges (DJ mode's
+        // strip, step 5) stay. disconnect() with no args drops only that edge.
+        const out = (typeof npSourceOut !== 'undefined' && npSourceOut) || src;
+        out.disconnect();
+        out.connect(bands[0]);
         for (let i = 0; i < bands.length - 1; i++) bands[i].connect(bands[i + 1]);
         bands[bands.length - 1].connect(comp);
         comp.connect(analyser);
@@ -2903,14 +2905,23 @@ function npv2AttachAudioGraph() {
         NPV2.eq.bands = bands;
         NPV2.eq.comp = comp;
         npv2ApplyEq();
+        // DJ mode's decks follow the chain's new input (step 5)
+        try { window.dispatchEvent(new Event('ss:player-graph')); } catch (e2) {}
         return true;
     } catch (e) {
         // If we disconnected the source but failed to rebuild the chain,
         // restore v1's direct source->analyser wiring so audio never goes silent.
-        try { src.disconnect(); } catch (e2) {}
-        try { src.connect(analyser); } catch (e3) {}
+        const out = (typeof npSourceOut !== 'undefined' && npSourceOut) || src;
+        try { out.disconnect(); } catch (e2) {}
+        try { out.connect(analyser); } catch (e3) {}
         return false;
     }
+}
+
+/** The EQ chain's input once it's made (DJ mode's decks play into it, step 5), else null. */
+function npv2GraphInput() {
+    const E = NPV2.eq;
+    return E.attached && E.bands && E.bands[0] ? E.bands[0] : null;
 }
 
 function npv2ApplyEq() {

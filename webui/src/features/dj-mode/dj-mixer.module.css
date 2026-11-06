@@ -104,6 +104,10 @@
   letter-spacing: 0.06em;
   cursor: pointer;
 }
+.kill:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .kill[aria-pressed='true'] {
   border-color: var(--dj-amber);
   background: rgba(var(--ss-warning-rgb), 0.16);
@@ -627,7 +631,7 @@
 .deck[data-layout='faders'] .killGap {
   display: none;
 }
-/* a vertical slider: 24px wide, up is more (and faster, on Tempo) */
+/* a vertical slider: 24px wide, up is more (Tempo: + at the bottom by default, M8) */
 .range[data-vertical] {
   flex: 1;
   width: 24px;
@@ -635,6 +639,27 @@
   min-height: 88px;
   writing-mode: vertical-lr;
   direction: rtl;
+}
+/* Tempo with + at the bottom (a CDJ's, M8): the range runs top to bottom */
+.range[data-vertical][data-plus='down'] {
+  direction: ltr;
+}
+/* Tempo's ends, − and + (which way is faster, M8) */
+.faderEnd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+}
+/* Volume's foot: Auto-gain's trim (S6) */
+.foot {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
 }
 .range[data-vertical]::-webkit-slider-runnable-track {
   width: 2px;
@@ -909,6 +934,26 @@
   color: var(--ss-text);
   font: inherit;
 }
+.outputsField {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 14px;
+}
+.outputsField legend {
+  float: left;
+  margin-right: auto;
+  padding: 0;
+}
+.outputsChoice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .outputsNote {
   margin: 0 0 6px;
   color: rgba(255, 255, 255, 0.55);
@@ -998,4 +1043,69 @@
 .cueBtn:focus-visible {
   outline: 2px solid rgb(var(--ss-accent-light-rgb));
   outline-offset: 2px;
+}
+
+/* ── the meters (S5): after each deck's fader, and what goes out ── */
+
+.rangeRow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 4px;
+}
+.meter {
+  position: relative;
+  width: 4px;
+  min-height: 88px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.meter .meterFill {
+  position: absolute;
+  inset: 0;
+  /* the gradient stays put; the level uncovers it (green, then amber at −14, red at −5 dBFS) */
+  clip-path: inset(calc((1 - var(--level, 0)) * 100%) 0 0 0);
+  background: linear-gradient(to top, #4ade80 0 70%, #facc15 70% 90%, #f87171 90%);
+}
+.masterMeter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.meterLabel {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.meterBar {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.meterBar .meterFill {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 calc((1 - var(--level, 0)) * 100%) 0 0);
+  background: linear-gradient(to right, #4ade80 0 70%, #facc15 70% 90%, #f87171 90%);
+}
+.clip {
+  padding: 1px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.35);
+}
+.clip[data-on] {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
 }

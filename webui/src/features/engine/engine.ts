@@ -87,8 +87,16 @@ export interface EngineOptions {
   context: BaseAudioContext;
   /** the worklet module's URL (or path, under Node in tests) */
   workletUrl: string;
-  /** where the mix goes: the player's analyser; else the destination */
+  /** where the mix goes: the player's chain (its EQ, else its analyser); else the destination */
   tap?: AudioNode | null;
+  /**
+   * DJ mode (step 5, M4–M6): the player's element plays through the
+   * engine's element strip while the engine lives. `source` is its
+   * MediaElementSource and `sourceOut` the gain it reaches the player's own
+   * chain through: the two are crossfaded (no edge of the player's graph is
+   * cut), and given back when the engine goes.
+   */
+  element?: { source: AudioNode; sourceOut: GainNode } | null;
   /** how often the worklet reports positions (frames) */
   reportFrames?: number;
   limiter?: boolean;
@@ -101,6 +109,14 @@ export interface EngineOptions {
 }
 
 const IDS: readonly DeckId[] = ['A', 'B'];
+/** The element's crossfade onto (and off) the element strip (seconds). */
+export const ROUTE_S = 0.03;
+/**
+ * Which engine has each element's source on its strip: a let-go's late
+ * cut gives the source back to the player only if no newer engine has
+ * taken it since (review M1: else the element was heard twice).
+ */
+const OWNERS = new WeakMap<AudioNode, Engine>();
 /** the worklet module, loaded once a context */
 const MODULES = new WeakMap<BaseAudioContext, Promise<void>>();
 
@@ -127,9 +143,30 @@ export class Engine implements DeckPort {
       numberOfOutputs: 2,
       outputChannelCount: [2, 2],
     });
-    this.graph = buildGraph(opts.context, { tap: opts.tap ?? null, limiter: opts.limiter });
+    this.graph = buildGraph(opts.context, {
+      tap: opts.tap ?? null,
+      limiter: opts.limiter,
+      element: Boolean(opts.element),
+    });
     this.node.connect(this.graph.decks.A.input, 0);
     this.node.connect(this.graph.decks.B.input, 1);
+    if (opts.element && this.graph.element) this.routeElement(opts.element);
+    try {
+      this.start(opts);
+    } catch (e) {
+      // anything after the routing failed: the element back on the player's own chain (review L2)
+      this.unroute(true);
+      try {
+        this.node.disconnect();
+        this.graph.dispose();
+      } catch {
+        /* a closed context */
+      }
+      throw e;
+    }
+  }
+
+  private start(opts: EngineOptions): void {
     this.node.port.onmessage = (e: MessageEvent) => this.receive(e.data);
     this.node.port.postMessage({ type: 'report', every: opts.reportFrames ?? 4096 });
     const live =
@@ -305,6 +342,79 @@ export class Engine implements DeckPort {
     return this.transition;
   }
 
+  // -- DJ mode's element strip (step 5) --
+
+  private routed: { source: AudioNode; sourceOut: GainNode } | null = null;
+
+  /** The element's sound onto the element strip: a crossfade, nothing cut. */
+  private routeElement(el: { source: AudioNode; sourceOut: GainNode }): void {
+    const strip = this.graph.element!;
+    try {
+      el.source.connect(strip.input);
+      const t = this.context.currentTime;
+      fade(strip.input.gain, 0, 1, t, ROUTE_S);
+      fade(el.sourceOut.gain, el.sourceOut.gain.value, 0, t, ROUTE_S);
+      this.routed = el;
+      OWNERS.set(el.source, this);
+    } catch {
+      // the player's graph as it was: never silent
+      this.unroute(true);
+    }
+  }
+
+  /** The element strip's params while the element plays through it (deck A's channel on the element), else null. */
+  elementParams(): Record<ParamName, AutomatedParam> | null {
+    return this.routed && this.graph.element ? this.graph.element.params : null;
+  }
+
+  /** The element given back to the player's own chain (at once with `now`). */
+  private unroute(now = false): void {
+    const el = this.routed;
+    const strip = this.graph.element;
+    this.routed = null;
+    if (!el) return;
+    const t = this.context.currentTime;
+    try {
+      if (now) {
+        el.sourceOut.gain.cancelScheduledValues(0);
+        el.sourceOut.gain.value = 1;
+      } else fade(el.sourceOut.gain, el.sourceOut.gain.value, 1, t, ROUTE_S);
+      if (strip) fade(strip.input.gain, strip.input.gain.value, 0, t, ROUTE_S);
+    } catch {
+      /* a closed context */
+    }
+    const cut = () => {
+      try {
+        if (strip) el.source.disconnect(strip.input);
+      } catch {
+        /* already gone */
+      }
+      // a newer engine has the source on its strip now: its routing stands
+      if (OWNERS.get(el.source) !== this) return;
+      OWNERS.delete(el.source);
+      try {
+        // whatever the context did meanwhile (a suspended one hasn't run the ramp)
+        el.sourceOut.gain.cancelScheduledValues(0);
+        el.sourceOut.gain.value = 1;
+      } catch {
+        /* a closed context */
+      }
+    };
+    if (now) cut();
+    else this.later(cut);
+  }
+
+  private later(fn: () => void): void {
+    const ms = (ROUTE_S + 0.05) * 1000;
+    if (typeof setTimeout === 'function') setTimeout(fn, ms);
+    else fn();
+  }
+
+  /** The mix to another node (the player's chain changed: its EQ was made, step 5 M4). */
+  retap(tap: AudioNode | null): void {
+    this.graph.retap(tap);
+  }
+
   dispose(): void {
     this.watch?.stop();
     for (const id of IDS) this.node.port.postMessage({ type: 'unload', deck: IDS.indexOf(id) });
@@ -313,6 +423,17 @@ export class Engine implements DeckPort {
     } catch {
       /* already gone */
     }
-    this.graph.dispose();
+    if (this.routed) {
+      // the element back on the player's own chain first, then the graph goes
+      this.unroute();
+      this.later(() => this.graph.dispose());
+    } else this.graph.dispose();
   }
+}
+
+/** A gain from `from` to `to` over `seconds` from `at`, whatever was scheduled. */
+function fade(param: AudioParam, from: number, to: number, at: number, seconds: number): void {
+  param.cancelScheduledValues(at);
+  param.setValueAtTime(from, at);
+  param.linearRampToValueAtTime(to, at + seconds);
 }
