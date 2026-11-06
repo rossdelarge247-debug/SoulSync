@@ -1283,6 +1283,16 @@ Built on `feat/dj-mode-transport`.
 - **The store:** `LaneState.main` (slot 0) and `fine` (the levels); `setMainCue(deck, seconds)` (snapped with `cueAt`), `transport(deck, 'play' | 'cueDown' | 'cueUp')` over `DeckTransport` (dj-transport.ts) with a port a deck (A: the player's `toggle`/`seek`; B: the session), `deckPlaying`, `grab`, `moveHand`, `letGo`, `nudge`, `isNudging`. `CueStore.saveMain` sends slot 0 with the hot cues. `MixerHooks` gain `deckPlaying`, `previewB`, `parkB`, `grab`, `moveHand`, `letGo`, `nudge`, `aOnDeck`; `MixState.previewB`, `hand`.
 - **The page:** `dj-levels.ts` (`loadLevels`, `levelsFrom`, `levelOver`, `drawWave`, `SmoothClock`); each lane's `<canvas data-dj-canvas>` over the 200-peak SVG (which stays where there's no canvas); the strip's `[data-dj-transport-play]` and `[data-dj-transport-cue]`; the lane keys C (CUE, held), G, ← → (`onKeyDown`/`onKeyUp` on the focused lane); the `?` list's two rows.
 
+### DJ mode, step 6: loops and quantize (`webui/src/features/engine/loops.ts`, the worklet, `features/dj-mode/`)
+
+Built on `feat/dj-mode-loops`. No server change.
+- **The worklet:** `{type: 'loop', deck, at, start, end}` (start null: the loop ends at frame `at`); a loop folds the map's position from `at` (`fold` in loops.ts) and a wrap crossfades over `WRAP_S` (4 ms of track time); its reports are folded.
+- **The engine:** `loop(deck, {start, end} | null, atFrame)`, `endLoop(deck, atFrame)` (the map moved back by the loops run, the loop ended: plays on from where it is), `loopAt(deck, at?)`, `shift(deck, atFrame, delta)` (moved by track seconds, the map's shape kept: Sync's lock with it), `position()` folded; `lookahead` (seconds, measured once a sample rate by `measureLookahead`: Chromium 6 ms, node-web-audio-api 8 ms; `LIMIT_DELAY_S` without one).
+- **The session:** `MixView.loops: {A, B: {start, end, beats | null, active} | null}`, `loopIn`, `loopSize` (beats, 1/32 … 32, 4 to start), `jumpSize` (1, 4, 16, 32), `quantize`; `autoLoop`, `loopInHere`, `loopOutHere`, `reloop`, `exitLoop`, `setLoopSize`, `resizeLoop(0.5 | 2)`, `setJumpSize`, `beatjump(deck, −1 | 1)`, `loopWhy(deck)`, `setQuantize`, `quantizes(deck)`; `jump()` lands in phase with Quantize and at once on B in the headphones and the blend. `SessionDeps.quantize`. `beatWords`.
+- **The store:** `MixState.loops`; `LoopAction` (`loop`, `in`, `out`, `reloop`, `half`, `double`, `back`, `on`), `MixerHooks.loopAction`, `toggleQuantize`; `loopKey(action, focused)`; `laneKey` takes O, ⇧O, I, ⇧I, [, ], Q; cue sets snap only with Quantize. Prefs: `quantize` (default true).
+- **The player:** `NP_LETTER_KEYS` has O, ⇧O, I, ⇧I, [, ], Q as DJ mode's (nobody's with it off).
+- **The page:** `[data-dj-loops="a|b"]` (the strip's) and `[data-dj-loops-line]` (the line row's at 1280), `[data-dj-loop-btn]`, `[data-dj-jump="back|on"]`, `[data-dj-loop="a|b"][data-active]` on the waveform, `[data-dj-phase="a|b"][data-mode="phase|bar|idle"]` with `--phase`, `[data-dj-quantize]`; CLIP also from the out analyser past 1.0005 (`clips`, dj-meters.tsx).
+
 ### DJ mode, step 5: parity (Traktor and CDJ; `webui/src/features/dj-mode/`, `features/engine/`)
 
 Built on `feat/dj-mode-parity`. No server change.
