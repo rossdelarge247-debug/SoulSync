@@ -7,6 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LIMIT_DELAY_S } from '@/features/engine/graph';
 import { KILL_DB } from '@/features/engine/score';
 
 import { AHEAD_S, FADE_S } from './dj-mix-session';
@@ -129,7 +130,8 @@ describe('Play B (421, 432)', () => {
     const T = t0 + AHEAD_S;
     const a = r.engine.port.maps.A[0]!;
     expect(a.f / 48000).toBeCloseTo(T, 9);
-    expect(a.p).toBeCloseTo(at + AHEAD_S, 9);
+    // the decks are heard through the limiter's lookahead: deck A that much on (review M2)
+    expect(a.p).toBeCloseTo(at + AHEAD_S + LIMIT_DELAY_S, 9);
     expect(a.r).toBe(1);
     expect(r.engine.port.modes.A).toBe('resample');
     // the decks fade in as the element fades out, then it plays on muted
@@ -150,7 +152,7 @@ describe('Play B (421, 432)', () => {
     r.session.playB();
     const T = t0 + AHEAD_S;
     // A at about 121.1 at T: its next bar (2 s bars from 1 s) starts at 123
-    const Tb = T + (123 - (at + AHEAD_S));
+    const Tb = T + (123 - (at + AHEAD_S + LIMIT_DELAY_S));
     const first = r.engine.port.maps.B[0]!;
     expect(first.f / 48000).toBeCloseTo(Tb, 6);
     expect(first.p).toBeCloseTo(0.5, 6);
@@ -180,7 +182,10 @@ describe('Play B (421, 432)', () => {
     expect(r.session.snapshot().phase).toBe('ready');
     expect(r.session.playB()).toBe(true);
     // 432: A moves onto its deck the same way without a grid
-    expect(r.engine.port.maps.A.at(-1)!.p).toBeCloseTo(r.el.currentTime + AHEAD_S, 6);
+    expect(r.engine.port.maps.A.at(-1)!.p).toBeCloseTo(
+      r.el.currentTime + AHEAD_S + LIMIT_DELAY_S,
+      6,
+    );
     expect(r.engine.port.maps.B.at(-1)!.f / 48000).toBeCloseTo(t0 + AHEAD_S + 0.25, 6);
   });
 
@@ -783,7 +788,8 @@ describe('3b: Tempo, Key lock, Headphones, cue jumps (438–443)', () => {
     r.session.backOverBar(null);
     await r.advance(2.5);
     expect(seeks).toHaveLength(1);
-    expect(seeks[0]!.el).toBeCloseTo(seeks[0]!.deck, 3);
+    // where deck A is heard: its place less the limiter's lookahead
+    expect(seeks[0]!.deck - seeks[0]!.el).toBeCloseTo(LIMIT_DELAY_S, 3);
     expect(r.said.some((w) => w.includes('moved'))).toBe(false);
     expect(r.el.muted).toBe(false);
     expect(r.session.snapshot().aOnDeck).toBe(false);

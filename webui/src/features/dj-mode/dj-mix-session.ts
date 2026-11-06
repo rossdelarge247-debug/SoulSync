@@ -50,6 +50,7 @@ import type { BeatGrid } from '@/features/engine/grid';
 import type { DeckId, ParamKey, ParamName } from '@/features/engine/score';
 
 import { glideKnots } from '@/features/engine/clock';
+import { LIMIT_DELAY_S } from '@/features/engine/graph';
 import { relativeTrimDb } from '@/features/engine/grid';
 import { MAX_WINDOW_S } from '@/features/engine/loader';
 import { NEUTRAL, rampFor } from '@/features/engine/score';
@@ -327,6 +328,8 @@ const HAND_MS = 15;
 const HAND_TAU = 0.06;
 /** at most four times its speed either way under the hand */
 const HAND_MAX = 4;
+/** Play B from B's preview: its catch-up onto A's beat stays within this of Sync's speed (review L1) */
+const CATCH_UP = 0.08;
 /** an arrow-key nudge: 4% faster or slower while held */
 export const NUDGE = 0.04;
 /** A window starts this far before where it's needed. */
@@ -491,6 +494,12 @@ export class DjMixSession {
   private update(patch: Partial<MixView>): void {
     const was = this.v.phase;
     this.v = { ...this.v, ...patch };
+    // the element strip follows the controls whoever changed them (Back,
+    // Next, a window's end, B on its own ending move the crossfader to A
+    // without the decks' applyAll: the playing track is never left at the
+    // fader's old A side, review H1)
+    if (patch.values && this.engine)
+      this.applyElement(this.elementTargets(this.targets()), this.now());
     for (const fn of this.listeners) fn();
     if (patch.phase !== undefined && patch.phase !== was) this.d.onPhase?.(this.v);
   }
@@ -1363,7 +1372,9 @@ export class DjMixSession {
     this.rateA = this.rateA0 * tempoRate(this.v.values.A.tempo);
     this.aMoved = false;
     const T = ctx.currentTime + AHEAD_S;
-    const from = el.currentTime + AHEAD_S * this.rateA;
+    // the decks are heard through the limiter's lookahead (LIMIT_DELAY_S), the
+    // element isn't (review M2): deck A starts that much further on, in line
+    const from = el.currentTime + (AHEAD_S + LIMIT_DELAY_S) * this.rateA;
     this.applyAll(ctx.currentTime);
     this.applyPhones();
     engine.mode('A', this.modeFor('A', this.rateA / this.rateA0));
@@ -1401,8 +1412,9 @@ export class DjMixSession {
   /**
    * Play B while B plays in the headphones (M7): B isn't started again from
    * its cue. With Sync it glides from where it is onto A's beat (its nearest
-   * beat lands on A's next bar, at least a beat away) at A's tempo, and stays
-   * locked there; without Sync (or a grid) it carries on at its own speed.
+   * beat lands on the first of A's bars, at least a beat away, it can reach
+   * within 8% of Sync's speed, so the catch-up doesn't warble) at A's tempo,
+   * and stays locked there; without Sync (or a grid) it carries on at its own speed.
    * The room hears it from that bar (A's next beat without Sync), at the
    * crossfader's level: until then it's in the headphones only, as before.
    */
@@ -1418,17 +1430,29 @@ export class DjMixSession {
     }
     const lock = Boolean(this.v.sync && this.v.syncable && a.grid && b.grid);
     let Tb = T + MIN_LEAD_S;
-    let aBeat: number | null = null;
-    if (a.grid) {
+    // with Sync: the bar B lands on, the beat of B there, and the glide's speed
+    let plan: { aBeat: number; b0: number; ratio: SyncRatio; r: number } | null = null;
+    if (a.grid && lock) {
+      const g = b.grid!;
       const beat = a.grid.periodAt(a.grid.beatAt(posA));
-      if (lock) {
-        const nb = nextBar(a.grid, posA, Math.max(MIN_LEAD_S * this.rateA, beat));
-        Tb = T + (nb.time - posA) / this.rateA;
-        aBeat = a.grid.barBeat(nb.bar);
-      } else {
-        const i = Math.ceil(a.grid.beatAt(posA + MIN_LEAD_S * this.rateA) - 1e-6);
-        Tb = T + Math.max(MIN_LEAD_S, (a.grid.timeAt(i) - posA) / this.rateA);
+      const first = nextBar(a.grid, posA, Math.max(MIN_LEAD_S * this.rateA, beat));
+      const r0 = rateAt(engine.current('B'), T, sr) ?? tempoRate(this.v.values.B.tempo);
+      // the first of A's bars B can reach within CATCH_UP of Sync's speed
+      // (no warble), its nearest beat on that bar (review L1)
+      for (let k = 0; k < 8; k++) {
+        const tb = T + (a.grid.barTime(first.bar + k) - posA) / this.rateA;
+        const aBeat = a.grid.barBeat(first.bar + k);
+        const b0 = Math.round(g.beatAt(pB + (tb - T) * r0));
+        const ratio = syncRatio(a.grid.periodAt(aBeat), g.periodAt(b0), this.rateA);
+        if (!ratio) break;
+        const r = (g.timeAt(b0) - pB) / Math.max(0.05, tb - T);
+        Tb = tb;
+        plan = { aBeat, b0, ratio, r };
+        if (Math.abs(r / ratio.rate - 1) <= CATCH_UP) break;
       }
+    } else if (a.grid) {
+      const i = Math.ceil(a.grid.beatAt(posA + MIN_LEAD_S * this.rateA) - 1e-6);
+      Tb = T + Math.max(MIN_LEAD_S, (a.grid.timeAt(i) - posA) / this.rateA);
     }
     this.started = { T, posA, bFrom: pB, Tb };
     this.dropHand();
@@ -1436,30 +1460,27 @@ export class DjMixSession {
     this.endPreviewTimer();
     this.update({ previewB: false, parkB: null });
     let rateB: number | null = null;
-    if (lock && aBeat !== null) {
-      const g = b.grid!;
-      const r0 = rateAt(engine.current('B'), T, sr) ?? tempoRate(this.v.values.B.tempo);
-      // where B would be at A's bar, running on as it is: its nearest beat there
-      const b0 = Math.round(g.beatAt(pB + (Tb - T) * r0));
-      const ratio = syncRatio(a.grid!.periodAt(aBeat), g.periodAt(b0), this.rateA);
-      if (ratio) {
-        this.ratio = ratio;
-        const locked = lockedKnots({
-          gridA: a.grid!,
-          a0: aBeat,
-          rateA: this.rateA,
-          gridB: g,
-          b0,
-          m: ratio.m,
-          t0: Tb,
-          sampleRate: sr,
-          untilB: (this.bWin ? this.bWin.offset + this.bWin.duration : Infinity) + 1,
-        });
-        const r = Math.max(0.5, Math.min(2, (g.timeAt(b0) - pB) / Math.max(0.05, Tb - T)));
-        engine.mode('B', this.modeFor('B', ratio.rate));
-        engine.map('B', T * sr, [{ f: T * sr, p: pB, r }, ...locked]);
-        rateB = locked[0]?.r ?? ratio.rate;
-      }
+    if (plan) {
+      const { aBeat, b0, ratio } = plan;
+      this.ratio = ratio;
+      const locked = lockedKnots({
+        gridA: a.grid!,
+        a0: aBeat,
+        rateA: this.rateA,
+        gridB: b.grid!,
+        b0,
+        m: ratio.m,
+        t0: Tb,
+        sampleRate: sr,
+        untilB: (this.bWin ? this.bWin.offset + this.bWin.duration : Infinity) + 1,
+      });
+      const r = Math.max(
+        ratio.rate * (1 - CATCH_UP),
+        Math.min(ratio.rate * (1 + CATCH_UP), plan.r),
+      );
+      engine.mode('B', this.modeFor('B', ratio.rate));
+      engine.map('B', T * sr, [{ f: T * sr, p: pB, r }, ...locked]);
+      rateB = locked[0]?.r ?? ratio.rate;
     }
     // the room hears B from Tb, at the crossfader's level (the decks' master comes up at T)
     const xf = this.param('B.xf');
@@ -1885,10 +1906,13 @@ export class DjMixSession {
       this.applied['B.xf'] = 0;
       engine.stop('B', Math.round((t + JOIN_S + 0.04) * sr));
     };
+    const rate0 = this.rateA0;
     const handoff: HandoffLike = {
       // read once the player's load is ready; NaN once used or given up (review M-4)
       get currentTime() {
-        return used ? Number.NaN : (engine.position('B') ?? Number.NaN);
+        // where deck B is heard (its place less the limiter's lookahead)
+        const p = engine.position('B');
+        return used || p === null ? Number.NaN : p - LIMIT_DELAY_S * rate0;
       },
       pause: stopB,
       get src() {
@@ -2131,9 +2155,11 @@ export class DjMixSession {
       this.fadeMaster(0, now + 0.005, JOIN_S);
       engine.stop('A', Math.round((now + JOIN_S + 0.04) * sr));
     };
+    const rate0 = this.rateA0;
     const handoff: HandoffLike = {
       get currentTime() {
-        return used ? Number.NaN : (engine.position('A') ?? Number.NaN);
+        const p = engine.position('A');
+        return used || p === null ? Number.NaN : p - LIMIT_DELAY_S * rate0;
       },
       pause: stopA,
       get src() {
@@ -2784,7 +2810,9 @@ export class DjMixSession {
   private alignElement(): void {
     const el = this.el;
     if (!el || !this.v.aOnDeck || el.ended) return;
-    const p = this.engine?.position('A') ?? null;
+    const at = this.engine?.position('A') ?? null;
+    // where deck A is heard: its place less the limiter's lookahead
+    const p = at === null ? null : at - LIMIT_DELAY_S * this.rateA;
     if (p === null || !Number.isFinite(p)) return;
     if (Math.abs(el.currentTime - p) <= ALIGN_S) return;
     this.ownSeek = true;
@@ -2807,6 +2835,9 @@ export class DjMixSession {
     this.dropHand();
     if (align) this.alignElement();
     if (this.v.aOnDeck) {
+      // A back on its element at full, wherever the crossfader was: A is
+      // never left silent (as Back and Next do, review L3)
+      if (this.v.values.xf !== 0) this.update({ values: { ...this.v.values, xf: 0 } });
       if (engine) this.silence(engine, this.el, this.level());
       else if (this.el) {
         // the engine is gone (a worklet error): the element is all there is

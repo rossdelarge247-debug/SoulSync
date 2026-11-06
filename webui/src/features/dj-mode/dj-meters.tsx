@@ -2,8 +2,9 @@
  * DJ mode's level meters (Brief F step 5, S5): a thin one beside each deck's
  * Volume (after its fader: what the deck sends on; deck A's shows the
  * playing track on the element or on its deck) and one for what goes out,
- * with a clip light that holds for a moment when the mix went over 0 dBFS
- * before the limiter (the limiter caught it).
+ * with a clip light that holds for a moment when the decks summed went
+ * past full scale and the limiter held them down (the playing track on its
+ * own never lights it: it isn't limited, review M2).
  *
  * Cheap: the engine's analysers are made on the first look (auto-mix never
  * has them), read once a frame only while the overlay shows and the page is
@@ -23,8 +24,8 @@ export const METER_FLOOR_DB = -48;
 const FALL_DB_S = 24;
 /** The clip light holds this long (ms). */
 const CLIP_HOLD_MS = 1500;
-/** At or over this (linear, before the limiter) it's a clip. */
-const CLIP = 0.999;
+/** The limiter holding the decks down by this much (dB) or more is a clip. */
+const CLIP_DB = -0.5;
 
 /** A peak (linear) as the meter's fill, 0–1 over METER_FLOOR_DB … 0 dBFS. */
 export function meterFill(peak: number): number {
@@ -120,7 +121,8 @@ export function useMeters(
         shown[key] = Math.max(fill, fallen, 0);
         put(key, shown[key]!);
       }
-      if (read(meters.pre) >= CLIP) clipUntil = now + CLIP_HOLD_MS;
+      const reduction = session.engineParts()?.graph.limiter?.reduction ?? 0;
+      if (reduction <= CLIP_DB) clipUntil = now + CLIP_HOLD_MS;
       const led = root.current?.querySelector('[data-dj-clip]');
       if (now < clipUntil) led?.setAttribute('data-on', '');
       else led?.removeAttribute('data-on');

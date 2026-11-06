@@ -329,3 +329,104 @@ describe('S1 and M2: Tempo to a hundredth, A’s speed in the view', () => {
     expect(r.session.snapshot().values.B.tempo).toBe(-0.02);
   });
 });
+
+describe('review H1 and L3: the playing track at full after every release, wherever the crossfader was', () => {
+  /** The element as the room hears it after a release: its volume through the strip, flat at A only. */
+  function fullOnElement(): void {
+    expect(r.el.muted).toBe(false);
+    expect(r.engine.elementValue('xf')).toBeCloseTo(1, 6);
+    expect(r.engine.elementValue('volume')).toBeCloseTo(1, 6);
+    expect(trackLevel()).toBeCloseTo(r.el.volume, 6);
+    expect(trackLevel()).toBeCloseTo(0.7, 6);
+  }
+
+  async function blendAt(xf: number): Promise<void> {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    expect(r.session.snapshot().phase).toBe('playing');
+    r.session.setCentre('xf', xf);
+    await r.advance(0.05);
+  }
+
+  for (const xf of [100, 50]) {
+    it(`Back with the fader at ${xf}`, async () => {
+      await blendAt(xf);
+      r.session.backOverBar(null);
+      await r.advance(3);
+      expect(r.session.snapshot().aOnDeck).toBe(false);
+      fullOnElement();
+    });
+
+    it(`Next (another track) with the fader at ${xf}`, async () => {
+      await blendAt(xf);
+      r.session.setLanes(laneA({ id: '5', title: 'Static Bloom' }), laneB({ queue: HARBOUR }));
+      await r.advance(0.1);
+      expect(r.session.snapshot().aOnDeck).toBe(false);
+      fullOnElement();
+    });
+
+    it(`a hard stop (a seek) with the fader at ${xf} (L3)`, async () => {
+      await blendAt(xf);
+      r.el.currentTime = 30;
+      await r.advance(0.2);
+      expect(r.session.snapshot().aOnDeck).toBe(false);
+      expect(r.session.snapshot().values.xf).toBe(0);
+      fullOnElement();
+    });
+
+    it(`B’s window running out with the fader at ${xf}`, async () => {
+      r.session.dispose();
+      r = rig(vi, {
+        ...playerDeps(),
+        fetchWindow: async (_c, id, start, dur) => ({
+          channels: [],
+          mono4: new Float32Array(0),
+          sampleRate: 48000,
+          offset: start,
+          duration: id === '8' ? 6 : dur,
+        }),
+      });
+      await blendAt(xf);
+      await r.advance(5);
+      expect(r.session.snapshot().aOnDeck).toBe(false);
+      fullOnElement();
+    });
+  }
+
+  it('B on its own (the fader at B) ending: the player’s next track at full', async () => {
+    await cued();
+    r.el.paused = true;
+    r.el.ended = true;
+    r.session.playB();
+    await r.advance(0.5);
+    expect(r.session.snapshot()).toMatchObject({ solo: true, phase: 'playing' });
+    expect(r.engine.elementValue('xf')).toBe(0);
+    // the player plays again (another track): B goes out over a bar
+    r.el.paused = false;
+    r.el.ended = false;
+    r.el.dispatchEvent(new Event('play'));
+    await r.advance(0.1);
+    fullOnElement();
+  });
+});
+
+describe('review L1: Play B from the preview catches up within 8% of Sync’s speed', () => {
+  it('a B half a beat off A takes a later bar rather than a warble', async () => {
+    await cued();
+    r.session.previewB(true);
+    // B a little way in: its beat phase against A's is wherever it is
+    await r.advance(1.13);
+    const t = r.engine.port.time;
+    r.session.playB();
+    let worst = 0;
+    for (let i = 0; i < 400; i++) {
+      await r.advance(0.02);
+      const now = r.engine.port.time;
+      if (now < t + AHEAD_S + 0.03) continue;
+      worst = Math.max(worst, Math.abs(r.engine.port.rate('B', now) / 0.96 - 1));
+    }
+    expect(r.session.snapshot().phase).toBe('playing');
+    expect(worst).toBeLessThan(0.081);
+  });
+});
