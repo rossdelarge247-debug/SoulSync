@@ -3893,12 +3893,15 @@ function npv2HandleKeys(event) {
             npv2ToggleShortcuts();
             break;
         case '[':
-            event.preventDefault();
-            npv2CycleSpeed(-1);
-            break;
         case ']':
+            // DJ mode's loop size (halved, doubled; step 6) on the focused
+            // lane, or B's, while it takes the key; else the player's speed
+            if (window.SoulSyncDj && window.SoulSyncDj.key && window.SoulSyncDj.key(event.key)) {
+                event.preventDefault();
+                break;
+            }
             event.preventDefault();
-            npv2CycleSpeed(1);
+            npv2CycleSpeed(event.key === '[' ? -1 : 1);
             break;
         case 'v':
         case 'V':
