@@ -111,6 +111,12 @@ export interface EngineOptions {
 const IDS: readonly DeckId[] = ['A', 'B'];
 /** The element's crossfade onto (and off) the element strip (seconds). */
 export const ROUTE_S = 0.03;
+/**
+ * Which engine has each element's source on its strip: a let-go's late
+ * cut gives the source back to the player only if no newer engine has
+ * taken it since (review M1: else the element was heard twice).
+ */
+const OWNERS = new WeakMap<AudioNode, Engine>();
 /** the worklet module, loaded once a context */
 const MODULES = new WeakMap<BaseAudioContext, Promise<void>>();
 
@@ -145,6 +151,22 @@ export class Engine implements DeckPort {
     this.node.connect(this.graph.decks.A.input, 0);
     this.node.connect(this.graph.decks.B.input, 1);
     if (opts.element && this.graph.element) this.routeElement(opts.element);
+    try {
+      this.start(opts);
+    } catch (e) {
+      // anything after the routing failed: the element back on the player's own chain (review L2)
+      this.unroute(true);
+      try {
+        this.node.disconnect();
+        this.graph.dispose();
+      } catch {
+        /* a closed context */
+      }
+      throw e;
+    }
+  }
+
+  private start(opts: EngineOptions): void {
     this.node.port.onmessage = (e: MessageEvent) => this.receive(e.data);
     this.node.port.postMessage({ type: 'report', every: opts.reportFrames ?? 4096 });
     const live =
@@ -333,6 +355,7 @@ export class Engine implements DeckPort {
       fade(strip.input.gain, 0, 1, t, ROUTE_S);
       fade(el.sourceOut.gain, el.sourceOut.gain.value, 0, t, ROUTE_S);
       this.routed = el;
+      OWNERS.set(el.source, this);
     } catch {
       // the player's graph as it was: never silent
       this.unroute(true);
@@ -366,6 +389,9 @@ export class Engine implements DeckPort {
       } catch {
         /* already gone */
       }
+      // a newer engine has the source on its strip now: its routing stands
+      if (OWNERS.get(el.source) !== this) return;
+      OWNERS.delete(el.source);
       try {
         // whatever the context did meanwhile (a suspended one hasn't run the ramp)
         el.sourceOut.gain.cancelScheduledValues(0);

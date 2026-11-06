@@ -5,7 +5,7 @@
  *                 └ out 1 ─▶ B: (the same)                                                  ├▶ master ─┐
  *   each deck's low-pass ─▶ echo send ▸ delay ⟲ (tone high-pass ▸ damping low-pass ▸ feedback) ▸ return ┘        │
  *   each deck's low-pass ─▶ cue send ─▶ cue bus (headphones, outputs.ts)                                        │
- *   (DJ mode) the player's element ─▶ E: the same chain, its own params ─────────────────────────────▶ mix ◀─┘ ▸ limiter ▸ out
+ *   master ▸ mix ▸ limiter ▸ out ◀── (DJ mode) the player's element ─▶ E: the same chain, its own params
  *
  * `out` goes to the player's chain when there is one (its first EQ band, or
  * its analyser: the visualisers see the mix, as they see the player), else
@@ -31,7 +31,13 @@
  * plays through while DJ mode has the decks: deck A's channel and the
  * crossfader act on the playing track before Play B, and the element and
  * deck A sound the same at every switch. It bypasses `master` (the element
- * has the player's volume already) and joins the decks at the limiter.
+ * has the player's volume already) and the limiter (review M2): it joins
+ * at `out`, never limited or delayed, as it was before the engine. With
+ * the element strip the decks' limiter sits at 0 dBFS (auto-mix's at
+ * −1): one deck at full scale goes through it untouched, as the element
+ * would; only two decks summed past full scale are held down. The limiter
+ * has the browser's lookahead (Chromium's 6 ms, `LIMIT_DELAY_S`): deck A
+ * is started that far ahead, so it lines up with the element.
  */
 
 import { AutomatedParam, type ParamLike } from './automation';
@@ -55,17 +61,15 @@ export interface ElementChain extends DeckChain {
 export interface GraphMeters {
   A: AnalyserNode;
   B: AnalyserNode;
-  /** what goes out (past the limiter) */
+  /** what goes out (past the limiter, the element strip with it) */
   out: AnalyserNode;
-  /** the mix before the limiter: over 0 dBFS there is a clip the limiter caught */
-  pre: AnalyserNode;
 }
 
 export interface EngineGraph {
   decks: Record<DeckId, DeckChain>;
   params: Record<ParamKey, AutomatedParam>;
   master: GainNode;
-  /** the limiter's input: the decks' master and the element strip meet here */
+  /** the limiter's input (the decks' master) */
   mix: GainNode;
   limiter: DynamicsCompressorNode | null;
   out: GainNode;
@@ -81,6 +85,10 @@ export interface EngineGraph {
 
 const MAX_ECHO_S = 2;
 const LIMIT_DB = -1;
+/** DJ mode's limiter (with the element strip): only the decks summed past full scale. */
+const LIMIT_DJ_DB = 0;
+/** The limiter's lookahead in Chromium (DynamicsCompressorNode's pre-delay). */
+export const LIMIT_DELAY_S = 0.006;
 const LIMIT_RATIO = 20;
 
 /** The isolator's crossovers (Hz): Linkwitz-Riley, 8th order (M3). */
@@ -288,13 +296,14 @@ export function buildGraph(
     // makeup gain every DynamicsCompressorNode adds (the spec's) is exactly
     // known, and taken back off: below the threshold the engine plays at
     // the player's level
-    limiter.threshold.value = LIMIT_DB;
+    const limitDb = opts.element ? LIMIT_DJ_DB : LIMIT_DB;
+    limiter.threshold.value = limitDb;
     limiter.knee.value = 0;
     limiter.ratio.value = LIMIT_RATIO;
     limiter.attack.value = 0.002;
     limiter.release.value = 0.2;
     unmakeup = ctx.createGain();
-    unmakeup.gain.value = Math.pow(10, -makeupDb(LIMIT_DB, LIMIT_RATIO) / 20);
+    unmakeup.gain.value = Math.pow(10, -makeupDb(limitDb, LIMIT_RATIO) / 20);
     mix.connect(limiter).connect(unmakeup).connect(out);
   } else {
     mix.connect(out);
@@ -306,7 +315,8 @@ export function buildGraph(
   let element: ElementChain | null = null;
   let e: ReturnType<typeof deckChain> | null = null;
   if (opts.element) {
-    e = deckChain(ctx, 'E', mix, cueBus);
+    // past the limiter: the playing track is never limited or delayed (review M2)
+    e = deckChain(ctx, 'E', out, cueBus);
     const input = ctx.createGain();
     input.gain.value = 0;
     input.connect(e.chain.input);
@@ -335,13 +345,12 @@ export function buildGraph(
         n.fftSize = 1024;
         return n;
       };
-      meters = { A: analyser(), B: analyser(), out: analyser(), pre: analyser() };
+      meters = { A: analyser(), B: analyser(), out: analyser() };
       a.chain.postFader.connect(meters.A);
       // deck A's meter shows the playing track whichever way it plays
       element?.postFader.connect(meters.A);
       b.chain.postFader.connect(meters.B);
       out.connect(meters.out);
-      mix.connect(meters.pre);
       return meters;
     },
     retap(next: AudioNode | null) {

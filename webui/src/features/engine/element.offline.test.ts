@@ -23,7 +23,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AutomatedParam } from './automation';
 import type { ParamName } from './score';
 
-import { Engine, prepareDeck } from './engine';
+import { Engine, prepareDeck, ROUTE_S } from './engine';
+import { LIMIT_DELAY_S } from './graph';
 import { KILL_DB } from './score';
 import { WORKLET_PATH } from './worklet/run-worklet';
 
@@ -147,68 +148,165 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     expect(Math.abs(routed - straight)).toBeLessThan(0.5);
   }, 60_000);
 
-  it('Play B and Back with deck A’s channel moved first: the same level before and after, no dead air through', async () => {
-    const seconds = 3;
-    const ctx = new OfflineAudioContext(1, seconds * SR, SR);
+  for (const [name, vol, channel] of [
+    ['deck A’s channel moved first', 0.7, { volume: 0.64, mid: -6, high: KILL_DB, lp: 9000 }],
+    ['at full scale, the channel at rest (review M2)', 1, {}],
+  ] as const) {
+    it(`Play B and Back, ${name}: the same level before and after, no dead air through`, async () => {
+      const seconds = 3;
+      const ctx = new OfflineAudioContext(1, seconds * SR, SR);
+      const osc = ctx.createOscillator();
+      osc.frequency.value = HZ;
+      // the element's volume (the player's level, 0.7), as MediaElementSource has it applied
+      const elVolume = ctx.createGain();
+      elVolume.gain.value = vol;
+      const sourceOut = ctx.createGain();
+      const into = playerChain(ctx);
+      osc.connect(elVolume).connect(sourceOut).connect(into);
+      osc.start(0);
+      const engine = await Engine.create({
+        context: ctx as unknown as BaseAudioContext,
+        workletUrl: WORKLET_PATH,
+        tap: into as unknown as AudioNode,
+        element: {
+          source: elVolume as unknown as AudioNode,
+          sourceOut: sourceOut as unknown as GainNode,
+        },
+        watch: false,
+      });
+      // deck A's channel as set before Play B (live on the element)
+      setAll(engine.elementParams()!, channel);
+      setAll(engine.params('A'), channel);
+      engine.load('A', prepareDeck(sineTrack(seconds), 0));
+      const master = engine.graph.master.gain;
+      master.value = 0;
+      // Play B at 1 s (the session's takeOverNow): deck A in over 80 ms as the
+      // element's volume falls in six steps; Back at 2 s, the other way
+      const T = 1;
+      const FADE = 0.08;
+      // the decks are heard through the limiter's lookahead, the element isn't:
+      // deck A starts that much further on (as the session's takeOverNow)
+      engine.play('A', T, T + LIMIT_DELAY_S);
+      master.setValueAtTime(0, T);
+      master.linearRampToValueAtTime(vol, T + FADE);
+      for (let n = 1; n <= 6; n++)
+        elVolume.gain.setValueAtTime(vol * (1 - n / 6), T + (n * FADE) / 6);
+      const B = 2;
+      for (let n = 0; n <= 6; n++) elVolume.gain.setValueAtTime(vol * (n / 6), B + (n * FADE) / 6);
+      master.setValueAtTime(vol, B);
+      master.linearRampToValueAtTime(0, B + FADE);
+      engine.stop('A', Math.round((B + FADE + 0.05) * SR));
+      await engine.sync();
+      const x = (await ctx.startRendering()).getChannelData(0);
+      const onElement = rmsDb(x, 0.6, 0.95);
+      const onDeck = rmsDb(x, 1.3, 1.95);
+      const back = rmsDb(x, 2.3, 2.9);
+      const playB = spread(x, 0.95, 1.2);
+      const backS = spread(x, 1.95, 2.2);
+      console.info(
+        `Play B and Back, ${name} (dB): element ${onElement.toFixed(2)} · deck A ${onDeck.toFixed(2)} · ` +
+          `element again ${back.toFixed(2)} · through Play B ${playB.lo.toFixed(2)}…${playB.hi.toFixed(2)} · ` +
+          `through Back ${backS.lo.toFixed(2)}…${backS.hi.toFixed(2)}`,
+      );
+      expect(Math.abs(onDeck - onElement)).toBeLessThan(0.1);
+      expect(Math.abs(back - onElement)).toBeLessThan(0.1);
+      // through the cross-overs: the element's steps against the master's ramp
+      // (in phase here, the worst case for a step), never near silence
+      for (const s of [playB, backS]) {
+        expect(onElement - s.lo).toBeLessThan(3);
+        expect(s.hi - onElement).toBeLessThan(1.5);
+      }
+    }, 60_000);
+  }
+
+  it('a full-scale element passes untouched: not limited, no gain reduction (review M2)', async () => {
+    const ctx = new OfflineAudioContext(1, SR, SR);
     const osc = ctx.createOscillator();
     osc.frequency.value = HZ;
-    // the element's volume (the player's level, 0.7), as MediaElementSource has it applied
-    const elVolume = ctx.createGain();
-    elVolume.gain.value = 0.7;
     const sourceOut = ctx.createGain();
-    const into = playerChain(ctx);
-    osc.connect(elVolume).connect(sourceOut).connect(into);
-    osc.start(0);
+    const tap = ctx.createGain();
+    tap.connect(ctx.destination);
+    osc.connect(sourceOut).connect(tap);
+    osc.start();
     const engine = await Engine.create({
       context: ctx as unknown as BaseAudioContext,
       workletUrl: WORKLET_PATH,
-      tap: into as unknown as AudioNode,
-      element: {
-        source: elVolume as unknown as AudioNode,
-        sourceOut: sourceOut as unknown as GainNode,
-      },
+      tap: tap as unknown as AudioNode,
+      element: { source: osc as unknown as AudioNode, sourceOut: sourceOut as unknown as GainNode },
       watch: false,
     });
-    // deck A's channel moved before Play B (live on the element): a cut and a kill
-    const channel = { volume: 0.64, mid: -6, high: KILL_DB, lp: 9000 };
-    setAll(engine.elementParams()!, channel);
-    setAll(engine.params('A'), channel);
-    engine.load('A', prepareDeck(sineTrack(seconds), 0));
-    const master = engine.graph.master.gain;
-    master.value = 0;
-    // Play B at 1 s (the session's takeOverNow): deck A in over 80 ms as the
-    // element's volume falls in six steps; Back at 2 s, the other way
-    const T = 1;
-    const FADE = 0.08;
-    engine.play('A', T, T);
-    master.setValueAtTime(0, T);
-    master.linearRampToValueAtTime(0.7, T + FADE);
-    for (let n = 1; n <= 6; n++)
-      elVolume.gain.setValueAtTime(0.7 * (1 - n / 6), T + (n * FADE) / 6);
-    const B = 2;
-    for (let n = 0; n <= 6; n++) elVolume.gain.setValueAtTime(0.7 * (n / 6), B + (n * FADE) / 6);
-    master.setValueAtTime(0.7, B);
-    master.linearRampToValueAtTime(0, B + FADE);
-    engine.stop('A', Math.round((B + FADE + 0.05) * SR));
     await engine.sync();
     const x = (await ctx.startRendering()).getChannelData(0);
-    const onElement = rmsDb(x, 0.6, 0.95);
-    const onDeck = rmsDb(x, 1.3, 1.95);
-    const back = rmsDb(x, 2.3, 2.9);
-    const playB = spread(x, 0.95, 1.2);
-    const backS = spread(x, 1.95, 2.2);
+    let peak = 0;
+    for (let i = SR / 2; i < SR; i++) peak = Math.max(peak, Math.abs(x[i]!));
+    const level = rmsDb(x, 0.5, 0.95);
     console.info(
-      `Play B and Back (dB): element ${onElement.toFixed(2)} · deck A ${onDeck.toFixed(2)} · ` +
-        `element again ${back.toFixed(2)} · through Play B ${playB.lo.toFixed(2)}…${playB.hi.toFixed(2)} · ` +
-        `through Back ${backS.lo.toFixed(2)}…${backS.hi.toFixed(2)}`,
+      `a full-scale element through the strip: ${level.toFixed(2)} dB RMS, peak ${peak.toFixed(3)}`,
     );
-    expect(Math.abs(onDeck - onElement)).toBeLessThan(0.1);
-    expect(Math.abs(back - onElement)).toBeLessThan(0.1);
-    // through the cross-overs: the element's steps against the master's ramp
-    // (in phase here, the worst case for a step), never near silence
-    for (const s of [playB, backS]) {
-      expect(onElement - s.lo).toBeLessThan(3);
-      expect(s.hi - onElement).toBeLessThan(1.5);
-    }
+    // a full-scale sine is −3.01 dB RMS
+    expect(Math.abs(level - -3.01)).toBeLessThan(0.5);
+    expect(peak).toBeGreaterThan(0.97);
+    expect(engine.graph.limiter!.reduction).toBe(0);
+  }, 60_000);
+
+  it('an engine made again within the old one’s let-go: the element heard once, not twice (review M1)', async () => {
+    const ctx = new OfflineAudioContext(1, SR, SR);
+    const osc = ctx.createOscillator();
+    osc.frequency.value = HZ;
+    const half = ctx.createGain();
+    half.gain.value = 0.5;
+    const sourceOut = ctx.createGain();
+    const tap = ctx.createGain();
+    tap.connect(ctx.destination);
+    osc.connect(half).connect(sourceOut).connect(tap);
+    osc.start();
+    const make = () =>
+      Engine.create({
+        context: ctx as unknown as BaseAudioContext,
+        workletUrl: WORKLET_PATH,
+        tap: tap as unknown as AudioNode,
+        element: {
+          source: half as unknown as AudioNode,
+          sourceOut: sourceOut as unknown as GainNode,
+        },
+        watch: false,
+      });
+    const first = await make();
+    first.dispose();
+    const second = await make();
+    // the first one's late cut comes and goes
+    await new Promise((r) => setTimeout(r, (ROUTE_S + 0.12) * 1000));
+    await second.sync();
+    const x = (await ctx.startRendering()).getChannelData(0);
+    const level = rmsDb(x, 0.5, 0.95);
+    console.info(`made, let go, made again: ${level.toFixed(2)} dB (one way is −9.03)`);
+    expect(Math.abs(level - -9.03)).toBeLessThan(0.3);
+  }, 60_000);
+
+  it('an engine that fails as it’s made gives the element straight back (review L2)', async () => {
+    const ctx = new OfflineAudioContext(1, SR / 4, SR);
+    const osc = ctx.createOscillator();
+    const sourceOut = ctx.createGain();
+    osc.connect(sourceOut).connect(ctx.destination);
+    const broken = {
+      addEventListener: () => {
+        throw new Error('no events here');
+      },
+      removeEventListener: () => undefined,
+    };
+    await expect(
+      Engine.create({
+        context: ctx as unknown as BaseAudioContext,
+        workletUrl: WORKLET_PATH,
+        element: {
+          source: osc as unknown as AudioNode,
+          sourceOut: sourceOut as unknown as GainNode,
+        },
+        watch: true,
+        doc: broken as unknown as Document,
+        win: broken as unknown as Window,
+      }),
+    ).rejects.toThrow();
+    expect(sourceOut.gain.value).toBe(1);
   }, 60_000);
 });
