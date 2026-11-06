@@ -208,8 +208,14 @@ export class Engine implements DeckPort {
       loading.catch(() => MODULES.delete(opts.context));
     }
     await loading;
-    // measured first: the element is routed in the constructor
-    const look = opts.element ? await measureLookahead(opts.context.sampleRate) : LIMIT_DELAY_S;
+    // measured first (the element is routed in the constructor), never
+    // waited on long: Chromium's 6 ms after half a second (review L6)
+    const look = opts.element
+      ? await Promise.race([
+          measureLookahead(opts.context.sampleRate),
+          new Promise<number>((done) => setTimeout(() => done(LIMIT_DELAY_S), 500)),
+        ])
+      : LIMIT_DELAY_S;
     const engine = new Engine(opts);
     engine.lookahead = look;
     return engine;
@@ -345,7 +351,7 @@ export class Engine implements DeckPort {
 
   /** From frame `atFrame` the deck loops over `region` (track seconds); null ends the loop there. */
   loop(deck: DeckId, region: { start: number; end: number } | null, atFrame: number): void {
-    this.loopSpans[deck] = withLoop(this.loopSpans[deck], atFrame, region);
+    this.loopSpans[deck] = withLoop(this.loopSpans[deck], atFrame, region, this.sampleRate);
     this.node.port.postMessage({
       type: 'loop',
       deck: IDS.indexOf(deck),

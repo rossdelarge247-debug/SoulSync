@@ -92,9 +92,11 @@ export function withLoop(
   loops: readonly LoopSpan[],
   f: number,
   next: { start: number; end: number } | null,
+  sampleRate = 48000,
 ): LoopSpan[] {
+  // what ended over 10 s before goes
   const kept = loops
-    .filter((l) => l.until > f - 48000 * 10 && l.from < f)
+    .filter((l) => l.until > f - sampleRate * 10 && l.from < f)
     .map((l) => (l.until > f ? { ...l, until: f } : l));
   if (next) kept.push({ start: next.start, end: next.end, from: f, until: Infinity });
   return kept;
