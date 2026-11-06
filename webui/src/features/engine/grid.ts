@@ -125,7 +125,10 @@ export function gridFromApi(g: ApiGrid | null | undefined): BeatGrid | null {
  * The incoming deck's trim (dB) so the two sound as loud: from ReplayGain
  * when both tracks have it, else from the analysed levels; kept within ±9 dB.
  */
-export function relativeTrimDb(out: ApiGrid | null, incoming: ApiGrid | null): number {
+export function relativeTrimDb(
+  out: Pick<ApiGrid, 'loudness'> | null,
+  incoming: Pick<ApiGrid, 'loudness'> | null,
+): number {
   const a = out?.loudness;
   const b = incoming?.loudness;
   let db = 0;
