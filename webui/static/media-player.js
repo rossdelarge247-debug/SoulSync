@@ -3159,7 +3159,16 @@ function handlePlayerKeyboardShortcuts(event) {
         case 'Z':
         case '-':
         case '+':
-        case '=': {
+        case '=':
+        // DJ mode step 6: loops (O, ⇧O, I, ⇧I, [ ]) and Quantize (Q), DJ mode's only
+        case 'o':
+        case 'O':
+        case 'i':
+        case 'I':
+        case 'q':
+        case 'Q':
+        case '[':
+        case ']': {
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
             if (!actions) return;
@@ -3243,6 +3252,14 @@ const NP_LETTER_KEYS = {
     '+': ['dj:+'],
     '⇧+': ['dj:+'],
     '=': ['dj:+'],
+    // step 6: loops on the focused lane (else B), Quantize; nobody's with DJ mode off
+    'O': ['dj:O'],
+    '⇧O': ['dj:⇧O'],
+    'I': ['dj:I'],
+    '⇧I': ['dj:⇧I'],
+    '[': ['dj:['],
+    ']': ['dj:]'],
+    'Q': ['dj:Q'],
 };
 
 // true when the action acted (the key is then the page's no more)
