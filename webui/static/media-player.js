@@ -1332,6 +1332,11 @@ let npRecentlyPlayedIds = [];
 let npAudioContext = null;
 let npAnalyser = null;
 let npMediaSource = null;
+// the element's way into the player's own chain (EQ, Normalize, analyser): a
+// unity gain, so DJ mode can play the element through its own channel strip
+// by turning this down while that comes up, never cutting an edge (Brief F
+// step 5). At 1 it's bit for bit the plain source.
+let npSourceOut = null;
 let npVizInitialized = false;
 let npCrossfadeOn = false;
 let npSleepMinutes = 0;       // 0 = off
@@ -3318,7 +3323,9 @@ function npInitVisualizer() {
             npAnalyser = npAudioContext.createAnalyser();
             npAnalyser.fftSize = 64;
             npAnalyser.smoothingTimeConstant = 0.8;
-            npMediaSource.connect(npAnalyser);
+            npSourceOut = npAudioContext.createGain();
+            npMediaSource.connect(npSourceOut);
+            npSourceOut.connect(npAnalyser);
             npAnalyser.connect(npAudioContext.destination);
         }
         npVizInitialized = true;
@@ -4275,11 +4282,27 @@ window.SoulSyncPlayer = {
     },
     /** The player's audio graph, made now if it isn't yet: the two-deck
      * engine (auto-mix) plays on this context and into this analyser, so
-     * the visualisers see the mix and the output device applies to it. */
+     * the visualisers see the mix and the output device applies to it.
+     * DJ mode plays into `input` (the EQ's first band, else the analyser)
+     * and routes the element (`source`) through its strip by turning
+     * `sourceOut` down (step 5). */
     audioGraph() {
         npInitVisualizer();
         npEnsureAudioContextRunning();
-        return npAudioContext && npAnalyser ? { context: npAudioContext, analyser: npAnalyser } : null;
+        if (!npAudioContext || !npAnalyser) return null;
+        // the chain's input: the 10-band EQ's first band once it's made
+        // (media-player-v2.js), else the analyser. DJ mode's decks play into
+        // it, so the EQ and Normalize are theirs too (step 5, M4); 'ss:player-graph'
+        // says when it changes
+        let input = null;
+        try { input = (typeof npv2GraphInput === 'function' && npv2GraphInput()) || null; } catch (e) { input = null; }
+        return {
+            context: npAudioContext,
+            analyser: npAnalyser,
+            input: input || npAnalyser,
+            source: npMediaSource,
+            sourceOut: npSourceOut,
+        };
     },
     toggle: () => togglePlayback(),
     stop: () => handleStop(),
