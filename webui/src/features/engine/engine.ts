@@ -20,8 +20,9 @@ import type { DeckId, ParamName } from './score';
 
 import { flatten, positionAt, spliceKnots, type Knot } from './clock';
 import { Transition, type DeckPort, type TransitionInput } from './executor';
-import { buildGraph, type EngineGraph } from './graph';
+import { buildGraph, LIMIT_DELAY_S, type EngineGraph } from './graph';
 import { LifecycleWatch, type LifecycleEvent } from './lifecycle';
+import { fold, loopAt, shiftKnots, withLoop, wraps, type LoopSpan } from './loops';
 
 export const PROCESSOR = 'soulsync-decks';
 
@@ -126,6 +127,8 @@ export class Engine implements DeckPort {
   readonly graph: EngineGraph;
   readonly sampleRate: number;
   private readonly maps: Record<DeckId, Knot[]> = { A: [], B: [] };
+  /** each deck's loops (engine/loops.ts), as the worklet has them */
+  private loopSpans: Record<DeckId, LoopSpan[]> = { A: [], B: [] };
   private readonly loaded: Record<DeckId, DeckData | null> = { A: null, B: null };
   private readonly reports: Record<DeckId, { frame: number; report: DeckReport } | null> = {
     A: null,
@@ -189,6 +192,13 @@ export class Engine implements DeckPort {
     }
   }
 
+  /**
+   * The limiter's lookahead on this browser (seconds): the decks are heard
+   * that much after the element (Chromium's is 6 ms, others differ), so
+   * deck A starts that far on and the joins read the decks that far back.
+   */
+  lookahead = LIMIT_DELAY_S;
+
   /** Load the worklet (once a context) and build the engine. */
   static async create(opts: EngineOptions): Promise<Engine> {
     let loading = MODULES.get(opts.context);
@@ -198,7 +208,11 @@ export class Engine implements DeckPort {
       loading.catch(() => MODULES.delete(opts.context));
     }
     await loading;
-    return new Engine(opts);
+    // measured first: the element is routed in the constructor
+    const look = opts.element ? await measureLookahead(opts.context.sampleRate) : LIMIT_DELAY_S;
+    const engine = new Engine(opts);
+    engine.lookahead = look;
+    return engine;
   }
 
   private pings = new Map<number, () => void>();
@@ -284,6 +298,7 @@ export class Engine implements DeckPort {
   load(deck: DeckId, data: DeckData): void {
     this.loaded[deck] = data;
     this.maps[deck] = [];
+    this.loopSpans[deck] = [];
     const transfer = [...data.channels.map((c) => c.buffer), data.mono4.buffer] as ArrayBuffer[];
     this.node.port.postMessage(
       {
@@ -302,6 +317,7 @@ export class Engine implements DeckPort {
   unload(deck: DeckId): void {
     this.loaded[deck] = null;
     this.maps[deck] = [];
+    this.loopSpans[deck] = [];
     this.reports[deck] = null;
     this.node.port.postMessage({ type: 'unload', deck: IDS.indexOf(deck) });
   }
@@ -318,9 +334,62 @@ export class Engine implements DeckPort {
     this.map(deck, at * this.sampleRate, [{ f: at * this.sampleRate, p: from, r: rate }], true);
   }
 
-  /** Where a deck is in its track (seconds) at a context time, from the map sent. */
+  /** Where a deck is in its track (seconds) at a context time, from the map sent (folded into a loop). */
   position(deck: DeckId, at = this.context.currentTime): number | null {
-    return positionAt(this.maps[deck], at * this.sampleRate, this.sampleRate);
+    const f = at * this.sampleRate;
+    const p = positionAt(this.maps[deck], f, this.sampleRate);
+    return p === null ? null : fold(p, this.loopSpans[deck], f);
+  }
+
+  // -- loops (DJ mode step 6; loops.ts) --
+
+  /** From frame `atFrame` the deck loops over `region` (track seconds); null ends the loop there. */
+  loop(deck: DeckId, region: { start: number; end: number } | null, atFrame: number): void {
+    this.loopSpans[deck] = withLoop(this.loopSpans[deck], atFrame, region);
+    this.node.port.postMessage({
+      type: 'loop',
+      deck: IDS.indexOf(deck),
+      at: atFrame,
+      start: region ? region.start : null,
+      end: region ? region.end : null,
+    });
+  }
+
+  /**
+   * Leave the loop at frame `atFrame` and play on from where it is: the map
+   * moved back by the loops it ran, then the loop ended there.
+   */
+  endLoop(deck: DeckId, atFrame: number): void {
+    const spans = this.loopSpans[deck];
+    const l = loopAt(spans, atFrame);
+    if (!l) return;
+    const raw = positionAt(this.maps[deck], atFrame, this.sampleRate);
+    const k = raw === null ? 0 : wraps(raw, spans, atFrame);
+    if (k > 0) {
+      const shifted = shiftKnots(this.maps[deck], atFrame, k * (l.end - l.start), this.sampleRate);
+      if (shifted.length) this.map(deck, atFrame, shifted);
+    }
+    this.loop(deck, null, atFrame);
+  }
+
+  /**
+   * Move a deck by `delta` track seconds from frame `atFrame` (a beatjump, a
+   * hot cue in phase, a reloop): the map's shape kept (Sync's lock with it),
+   * from where the deck is heard (folded into its loop).
+   */
+  shift(deck: DeckId, atFrame: number, delta: number): void {
+    const knots = this.maps[deck];
+    const raw = positionAt(knots, atFrame, this.sampleRate);
+    if (raw === null) return;
+    const folded = fold(raw, this.loopSpans[deck], atFrame);
+    const next = shiftKnots(knots, atFrame, raw - folded - delta, this.sampleRate);
+    if (next.length) this.map(deck, atFrame, next, true);
+  }
+
+  /** The loop in force on a deck at a context time, or null. */
+  loopAt(deck: DeckId, at = this.context.currentTime): { start: number; end: number } | null {
+    const l = loopAt(this.loopSpans[deck], at * this.sampleRate);
+    return l ? { start: l.start, end: l.end } : null;
   }
 
   /** The worklet's last report for a deck. */
@@ -436,4 +505,42 @@ function fade(param: AudioParam, from: number, to: number, at: number, seconds: 
   param.cancelScheduledValues(at);
   param.setValueAtTime(from, at);
   param.linearRampToValueAtTime(to, at + seconds);
+}
+
+const LOOKAHEADS = new Map<number, Promise<number>>();
+
+/**
+ * How long this browser's DynamicsCompressorNode delays its signal, at a
+ * sample rate (an impulse through one, offline, once a rate); Chromium's
+ * 6 ms when it can't be measured.
+ */
+export function measureLookahead(sampleRate: number): Promise<number> {
+  let known = LOOKAHEADS.get(sampleRate);
+  if (known) return known;
+  known = (async () => {
+    try {
+      const Offline = (globalThis as { OfflineAudioContext?: typeof OfflineAudioContext })
+        .OfflineAudioContext;
+      if (!Offline) return LIMIT_DELAY_S;
+      const n = 2048;
+      const ctx = new Offline(1, n, sampleRate);
+      const buf = ctx.createBuffer(1, n, sampleRate);
+      buf.getChannelData(0)[64] = 0.1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = 0;
+      comp.knee.value = 0;
+      comp.ratio.value = 20;
+      src.connect(comp).connect(ctx.destination);
+      src.start();
+      const out = (await ctx.startRendering()).getChannelData(0);
+      for (let i = 0; i < n; i++) if (Math.abs(out[i]!) > 1e-4) return (i - 64) / sampleRate;
+      return LIMIT_DELAY_S;
+    } catch {
+      return LIMIT_DELAY_S;
+    }
+  })();
+  LOOKAHEADS.set(sampleRate, known);
+  return known;
 }

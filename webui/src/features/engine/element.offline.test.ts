@@ -23,8 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AutomatedParam } from './automation';
 import type { ParamName } from './score';
 
-import { Engine, prepareDeck, ROUTE_S } from './engine';
-import { LIMIT_DELAY_S } from './graph';
+import { Engine, measureLookahead, prepareDeck, ROUTE_S } from './engine';
 import { KILL_DB } from './score';
 import { WORKLET_PATH } from './worklet/run-worklet';
 
@@ -33,11 +32,16 @@ const HZ = 440;
 const g = globalThis as unknown as { AudioWorkletNode?: unknown };
 const saved = g.AudioWorkletNode;
 
+const go = globalThis as unknown as { OfflineAudioContext?: unknown };
+const savedOffline = go.OfflineAudioContext;
 beforeAll(() => {
   g.AudioWorkletNode = NodeWorkletNode;
+  // the engine measures the limiter's lookahead with one (this implementation's)
+  go.OfflineAudioContext = OfflineAudioContext;
 });
 afterAll(() => {
   g.AudioWorkletNode = saved;
+  go.OfflineAudioContext = savedOffline;
 });
 
 /** The track: a 440 Hz sine at full scale, as the element's oscillator is, and in phase with it. */
@@ -186,7 +190,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       const FADE = 0.08;
       // the decks are heard through the limiter's lookahead, the element isn't:
       // deck A starts that much further on (as the session's takeOverNow)
-      engine.play('A', T, T + LIMIT_DELAY_S);
+      engine.play('A', T, T + engine.lookahead);
       master.setValueAtTime(0, T);
       master.linearRampToValueAtTime(vol, T + FADE);
       for (let n = 1; n <= 6; n++)
@@ -309,4 +313,75 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     ).rejects.toThrow();
     expect(sourceOut.gain.value).toBe(1);
   }, 60_000);
+
+  it('deck A lines up with the element to the sample: the limiter’s lookahead measured on this implementation (step 5 leftover)', async () => {
+    // each implementation's DynamicsCompressor delay, as measured: a wrong
+    // constant (Chromium's 6 ms here) would be 96 frames out and fail
+    const LOOKAHEAD_FRAMES: Record<string, number> = { 'node-web-audio-api': 384, chromium: 288 };
+    const look = await measureLookahead(SR);
+    expect(Math.round(look * SR)).toBe(LOOKAHEAD_FRAMES['node-web-audio-api']);
+    // broadband (noise) so the cross-correlation has one sharp peak
+    const n = Math.round(3 * SR);
+    const noise = new Float32Array(n);
+    let x = 12345;
+    for (let i = 0; i < n; i++) {
+      x = (x * 1103515245 + 12345) % 2147483648;
+      noise[i] = (x / 2147483648 - 0.5) * 0.5;
+    }
+    const render = async (which: 'element' | 'deck') => {
+      const ctx = new OfflineAudioContext(1, Math.round(1.5 * SR), SR);
+      const buf = ctx.createBuffer(1, n, SR);
+      buf.getChannelData(0).set(noise);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const sourceOut = ctx.createGain();
+      const tap = ctx.createGain();
+      tap.connect(ctx.destination);
+      src.connect(sourceOut).connect(tap);
+      src.start(0);
+      const engine = await Engine.create({
+        context: ctx as unknown as BaseAudioContext,
+        workletUrl: WORKLET_PATH,
+        tap: tap as unknown as AudioNode,
+        element: {
+          source: src as unknown as AudioNode,
+          sourceOut: sourceOut as unknown as GainNode,
+        },
+        watch: false,
+      });
+      engine.load(
+        'A',
+        prepareDeck(
+          { numberOfChannels: 1, sampleRate: SR, length: n, getChannelData: () => noise },
+          0,
+        ),
+      );
+      engine.graph.master.gain.value = which === 'deck' ? 1 : 0;
+      // the element silent on the strip for the deck's render
+      if (which === 'deck') engine.elementParams()!.volume.reset(0, 0);
+      // as takeOverNow: deck A at T from where the element is, its lookahead on
+      if (which === 'deck') engine.play('A', 0.5, 0.5 + engine.lookahead);
+      await engine.sync();
+      return (await ctx.startRendering()).getChannelData(0);
+    };
+    const el = await render('element');
+    const deck = await render('deck');
+    // the lag of best match over ±12 ms
+    const from = Math.round(0.8 * SR);
+    const len = Math.round(0.4 * SR);
+    let best = 0;
+    let bestLag = 0;
+    for (let lag = -600; lag <= 600; lag++) {
+      let dot = 0;
+      for (let i = from; i < from + len; i++) dot += el[i]! * deck[i + lag]!;
+      if (dot > best) {
+        best = dot;
+        bestLag = lag;
+      }
+    }
+    console.info(
+      `deck A against the element: ${bestLag} frames apart (lookahead ${Math.round(look * SR)} frames)`,
+    );
+    expect(Math.abs(bestLag)).toBeLessThanOrEqual(1);
+  }, 120_000);
 });
