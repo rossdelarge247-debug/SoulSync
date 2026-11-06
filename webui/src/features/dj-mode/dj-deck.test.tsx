@@ -945,3 +945,72 @@ describe('step 5: Traktor and CDJ parity', () => {
     expect(r.session.snapshot().previewB).toBe(false);
   });
 });
+
+describe('step 6: loops, beatjump, Quantize and the phase meter', () => {
+  it('each strip: Loop, its size, ½ ×2, In, Out, Reloop and beatjump; A’s loops wait for its deck', async () => {
+    resetDjPrefs(null);
+    await withB();
+    const a = document.querySelector<HTMLElement>('[data-dj-loops="a"]')!;
+    const loopA = within(a).getByRole('button', { name: 'Loop' });
+    expect(loopA).toHaveAttribute('aria-disabled', 'true');
+    expect(loopA.title).toMatch(/^A loops once it’s on its deck \(Play B\)/);
+    const b = document.querySelector<HTMLElement>('[data-dj-loops="b"]')!;
+    expect(within(b).getByRole('combobox', { name: 'Deck B loop size, beats' })).toHaveValue('4');
+    expect(
+      within(b)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['1', '2', '4', '8', '16', '32', '1', '4', '16', '32']);
+    // B in the headphones loops
+    act(() => {
+      r.session.previewB(true);
+    });
+    await flush(400);
+    fireEvent.click(within(b).getByRole('button', { name: 'Loop' }));
+    expect(within(b).getByRole('button', { name: 'Loop' })).toHaveAttribute('aria-pressed', 'true');
+    // drawn on lane B
+    expect(document.querySelector('[data-dj-loop="b"][data-active]')).not.toBeNull();
+    fireEvent.click(within(b).getByRole('button', { name: 'Deck B loop size halved' }));
+    expect(within(b).getByRole('combobox', { name: 'Deck B loop size, beats' })).toHaveValue('2');
+    // while looping beatjump goes by the loop
+    expect(within(b).getByRole('button', { name: 'Deck B beatjump on 2 beats' })).toBeTruthy();
+    fireEvent.click(within(b).getByRole('button', { name: 'Loop' }));
+    expect(document.querySelector('[data-dj-loop="b"]:not([data-active])')).not.toBeNull();
+  });
+
+  it('the keys: O loops the focused lane, ⇧→ beatjumps it, Q is Quantize (said once)', async () => {
+    resetDjPrefs(null);
+    await withB();
+    act(() => {
+      r.session.previewB(true);
+    });
+    await flush(400);
+    const laneB = document.querySelector<HTMLElement>('[data-dj-lane="b"]')!;
+    laneB.focus();
+    act(() => {
+      expect(store.laneKey('O', 'b')).toBe(true);
+    });
+    expect(r.session.snapshot().loops.B?.active).toBe(true);
+    const before = r.session.positionB()!;
+    act(() => {
+      fireEvent.keyDown(laneB, { key: 'ArrowRight', shiftKey: true });
+    });
+    expect(r.session.snapshot().loops.B!.start).toBeGreaterThan(before - 0.5);
+    const q = screen.getByRole('button', { name: 'Quantize' });
+    expect(q).toHaveAttribute('aria-pressed', 'true');
+    act(() => {
+      expect(store.laneKey('Q', null)).toBe(true);
+    });
+    expect(q).toHaveAttribute('aria-pressed', 'false');
+    expect(said.at(-1)).toBe('Quantize off: at once, where you press');
+  });
+
+  it('the phase meter: B’s against A while B plays, A’s beat in its bar while it’s alone; a label, not a live region', async () => {
+    await withB();
+    const pa = document.querySelector<HTMLElement>('[data-dj-phase="a"]')!;
+    const pb = document.querySelector<HTMLElement>('[data-dj-phase="b"]')!;
+    expect(pa).toHaveAttribute('role', 'img');
+    expect(pa.closest('[aria-live]')).toBeNull();
+    expect(pb.dataset.mode).toBe('idle');
+  });
+});

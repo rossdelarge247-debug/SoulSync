@@ -1109,3 +1109,69 @@
   background: rgba(248, 113, 113, 0.2);
   color: #fecaca;
 }
+
+/* ── step 6: a deck's loops and beatjump, at the end of its strip ── */
+
+.loops {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.loopBtn,
+.loopSmall {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.loopBtn {
+  min-width: 52px;
+}
+.loopBtn[aria-pressed='true'] {
+  border-color: #4ade80;
+  background: color-mix(in oklab, #4ade80 18%, transparent);
+}
+.loopSmall[aria-pressed='true'] {
+  border-color: var(--dj-amber);
+}
+.loopBtn[aria-disabled='true'],
+.loopSmall[aria-disabled='true'],
+.loopSmall:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.loopSize {
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: #101012;
+  color: var(--ss-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+/* one place at a time: the strip's, or at 1280 (the strip in the head's corner) the line row's */
+.loops[data-place='line'] {
+  display: none;
+}
+@container djstage (max-width: 1327px) {
+  .loops[data-place='strip'] {
+    display: none;
+  }
+  .loops[data-place='line'] {
+    display: inline-flex;
+    flex-wrap: nowrap;
+  }
+}
+.jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}

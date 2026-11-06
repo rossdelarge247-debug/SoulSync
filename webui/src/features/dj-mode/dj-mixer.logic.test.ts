@@ -161,3 +161,14 @@ describe('step 5: the mixer’s words (S6, M6) and the meters (S5)', () => {
     expect(peakOf(new Float32Array([0.1, -0.7, 0.3]))).toBeCloseTo(0.7, 6);
   });
 });
+
+describe('step 6: CLIP from the out peak too', () => {
+  it('a full-scale element on its own never lights it; past full scale or the limiter working does', async () => {
+    const { clips } = await import('./dj-meters');
+    expect(clips(1, 0)).toBe(false);
+    expect(clips(0.9995, 0)).toBe(false);
+    expect(clips(1.02, 0)).toBe(true);
+    expect(clips(0.8, -1)).toBe(true);
+    expect(clips(0.8, -0.2)).toBe(false);
+  });
+});

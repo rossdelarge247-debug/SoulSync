@@ -908,13 +908,19 @@ describe('3b: Tempo, Key lock, Headphones, cue jumps (438–443)', () => {
     expect(r.session.jump('A', 10)).toBe('outside');
   });
 
-  it('a cue on B: cued, Play B starts there (the store moves the cue); playing, B comes in from it on the bar', async () => {
+  it('a cue on B: cued, Play B starts there (the store moves the cue); playing, at once in phase (step 6, Quantize)', async () => {
     await cued();
     expect(r.session.jump('B', 33)).toBe('cue');
     r.session.playB();
     await r.advance(3);
+    const g = laneB().grid!;
+    const t = r.engine.port.time + 0.05;
+    const was = g.beatAt(r.engine.position('B', t)!);
     expect(r.session.jump('B', 9.14)).toBe('jumped');
-    expect(r.engine.port.maps.B[0]!.p).toBeCloseTo(9.14, 2);
+    const now = g.beatAt(r.engine.position('B', t)!);
+    // on cue's beat (18), the beat's phase kept: B stays on A's beat
+    expect(Math.floor(now)).toBe(18);
+    expect(now - Math.floor(now)).toBeCloseTo(was - Math.floor(was), 3);
     expect(r.session.jump('B', 500)).toBe('outside');
   });
 });

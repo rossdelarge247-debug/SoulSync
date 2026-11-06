@@ -19,18 +19,28 @@ function memory(): Storage {
 
 describe('DJ prefs', () => {
   it('defaults: 16 bars a lane (S3), + at the bottom (M8), Auto-gain on (S6)', () => {
-    expect(defaultPrefs()).toEqual({ zoom: { a: 16, b: 16 }, tempoPlus: 'down', autoGain: true });
+    expect(defaultPrefs()).toEqual({
+      zoom: { a: 16, b: 16 },
+      tempoPlus: 'down',
+      autoGain: true,
+      quantize: true,
+    });
     expect(readPrefs(null)).toEqual(defaultPrefs());
     expect(readPrefs(memory(), 3)).toEqual(defaultPrefs());
   });
 
   it('kept per profile; anything odd read back as the default', () => {
     const s = memory();
-    savePrefs(s, { zoom: { a: 4, b: 'whole' }, tempoPlus: 'up', autoGain: false }, 1);
+    savePrefs(
+      s,
+      { zoom: { a: 4, b: 'whole' }, tempoPlus: 'up', autoGain: false, quantize: false },
+      1,
+    );
     expect(readPrefs(s, 1)).toEqual({
       zoom: { a: 4, b: 'whole' },
       tempoPlus: 'up',
       autoGain: false,
+      quantize: false,
     });
     expect(readPrefs(s, 2)).toEqual(defaultPrefs());
     expect(prefsKey(null)).toBe('soulsync-dj-prefs:unscoped');

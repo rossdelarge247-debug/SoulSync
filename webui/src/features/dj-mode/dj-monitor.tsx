@@ -288,6 +288,18 @@ export function DeckSettings({ prefs = djPrefs() }: { prefs?: DjPrefsStore }) {
         B comes in at A’s loudness, from the analysis (within ±9 dB), and eases back to its own
         level as you hand over. The player’s Normalize, if it’s on, works on both after it.
       </p>
+      <label className={styles.outputsRow}>
+        <span className={styles.outputsLabel}>Quantize</span>
+        <input
+          type="checkbox"
+          checked={p.quantize}
+          onChange={(e) => prefs.set({ quantize: e.target.checked })}
+        />
+      </label>
+      <p className={styles.outputsNote}>
+        Hot cues, CUE, loops and beatjump land on the beat (a jump keeps the beat’s phase, so a deck
+        stays in time). Off, they act at once where you press. Q in DJ mode.
+      </p>
     </div>
   );
 }

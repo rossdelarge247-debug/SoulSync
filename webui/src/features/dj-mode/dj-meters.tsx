@@ -3,8 +3,9 @@
  * Volume (after its fader: what the deck sends on; deck A's shows the
  * playing track on the element or on its deck) and one for what goes out,
  * with a clip light that holds for a moment when the decks summed went
- * past full scale and the limiter held them down (the playing track on its
- * own never lights it: it isn't limited, review M2).
+ * past full scale and the limiter held them down, or what goes out went
+ * past full scale (the element strip with a boost, step 6). The playing
+ * track on its own at unity never lights it.
  *
  * Cheap: the engine's analysers are made on the first look (auto-mix never
  * has them), read once a frame only while the overlay shows and the page is
@@ -26,6 +27,17 @@ const FALL_DB_S = 24;
 const CLIP_HOLD_MS = 1500;
 /** The limiter holding the decks down by this much (dB) or more is a clip. */
 const CLIP_DB = -0.5;
+/**
+ * What goes out past full scale is a clip too (step 6: the element strip
+ * isn't limited, so a sum or a boost on it shows here). Just past 1.0: a
+ * full-scale track on its own at unity peaks at 1.0 and never lights it.
+ */
+export const CLIP_OUT = 1.0005;
+
+/** A clip: the limiter holding the decks down, or what goes out past full scale. */
+export function clips(outPeak: number, reductionDb: number): boolean {
+  return outPeak >= CLIP_OUT || reductionDb <= CLIP_DB;
+}
 
 /** A peak (linear) as the meter's fill, 0–1 over METER_FLOOR_DB … 0 dBFS. */
 export function meterFill(peak: number): number {
@@ -115,6 +127,7 @@ export function useMeters(
         b: read(meters.B),
         out: read(meters.out),
       };
+
       for (const key of Object.keys(peaks)) {
         const fill = meterFill(peaks[key]!);
         const fallen = shown[key]! - (FALL_DB_S * dt) / -METER_FLOOR_DB;
@@ -122,7 +135,7 @@ export function useMeters(
         put(key, shown[key]!);
       }
       const reduction = session.engineParts()?.graph.limiter?.reduction ?? 0;
-      if (reduction <= CLIP_DB) clipUntil = now + CLIP_HOLD_MS;
+      if (clips(peaks.out!, reduction)) clipUntil = now + CLIP_HOLD_MS;
       const led = root.current?.querySelector('[data-dj-clip]');
       if (now < clipUntil) led?.setAttribute('data-on', '');
       else led?.removeAttribute('data-on');

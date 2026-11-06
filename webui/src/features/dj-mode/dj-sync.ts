@@ -122,3 +122,24 @@ export function rateAt(knots: readonly Knot[], t: number, sampleRate: number): n
   }
   return k ? k.r : null;
 }
+
+/**
+ * The phase meter's reading (step 6): how far deck X's beat is from deck
+ * Y's, in beats, −0.5 … +0.5 (+: X ahead). From each deck's place on its
+ * own grid, so it reads true at any tempo.
+ */
+export function phaseOffset(gridX: BeatGrid, px: number, gridY: BeatGrid, py: number): number {
+  const fx = gridX.beatAt(px);
+  const fy = gridY.beatAt(py);
+  let d = fx - Math.floor(fx) - (fy - Math.floor(fy));
+  if (d > 0.5) d -= 1;
+  if (d <= -0.5) d += 1;
+  return d;
+}
+
+/** The phase meter in words, before the other deck's name: "in phase with", "12 ms ahead of", "30 ms behind". */
+export function phaseWords(beats: number, beatSeconds: number): string {
+  const ms = Math.round(beats * beatSeconds * 1000);
+  if (Math.abs(ms) < 5) return 'in phase with';
+  return `${Math.abs(ms)} ms ${ms > 0 ? 'ahead of' : 'behind'}`;
+}

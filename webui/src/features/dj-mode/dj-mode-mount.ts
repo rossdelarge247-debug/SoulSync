@@ -250,7 +250,11 @@ export function mountDjMode(win: Window = window): DjModeStore {
       // 3b (37p): M headphones, L key lock and 1–4 cues on the focused lane
       // (else B, when it's loaded); Z, − and + zoom the focused lane. Without
       // a lane to act on the key stays the player's (M mutes, L is the A–B loop)
-      if (['M', 'L', '1', '2', '3', '4', 'Z', '-', '+'].includes(k)) {
+      if (
+        ['M', 'L', '1', '2', '3', '4', 'Z', '-', '+', 'O', '⇧O', 'I', '⇧I', '[', ']', 'Q'].includes(
+          k,
+        )
+      ) {
         const lane = (doc.activeElement as HTMLElement | null)?.closest?.<HTMLElement>(
           '[data-dj-lane]',
         );

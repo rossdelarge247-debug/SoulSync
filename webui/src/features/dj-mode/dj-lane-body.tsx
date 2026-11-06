@@ -163,6 +163,7 @@ export function LaneBody({
   }, [peaks]);
   const n = peaks && peaks.length ? peaks.length : 200;
 
+  const loop = s.mix.loops?.[deck === 'a' ? 'A' : 'B'] ?? null;
   const span =
     win && duration > 0 && !zoomed
       ? {
@@ -305,6 +306,19 @@ export function LaneBody({
             </svg>
           ) : null}
           <span className={styles.played} />
+          {loop && duration > 0 ? (
+            // the deck's loop (step 6), on the track's own scale: at every zoom
+            <span
+              className={styles.loop}
+              data-dj-loop={deck}
+              data-active={loop.active ? '' : undefined}
+              title={loop.active ? 'Looping' : 'The last loop (Reloop)'}
+              style={{
+                left: `${(loop.start / duration) * 100}%`,
+                width: `${(Math.max(0, loop.end - loop.start) / duration) * 100}%`,
+              }}
+            />
+          ) : null}
         </div>
         <canvas ref={canvas} className={styles.canvas} data-dj-canvas={deck} />
         <span className={styles.playhead} data-dj-playhead="" />

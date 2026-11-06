@@ -116,7 +116,181 @@ export function LaneStrip({
         <span className={styles.syncDot} aria-hidden="true" />
         Key lock
       </button>
+      <LoopControls deck={D} session={session} place="strip" />
     </div>
+  );
+}
+
+/** The auto loop's sizes on show (beats); ½ goes on down to 1/32 (step 6). */
+export const LOOP_SIZES = [1, 2, 4, 8, 16, 32] as const;
+/** Beatjump's sizes (beats). */
+export const JUMP_SIZES = [1, 4, 16, 32] as const;
+
+function sizeLabel(beats: number): string {
+  return beats >= 1 ? String(beats) : `1/${Math.round(1 / beats)}`;
+}
+
+/**
+ * A deck's loops and beatjump (step 6, Traktor's and a CDJ's): Loop (its
+ * size, O), the size (1–32, and ½ ×2 on down to 1/32, [ ]), In and Out
+ * (I, ⇧I), Reloop (⇧O); then beatjump back and on (⇧← ⇧→) by its size
+ * (the loop's while looping). A's loops wait for its deck (the player's own
+ * playback can't loop to the sample); its beatjump is the player's seek.
+ */
+export function LoopControls({
+  deck,
+  session,
+  place,
+}: {
+  deck: 'A' | 'B';
+  session: DjMixSession;
+  /**
+   * where it's drawn: the strip (1440 and wider) or the line row (1280,
+   * where the strip sits in the head's corner, 37m); CSS shows one
+   */
+  place: 'strip' | 'line';
+}) {
+  const v = useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
+  const why = session.loopWhy(deck);
+  const loop = v.loops[deck];
+  const looping = Boolean(loop?.active);
+  const size = v.loopSize[deck];
+  const jump = looping && loop!.beats !== null ? loop!.beats : v.jumpSize[deck];
+  const sizes: number[] = LOOP_SIZES.includes(size as (typeof LOOP_SIZES)[number])
+    ? [...LOOP_SIZES]
+    : [size, ...LOOP_SIZES];
+  const dis = why !== null;
+  const tip = (words: string) => (why ? `${why} · ${words}` : words);
+  return (
+    <span
+      className={styles.loops}
+      role="group"
+      aria-label={`Deck ${deck} loops`}
+      data-place={place}
+      data-dj-loops={place === 'strip' ? deck.toLowerCase() : undefined}
+      data-dj-loops-line={place === 'line' ? deck.toLowerCase() : undefined}
+    >
+      <button
+        type="button"
+        className={styles.loopBtn}
+        aria-pressed={looping}
+        aria-disabled={dis}
+        aria-keyshortcuts="O"
+        title={tip(
+          looping ? 'Out of the loop: plays on from here (O)' : `Loop ${sizeLabel(size)} beats (O)`,
+        )}
+        data-dj-loop-btn=""
+        onClick={() => !dis && session.autoLoop(deck)}
+      >
+        Loop
+      </button>
+      <button
+        type="button"
+        className={styles.loopSmall}
+        aria-label={`Deck ${deck} loop size halved`}
+        aria-keyshortcuts="["
+        title="Half the size (an active loop with it) ([)"
+        disabled={size <= 1 / 32}
+        onClick={() => session.resizeLoop(deck, 0.5)}
+      >
+        ½
+      </button>
+      <select
+        className={styles.loopSize}
+        aria-label={`Deck ${deck} loop size, beats`}
+        value={String(size)}
+        onChange={(e) => session.setLoopSize(deck, Number(e.target.value))}
+      >
+        {sizes.map((b) => (
+          <option key={b} value={String(b)}>
+            {sizeLabel(b)}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className={styles.loopSmall}
+        aria-label={`Deck ${deck} loop size doubled`}
+        aria-keyshortcuts="]"
+        title="Double the size (an active loop with it) (])"
+        disabled={size >= 32}
+        onClick={() => session.resizeLoop(deck, 2)}
+      >
+        ×2
+      </button>
+      <button
+        type="button"
+        className={styles.loopSmall}
+        aria-label={`Deck ${deck} loop in`}
+        aria-pressed={v.loopIn[deck] !== null}
+        aria-disabled={dis}
+        aria-keyshortcuts="I"
+        title={tip('Loop in, here (I)')}
+        onClick={() => !dis && session.loopInHere(deck)}
+      >
+        In
+      </button>
+      <button
+        type="button"
+        className={styles.loopSmall}
+        aria-label={`Deck ${deck} loop out`}
+        aria-disabled={dis || v.loopIn[deck] === null}
+        aria-keyshortcuts="Shift+I"
+        title={tip('Loop out, here: loops from its in (⇧I)')}
+        onClick={() => !dis && session.loopOutHere(deck)}
+      >
+        Out
+      </button>
+      <button
+        type="button"
+        className={styles.loopSmall}
+        aria-label={`Deck ${deck} reloop`}
+        aria-disabled={dis || !loop}
+        aria-keyshortcuts="Shift+O"
+        title={tip('Reloop: the last loop again, from its start (⇧O)')}
+        onClick={() => !dis && session.reloop(deck)}
+      >
+        Reloop
+      </button>
+      <span className={styles.jump} role="group" aria-label={`Deck ${deck} beatjump`}>
+        <button
+          type="button"
+          className={styles.loopSmall}
+          aria-label={`Deck ${deck} beatjump back ${sizeLabel(jump)} beats`}
+          aria-keyshortcuts="Shift+ArrowLeft"
+          title={`Beatjump back ${sizeLabel(jump)} (⇧←)`}
+          data-dj-jump="back"
+          onClick={() => session.beatjump(deck, -1)}
+        >
+          ◀
+        </button>
+        <select
+          className={styles.loopSize}
+          aria-label={`Deck ${deck} beatjump size, beats`}
+          value={String(v.jumpSize[deck])}
+          disabled={looping}
+          title={looping ? 'While looping it jumps by the loop' : undefined}
+          onChange={(e) => session.setJumpSize(deck, Number(e.target.value))}
+        >
+          {JUMP_SIZES.map((b) => (
+            <option key={b} value={String(b)}>
+              {b}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={styles.loopSmall}
+          aria-label={`Deck ${deck} beatjump on ${sizeLabel(jump)} beats`}
+          aria-keyshortcuts="Shift+ArrowRight"
+          title={`Beatjump on ${sizeLabel(jump)} (⇧→)`}
+          data-dj-jump="on"
+          onClick={() => session.beatjump(deck, 1)}
+        >
+          ▶
+        </button>
+      </span>
+    </span>
   );
 }
 

@@ -51,7 +51,7 @@ import {
   inMixOut,
 } from './dj-mode.logic';
 import styles from './dj-mode.module.css';
-import { syncRatioFromBpm } from './dj-sync';
+import { phaseOffset, phaseWords, syncRatioFromBpm } from './dj-sync';
 
 export const LANE_B_TARGET = 'dj-lane-b';
 
@@ -84,6 +84,7 @@ function LaneHead({
   time,
   timeRef,
   rate,
+  phase,
 }: {
   deck: 'a' | 'b';
   lane: LaneState;
@@ -95,6 +96,8 @@ function LaneHead({
    * (37g's "124.0 (−1.6%)"); the BPM shown is what plays
    */
   rate?: number | null;
+  /** the phase meter (step 6) */
+  phase?: ReactNode;
 }) {
   const { track, info, grid } = lane;
   const own = info?.bpm ?? grid?.bpm ?? null;
@@ -128,6 +131,7 @@ function LaneHead({
         <span ref={timeRef} className={`${styles.mono} ${styles.time}`} data-dj-time={deck}>
           {time}
         </span>
+        {phase}
       </div>
     </div>
   );
@@ -150,6 +154,10 @@ function laneKeys(store: DjModeStore, deck: 'a' | 'b') {
     } else if ((e.key === 'g' || e.key === 'G') && !e.shiftKey) {
       e.preventDefault();
       if (!e.repeat) store.transport(deck, 'play');
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) {
+      // ⇧← ⇧→: beatjump back or on (step 6), the focused lane's
+      e.preventDefault();
+      if (!e.repeat) store.loopKey(e.key === 'ArrowLeft' ? 'back' : 'on', deck);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       // the player's ±5 s stays the player's where the deck can't be nudged,
       // except under a blend, where it would end it (review L-7)
@@ -262,6 +270,121 @@ function NoGrid({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/* ── the phase meter (step 6) ─────────────────────────────────────────── */
+
+function reducedMotion(): boolean {
+  try {
+    return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A deck's phase against the other's (step 6, Traktor's phase meter): a
+ * mark off the centre by how far its beat is ahead (right) or behind (left)
+ * of the other deck's, half a beat at each end. With B not playing, A's
+ * shows which beat of its bar it's on (A sets the beat). Read while the
+ * overlay shows and the page is visible: every frame, or four times a
+ * second and without movement between with Reduce motion. Its words
+ * ("12 ms ahead of A") are its label, changed at most once a second; a
+ * screen reader isn't told each change.
+ */
+function PhaseMeter({
+  deck,
+  store,
+  s,
+}: {
+  deck: 'a' | 'b';
+  store: DjModeStore;
+  s: DjModeSnapshot;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const gridA = s.a?.phase === 'ready' ? (s.a.grid?.grid ?? null) : null;
+  const gridB = s.b?.phase === 'ready' ? (s.b.grid?.grid ?? null) : null;
+  const mix = s.mix;
+  const bRuns =
+    Boolean(mix.previewB) || ['starting', 'playing', 'backing', 'handing'].includes(mix.phase);
+  const rateA = mix.rates?.A ?? 1;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !s.open) return;
+    const doc = document;
+    let id = 0;
+    let timer = 0;
+    let said = 0;
+    const read = () => {
+      const posA = store.positionA() ?? playerAudio()?.currentTime ?? null;
+      const posB = bRuns ? store.positionB() : null;
+      let words = '';
+      if (gridA && gridB && posA !== null && posB !== null) {
+        const d = phaseOffset(
+          deck === 'b' ? gridB : gridA,
+          deck === 'b' ? posB : posA,
+          deck === 'b' ? gridA : gridB,
+          deck === 'b' ? posA : posB,
+        );
+        el.dataset.mode = 'phase';
+        el.style.setProperty('--phase', d.toFixed(3));
+        const beat = gridA.periodAt(gridA.beatAt(posA)) / (rateA || 1);
+        words = `Deck ${deck.toUpperCase()} ${phaseWords(d, beat)} ${deck === 'b' ? 'A' : 'B'}`;
+      } else if (deck === 'a' && gridA && posA !== null) {
+        const beat = Math.floor(gridA.beatAt(posA) - gridA.downbeatIndex);
+        const inBar = ((beat % 4) + 4) % 4;
+        el.dataset.mode = 'bar';
+        el.style.setProperty('--phase', String((inBar - 1.5) / 4));
+        words = `Deck A sets the beat: beat ${inBar + 1} of 4`;
+      } else {
+        el.dataset.mode = 'idle';
+        words = deck === 'b' ? 'Deck B isn’t playing: no phase to show' : 'Deck A has no beat grid';
+      }
+      const now = performance.now();
+      if (now - said > 1000 && el.getAttribute('aria-label') !== words) {
+        said = now;
+        el.setAttribute('aria-label', words);
+      }
+    };
+    const start = () => {
+      if (doc.hidden) return;
+      if (reducedMotion()) timer = window.setInterval(read, 250);
+      else {
+        const tick = () => {
+          read();
+          id = window.requestAnimationFrame(tick);
+        };
+        tick();
+      }
+    };
+    const stop = () => {
+      window.cancelAnimationFrame(id);
+      window.clearInterval(timer);
+    };
+    const vis = () => {
+      stop();
+      start();
+    };
+    read();
+    start();
+    doc.addEventListener('visibilitychange', vis);
+    return () => {
+      stop();
+      doc.removeEventListener('visibilitychange', vis);
+    };
+  }, [deck, store, s.open, gridA, gridB, bRuns, rateA]);
+  return (
+    <span
+      ref={ref}
+      className={styles.phase}
+      role="img"
+      aria-label=""
+      data-dj-phase={deck}
+      data-mode="idle"
+    >
+      <span className={styles.phaseMark} />
+    </span>
   );
 }
 
@@ -433,6 +556,7 @@ function LaneA({
         time=""
         timeRef={time}
         rate={s.mix.rates?.A ?? null}
+        phase={<PhaseMeter deck="a" store={store} s={s} />}
       />
       <LaneBody
         deck="a"
@@ -656,6 +780,7 @@ function LaneB({
           time={timeWords(lane.cue, duration)}
           timeRef={timeB}
           rate={mix.rates ? mix.rates.B : planned}
+          phase={<PhaseMeter deck="b" store={store} s={s} />}
         />
         <LanePlayheadB
           lane={lane}
