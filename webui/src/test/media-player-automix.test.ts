@@ -281,6 +281,7 @@ describe("[gauntlet review H1] 'ended' says when the next track is owed, through
 
 describe('DJ mode gives an end it owned back (step 6 round 3): SoulSyncPlayer.ended() is the player’s own end', () => {
   function player(opts: { sleep?: boolean; queue?: number; index?: number }) {
+    // eslint-disable-next-line typescript-eslint/no-implied-eval
     return new Function(
       'opts',
       `let npAdvanceOwed = true;
