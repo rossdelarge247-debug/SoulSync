@@ -468,3 +468,28 @@ describe('review round 2 (step 6)', () => {
     expect(r.session.snapshot().loops.B!.start).toBeGreaterThanOrEqual(0.05);
   });
 });
+
+describe('round 3: an end given back is the player’s own', () => {
+  it('B paused, A ends: the blend stops and the player’s own end handling runs, once (not its Next)', async () => {
+    r.session.dispose();
+    const calls: string[] = [];
+    r = rig(vi, {
+      player: {
+        audio: () => r.el as never,
+        state: () => r.player,
+        next: () => calls.push('next'),
+        ended: () => calls.push('ended'),
+      },
+    });
+    r.session.setLanes(laneA(), laneB());
+    await r.advance(0.01);
+    r.session.playB();
+    await r.advance(3);
+    r.session.pauseB();
+    expect(r.session.ownsAdvance()).toBe(true);
+    r.el.ended = true;
+    r.el.dispatchEvent(new Event('ended'));
+    expect(r.session.snapshot().aOnDeck).toBe(false);
+    expect(calls).toEqual(['ended']);
+  });
+});

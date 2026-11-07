@@ -289,6 +289,12 @@ export interface PlayerPort {
   seek?(seconds: number): void;
   /** the player's Next (A's end was DJ mode's, and the Hand over couldn't happen) */
   next?(): void;
+  /**
+   * A's end given back to the player (it was DJ mode's: `ownsAdvance`): the
+   * player's own end handling, its playing state, the sleep timer's end of
+   * track, the advance (step 6 round 3)
+   */
+  ended?(): void;
   /** Hand over (414): a queue row played, joining a deck where it is */
   playIndex?(index: number, options: { handoff?: HandoffLike }): Promise<{ status: string }>;
   /** B's row straight after the playing one (Up next after it stays as it was, 422); its index */
@@ -3615,7 +3621,11 @@ export class DjMixSession {
     // the blend stops and the player goes on as it would have (its advance was left to us)
     const owned = this.v.aOnDeck;
     this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
-    if (owned) this.d.player.next?.();
+    // the end given back: the player handles it as its own (once), else its Next
+    if (owned) {
+      if (this.d.player.ended) this.d.player.ended();
+      else this.d.player.next?.();
+    }
   };
 
   /** Another track loading on the element (Next, a row played): the player obeys (37j). */
