@@ -22,7 +22,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import type { DeckId } from '@/features/engine/score';
 
 import type { DjMixSession, MixLane, MixView } from './dj-mix-session';
-import type { DjModeStore, LaneState } from './dj-mode-store';
+import type { DjModeStore, LaneState, LoopAction } from './dj-mode-store';
 import type { DjOutputs } from './dj-outputs-host';
 
 import { DeckMeter, MasterMeter, useMeters } from './dj-meters';
@@ -549,6 +549,10 @@ export function DjMixer({
   useEffect(() => {
     session.setAutoGain(p.autoGain);
   }, [session, p.autoGain]);
+  // Quantize as the person set it (step 6)
+  useEffect(() => {
+    session.setQuantize(p.quantize);
+  }, [session, p.quantize]);
 
   // the store borrows Back, Esc's rule, ⇧P and B's place
   useEffect(() => {
@@ -581,6 +585,16 @@ export function DjMixer({
       handOverWhy: () => session.handOverWhy(),
       undoHandOver: () => session.undoHandOver(),
       ownsAdvance: () => session.ownsAdvance(),
+      loopAction: (d, action) => loopAction(session, d, action),
+      toggleQuantize: () => {
+        const on = !prefs.snapshot().quantize;
+        prefs.set({ quantize: on });
+        store.announce(
+          on
+            ? 'Quantize on: jumps, cues and loops on the beat'
+            : 'Quantize off: at once, where you press',
+        );
+      },
     });
     // the outputs are watched while DJ mode is on (37r)
     outputs?.start();
@@ -589,7 +603,7 @@ export function DjMixer({
       outputs?.stop();
       store.setMixer(null);
     };
-  }, [store, session, outputs]);
+  }, [store, session, outputs, prefs]);
 
   // the decks follow the lanes (B's cue and grid, A's track)
   const lanes = useRef({ a: s.a, b: s.b });
@@ -622,8 +636,10 @@ export function DjMixer({
       previewB: v.previewB,
       hand: v.hand,
       rates: { A: rateAShown, B: rateBShown },
+      loops: v.loops,
     });
   }, [
+    v.loops,
     rateAShown,
     rateBShown,
     store,
@@ -716,6 +732,22 @@ export function DjMixer({
           >
             <span className={styles.syncDot} aria-hidden="true" />
             Sync
+          </button>
+          <button
+            type="button"
+            className={styles.sync}
+            aria-pressed={v.quantize}
+            aria-label="Quantize"
+            aria-keyshortcuts="Q"
+            title={
+              v.quantize
+                ? 'Quantize: jumps, cues and loops land on the beat (Q)'
+                : 'Quantize off: jumps, cues and loops at once, where you press (Q)'
+            }
+            data-dj-quantize=""
+            onClick={() => store.laneKey('Q', null)}
+          >
+            <span className={styles.syncDot} aria-hidden="true" />Q
           </button>
           <button
             type="button"
@@ -812,6 +844,30 @@ export function gainWords(db: number): string {
 export function channelWhy(v: Pick<MixView, 'aOnDeck' | 'elementLive' | 'solo'>): string | null {
   if (v.aOnDeck || v.elementLive || v.solo) return null;
   return 'Deck A’s channel acts once A is on its deck (Play B): this player can’t send the playing track through it';
+}
+
+/** A loop or beatjump key on a deck (step 6), on the session. */
+export function loopAction(session: DjMixSession, deck: DeckId, action: LoopAction): boolean {
+  switch (action) {
+    case 'loop':
+      return session.autoLoop(deck);
+    case 'in':
+      return session.loopInHere(deck);
+    case 'out':
+      return session.loopOutHere(deck);
+    case 'reloop':
+      return session.reloop(deck);
+    case 'half':
+      session.resizeLoop(deck, 0.5);
+      return true;
+    case 'double':
+      session.resizeLoop(deck, 2);
+      return true;
+    case 'back':
+      return session.beatjump(deck, -1);
+    case 'on':
+      return session.beatjump(deck, 1);
+  }
 }
 
 /** B on its way in (on A's next bar, L2): both Tempos wait, as B's map is being laid. */

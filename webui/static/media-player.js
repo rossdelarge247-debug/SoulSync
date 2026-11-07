@@ -1105,6 +1105,18 @@ function onAudioEnded() {
     // element was only keeping time under them, muted (src/features/automix),
     // so its end is no one's business, and the player is still playing
     if (npAutomixOwnsAdvance()) { npAdvanceOwed = true; return; }
+    npTrackEnded();
+}
+
+/**
+ * The track's end as the player handles it when it's its own: the playing
+ * state, the sleep timer's end of track, a radio stream's end, the advance
+ * (repeat, shuffle, radio's top-up). DJ mode gives an end it owned back
+ * through this (`SoulSyncPlayer.ended()`, step 6), so it's handled exactly
+ * as the player's own, once.
+ */
+function npTrackEnded() {
+    npAdvanceOwed = false;
     // Handle audio playback completion
     console.log('🏁 Audio playback ended');
     setPlayingState(false);
@@ -3159,7 +3171,16 @@ function handlePlayerKeyboardShortcuts(event) {
         case 'Z':
         case '-':
         case '+':
-        case '=': {
+        case '=':
+        // DJ mode step 6: loops (O, ⇧O, I, ⇧I, [ ]) and Quantize (Q), DJ mode's only
+        case 'o':
+        case 'O':
+        case 'i':
+        case 'I':
+        case 'q':
+        case 'Q':
+        case '[':
+        case ']': {
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
             if (!actions) return;
@@ -3243,6 +3264,14 @@ const NP_LETTER_KEYS = {
     '+': ['dj:+'],
     '⇧+': ['dj:+'],
     '=': ['dj:+'],
+    // step 6: loops on the focused lane (else B), Quantize; nobody's with DJ mode off
+    'O': ['dj:O'],
+    '⇧O': ['dj:⇧O'],
+    'I': ['dj:I'],
+    '⇧I': ['dj:⇧I'],
+    '[': ['dj:['],
+    ']': ['dj:]'],
+    'Q': ['dj:Q'],
 };
 
 // true when the action acted (the key is then the page's no more)
@@ -4307,6 +4336,8 @@ window.SoulSyncPlayer = {
     toggle: () => togglePlayback(),
     stop: () => handleStop(),
     next: () => playNextInQueue(),
+    /** a track's end DJ mode owned, given back: handled as the player's own (sleep, state, advance) */
+    ended: () => npTrackEnded(),
     previous: () => playPreviousInQueue(),
     seek: (seconds) => npSeek(seconds),
     skip: (seconds) => npSkip(seconds),

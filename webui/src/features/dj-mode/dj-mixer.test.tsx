@@ -177,15 +177,16 @@ describe('the mixer (37g)', () => {
     expect(document.querySelector('[data-dj-mixer]')!.textContent).not.toMatch(/AUTO/);
   });
 
-  it('the focus order: Play B → Sync → Hand over → crossfader → echo → deck A → deck B', async () => {
+  it('the focus order: Play B → Sync → Quantize → Hand over → crossfader → echo → deck A → deck B', async () => {
     await withB();
     const mixer = document.querySelector('[data-dj-mixer]')!;
     const order = [...mixer.querySelectorAll<HTMLElement>('button, input')].map(
       (el) => el.getAttribute('aria-label') ?? el.textContent!.trim(),
     );
-    expect(order.slice(0, 7)).toEqual([
+    expect(order.slice(0, 8)).toEqual([
       'Play B',
       'Sync',
+      'Quantize',
       'Hand over to B',
       'Crossfader',
       'Echo · Send A',

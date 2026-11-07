@@ -8,6 +8,7 @@ import type { DeckId, ParamName } from '@/features/engine/score';
 
 import { AutomatedParam } from '@/features/engine/automation';
 import { BeatGrid } from '@/features/engine/grid';
+import { fold, loopAt, shiftKnots, withLoop, wraps, type LoopSpan } from '@/features/engine/loops';
 import { NEUTRAL, PARAM_NAMES } from '@/features/engine/score';
 import { FakeParam, FakePort } from '@/features/engine/testing';
 
@@ -127,9 +128,11 @@ export class FakeEngine {
     return this.port.params(deck);
   }
   load(deck: DeckId, data: DeckData) {
+    this.spans[deck] = [];
     this.loads.push({ deck, offset: data.offset, duration: data.duration });
   }
   unload(deck: DeckId) {
+    this.spans[deck] = [];
     this.unloads.push(deck);
   }
   play(deck: DeckId, at: number, from: number, rate = 1) {
@@ -154,7 +157,42 @@ export class FakeEngine {
     this.port.mode(deck, m);
   }
   position(deck: DeckId, at = this.port.time) {
-    return this.port.position(deck, at);
+    const p = this.port.position(deck, at);
+    return p === null ? null : fold(p, this.spans[deck], at * this.sampleRate);
+  }
+  /** each deck's loops, as the engine keeps them (loops.ts) */
+  spans: Record<DeckId, LoopSpan[]> = { A: [], B: [] };
+  loop(deck: DeckId, region: { start: number; end: number } | null, atFrame: number) {
+    this.spans[deck] = withLoop(this.spans[deck], atFrame, region, this.sampleRate);
+  }
+  endLoop(deck: DeckId, atFrame: number) {
+    const l = loopAt(this.spans[deck], atFrame);
+    if (!l) return;
+    const raw = this.port.position(deck, atFrame / this.sampleRate);
+    const k = raw === null ? 0 : wraps(raw, this.spans[deck], atFrame);
+    if (k > 0)
+      this.map(
+        deck,
+        atFrame,
+        shiftKnots(this.port.current(deck), atFrame, k * (l.end - l.start), this.sampleRate),
+      );
+    this.loop(deck, null, atFrame);
+  }
+  loopAt(deck: DeckId, at = this.port.time) {
+    const l = loopAt(this.spans[deck], at * this.sampleRate);
+    return l ? { start: l.start, end: l.end } : null;
+  }
+  shift(deck: DeckId, atFrame: number, delta: number) {
+    const raw = this.port.position(deck, atFrame / this.sampleRate);
+    if (raw === null) return;
+    const folded = fold(raw, this.spans[deck], atFrame);
+    const next = shiftKnots(
+      this.port.current(deck),
+      atFrame,
+      raw - folded - delta,
+      this.sampleRate,
+    );
+    if (next.length) this.map(deck, atFrame, next, true);
   }
   /** as lifecycle.ts: a suspended context no longer paused by the listener is an interruption */
   setPaused(on: boolean) {
@@ -360,6 +398,16 @@ export class WorkletEngine extends FakeEngine {
   override stop(deck: DeckId, at: number) {
     super.stop(deck, at);
     this.send({ type: 'stop', deck: this.idx(deck), at });
+  }
+  override loop(deck: DeckId, region: { start: number; end: number } | null, atFrame: number) {
+    super.loop(deck, region, atFrame);
+    this.send({
+      type: 'loop',
+      deck: this.idx(deck),
+      at: atFrame,
+      start: region?.start ?? null,
+      end: region?.end ?? null,
+    });
   }
   override mode(deck: DeckId, m: 'resample' | 'stretch') {
     super.mode(deck, m);

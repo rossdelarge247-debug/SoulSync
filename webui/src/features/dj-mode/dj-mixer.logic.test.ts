@@ -161,3 +161,26 @@ describe('step 5: the mixer’s words (S6, M6) and the meters (S5)', () => {
     expect(peakOf(new Float32Array([0.1, -0.7, 0.3]))).toBeCloseTo(0.7, 6);
   });
 });
+
+describe('step 6: CLIP from the out peak too', () => {
+  it('a full-scale element on its own never lights it; past full scale or the limiter working does', async () => {
+    const { clips, clipsOut } = await import('./dj-meters');
+    // a full-scale sine alone at unity: never
+    const sine = new Float32Array(1024).map((_, i) => Math.sin((2 * Math.PI * 440 * i) / 48000));
+    expect(clipsOut(sine)).toBe(false);
+    // a lossy file's inter-sample over (one or two samples just past 1.0): not a clip (review L7)
+    const isp = new Float32Array(1024).fill(0.5);
+    isp[10] = 1.004;
+    isp[11] = 1.003;
+    expect(clipsOut(isp)).toBe(false);
+    // three in a row past 1.0005, or one past 1.01: a clip
+    isp[12] = 1.002;
+    expect(clipsOut(isp)).toBe(true);
+    const hard = new Float32Array(16);
+    hard[3] = -1.02;
+    expect(clipsOut(hard)).toBe(true);
+    expect(clips(false, -1)).toBe(true);
+    expect(clips(false, -0.2)).toBe(false);
+    expect(clips(true, 0)).toBe(true);
+  });
+});

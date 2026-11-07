@@ -68,6 +68,8 @@ export function djMixSession(): DjMixSession {
       seek: (seconds) => player()?.seek?.(seconds),
       // Hand over (step 4, 414): B's row after the playing one, played joining deck B
       next: () => player()?.next?.(),
+      // A's end given back (step 6): the player's own end handling
+      ended: () => player()?.ended?.(),
       playIndex: (index, options) =>
         player()?.playIndex?.(index, options) ?? Promise.resolve({ status: 'failed' }),
       insertNext: (track) => player()?.insertNext?.(track) ?? -1,

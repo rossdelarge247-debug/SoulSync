@@ -157,7 +157,12 @@ export interface MixState {
   hand?: 'A' | 'B' | null;
   /** each deck's speed against its own tempo as it plays, or will (M2: the heads' BPM) */
   rates?: { A: number | null; B: number | null };
+  /** each deck's loop (step 6): drawn on its lane */
+  loops?: Record<'A' | 'B', import('./dj-mix-session').DeckLoop | null>;
 }
+
+/** A loop or beatjump key's action on a deck (step 6). */
+export type LoopAction = 'loop' | 'in' | 'out' | 'reloop' | 'half' | 'double' | 'back' | 'on';
 
 /** What the mixer (step 3) lends the store: it lives with the Visuals' pieces. */
 export interface MixerHooks {
@@ -203,6 +208,10 @@ export interface MixerHooks {
   undoHandOver?(): Promise<boolean>;
   /** A's end is DJ mode's (A ran out while B plays: a Hand over) */
   ownsAdvance?(): boolean;
+  /** loops and beatjump (step 6) */
+  loopAction?(deck: 'A' | 'B', action: LoopAction): boolean;
+  /** Quantize's toggle (step 6) */
+  toggleQuantize?(): void;
 }
 
 export const IDLE_MIX: MixState = { phase: 'idle', window: null, rateB: null, sync: false };
@@ -662,7 +671,9 @@ export class DjModeStore {
       Boolean(was.previewB) === Boolean(mix.previewB) &&
       (was.hand ?? null) === (mix.hand ?? null) &&
       (was.rates?.A ?? null) === (mix.rates?.A ?? null) &&
-      (was.rates?.B ?? null) === (mix.rates?.B ?? null)
+      (was.rates?.B ?? null) === (mix.rates?.B ?? null) &&
+      was.loops?.A === mix.loops?.A &&
+      was.loops?.B === mix.loops?.B
     )
       return;
     this.set({ mix });
@@ -930,7 +941,9 @@ export class DjModeStore {
   setMainCue(deck: Deck, seconds: number): boolean {
     const lane = this.s[deck];
     if (!this.s.on || !lane) return false;
-    const grid = lane.phase === 'ready' && lane.grid ? lane.grid.grid : null;
+    // on the beat with Quantize (step 6); as it is without
+    const grid =
+      lane.phase === 'ready' && lane.grid && this.prefs.snapshot().quantize ? lane.grid.grid : null;
     const cue = cueAt(MAIN_SLOT, seconds, grid, lane.duration ?? 0);
     this.setLane(deck, { main: cue, cue: cue.seconds });
     if (this.cuesReadable(lane.track.id))
@@ -1174,7 +1187,8 @@ export class DjModeStore {
     const lane = this.s[deck];
     const slot = this.s.pick[deck];
     if (!this.s.on || !lane || slot === null) return false;
-    const grid = lane.phase === 'ready' ? (lane.grid?.grid ?? null) : null;
+    const grid =
+      lane.phase === 'ready' && this.prefs.snapshot().quantize ? (lane.grid?.grid ?? null) : null;
     const had = lane.cues[slot - 1];
     const cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
     const cues = withCue(lane.cues, cue);
@@ -1289,8 +1303,33 @@ export class DjModeStore {
     return fallbackToB && this.s.b ? 'b' : null;
   }
 
+  /**
+   * A loop or beatjump key (step 6) on a deck: the focused lane's, else B
+   * when it's loaded (as M, L and 1–4: B is the deck being got ready).
+   */
+  loopKey(action: LoopAction, focused: Deck | null): boolean {
+    const deck = this.keyDeck(focused, true);
+    if (!deck || !this.mixer?.loopAction) return false;
+    this.mixer.loopAction(this.deckName(deck), action);
+    return true;
+  }
+
   laneKey(k: string, focused: Deck | null): boolean {
     if (!this.s.on) return false;
+    if (k === 'Q') {
+      if (!this.mixer?.toggleQuantize) return false;
+      this.mixer.toggleQuantize();
+      return true;
+    }
+    const loops: Record<string, LoopAction> = {
+      O: 'loop',
+      '⇧O': 'reloop',
+      I: 'in',
+      '⇧I': 'out',
+      '[': 'half',
+      ']': 'double',
+    };
+    if (loops[k]) return this.loopKey(loops[k]!, focused);
     if (k === 'M' || k === 'L') {
       const deck = this.keyDeck(focused, true);
       if (!deck || !this.mixer) return false;

@@ -2188,6 +2188,38 @@ describe('the Visuals keys (HANDOFF 60)', () => {
     expect(calls).toEqual(['a-b loop']);
   });
 
+  it('[ and ] ask DJ mode first (step 6: a loop halved, doubled), then are the speed', () => {
+    const w = window as unknown as { SoulSyncDj?: { key: (k: string) => boolean } };
+    const asked: string[] = [];
+    let takes = true;
+    w.SoulSyncDj = {
+      key: (k) => {
+        asked.push(k);
+        return takes;
+      },
+    };
+    try {
+      const { calls, press } = keys(true, false);
+      // DJ mode takes them (a lane focused, or B loaded): no speed change
+      expect(press('[')).toBe(true);
+      expect(press(']')).toBe(true);
+      expect(asked).toEqual(['[', ']']);
+      expect(calls).toEqual([]);
+      // DJ mode passes: the speed, as before
+      takes = false;
+      press('[');
+      press(']');
+      expect(calls).toEqual(['speed', 'speed']);
+      // O, I and Q are DJ mode's through the player's own keys, never the overlay's
+      expect(press('o')).toBe(false);
+      expect(press('i')).toBe(false);
+      expect(press('q')).toBe(false);
+      expect(calls).toEqual(['speed', 'speed']);
+    } finally {
+      delete w.SoulSyncDj;
+    }
+  });
+
   it('the element’s rate while DJ mode holds the track is neither snapped nor saved (3b, review M1)', () => {
     const run = (holds: boolean | null) => {
       const saved: [string, string][] = [];

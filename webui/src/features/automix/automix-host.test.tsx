@@ -923,6 +923,7 @@ describe('with the mixing features hidden (Settings → Library → DJ, the defa
        ${extractFunction('npAutomix', source)}
        ${extractFunction('npAutomixOwnsAdvance', source)}
        ${extractFunction('onAudioEnded', source)}
+       ${extractFunction('npTrackEnded', source)}
        return { onAudioEnded, owed: () => npAdvanceOwed };`,
     )(window, playNextInQueue) as { onAudioEnded: () => void; owed: () => boolean };
   }

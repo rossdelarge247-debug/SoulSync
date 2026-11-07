@@ -33,6 +33,10 @@
  *                                  old ones; jump restarts the stretch
  *   {type: 'mode', deck, mode: 'resample' | 'stretch'}
  *   {type: 'stop', deck, at}       silent (after a 128-frame fade) from frame `at`
+ *   {type: 'loop', deck, at, start, end}
+ *                                  from frame `at` the deck loops between
+ *                                  track seconds start and end (start null:
+ *                                  the loop ends there); see engine/loops.ts
  *   {type: 'unload', deck}
  *   {type: 'report', every}        how often positions are posted (frames)
  *   {type: 'ping', id}             answered with a pong once all before it is in
@@ -56,6 +60,8 @@ const LEAN = 0.08;
 const DECIM = 4;
 /** a start and a stop fade in and out over this many frames */
 const FADE = 128;
+/** a loop's wrap crossfades over this much track time (engine/loops.ts WRAP_S) */
+const WRAP_S = 0.004;
 
 const WINDOW = new Float32Array(GRAIN);
 for (let j = 0; j < GRAIN; j++) WINDOW[j] = 0.5 - 0.5 * Math.cos((2 * Math.PI * j) / GRAIN);
@@ -83,7 +89,53 @@ class Deck {
     this.stopAt = Infinity;
     this.mode = 'resample';
     this.ended = false;
+    /** loops: {start, end, from, until} (track seconds, frames) */
+    this.loops = [];
+    /** the last fold: how far past the loop's start, and the loop (for the wrap's crossfade) */
+    this.wrapX = -1;
+    this.wrapLoop = null;
     this.restartStretch();
+  }
+
+  /** The loop in force at frame f, or null. */
+  loopAt(f) {
+    const l = this.loops;
+    for (let i = l.length - 1; i >= 0; i--) {
+      const x = l[i];
+      if (f >= x.from && f < x.until) return x;
+    }
+    return null;
+  }
+
+  /**
+   * The map's position at f, folded into a loop in force (engine/loops.ts
+   * `fold`); sets wrapX (how far into the loop after a wrap, else −1).
+   */
+  foldedAt(f) {
+    const p = this.positionAt(f);
+    this.wrapX = -1;
+    this.wrapLoop = null;
+    if (p !== p || this.loops.length === 0) return p;
+    const l = this.loopAt(f);
+    if (!l || p < l.end) return p;
+    const len = l.end - l.start;
+    if (!(len > 0)) return p;
+    const x = (p - l.start) % len;
+    this.wrapX = x;
+    this.wrapLoop = l;
+    return l.start + x;
+  }
+
+  setLoop(at, start, end) {
+    const kept = [];
+    for (const l of this.loops) {
+      if (l.from >= at) continue;
+      kept.push(l.until > at ? { start: l.start, end: l.end, from: l.from, until: at } : l);
+    }
+    if (typeof start === 'number' && typeof end === 'number' && end > start)
+      kept.push({ start, end, from: at, until: Infinity });
+    // what's long over goes (10 s of frames)
+    this.loops = kept.filter((l) => l.until > at - SR * 10);
   }
 
   restartStretch() {
@@ -164,7 +216,7 @@ class Deck {
     let any = false;
     for (let i = 0; i < out0.length; i++) {
       const f = f0 + i;
-      const p = this.positionAt(f);
+      const p = this.foldedAt(f);
       if (p !== p) continue; // not started
       const x = this.index(p);
       if (x < 1 || x >= len - 2) {
@@ -175,8 +227,22 @@ class Deck {
       if (g <= 0) continue;
       const k = x | 0;
       const t = x - k;
-      out0[i] = g * hermite(left, k, t);
-      out1[i] = g * hermite(right, k, t);
+      let l0 = hermite(left, k, t);
+      let l1 = hermite(right, k, t);
+      // just after a loop's wrap: crossfade from what would have played on
+      // past its end into its start, over WRAP_S (no click)
+      if (this.wrapX >= 0 && this.wrapX < WRAP_S) {
+        const y = this.index(this.wrapLoop.end + this.wrapX);
+        if (y >= 1 && y < len - 2) {
+          const w = this.wrapX / WRAP_S;
+          const ky = y | 0;
+          const ty = y - ky;
+          l0 = w * l0 + (1 - w) * hermite(left, ky, ty);
+          l1 = w * l1 + (1 - w) * hermite(right, ky, ty);
+        }
+      }
+      out0[i] = g * l0;
+      out1[i] = g * l1;
       any = true;
     }
     return any;
@@ -213,7 +279,8 @@ class Deck {
     const left = ch[0];
     const right = ch.length > 1 ? ch[1] : ch[0];
     const at = this.grainAt;
-    const p = this.positionAt(at + HOP);
+    // folded into a loop: a wrap is a jump the grains' overlap crossfades
+    const p = this.foldedAt(at + HOP);
     const len = this.length;
     let start = 0;
     let silent = p !== p;
@@ -413,6 +480,9 @@ class DecksProcessor extends scope.AudioWorkletProcessor {
       case 'stop':
         deck.stopAt = typeof msg.at === 'number' ? msg.at : Infinity;
         break;
+      case 'loop':
+        deck.setLoop(msg.at, msg.start, msg.end);
+        break;
       case 'unload':
         deck.clear();
         break;
@@ -436,7 +506,7 @@ class DecksProcessor extends scope.AudioWorkletProcessor {
         type: 'pos',
         frame,
         decks: this.decks.map((d) => {
-          const p = d.positionAt(frame);
+          const p = d.foldedAt(frame);
           return {
             p: p === p ? p : null,
             playing: d.channels !== null && p === p && frame < d.stopAt && !d.ended,

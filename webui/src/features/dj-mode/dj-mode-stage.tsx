@@ -14,7 +14,7 @@ import { djMixSession, djOutputs } from './dj-mix-host';
 import { DjMixer } from './dj-mixer';
 import { djModeStore } from './dj-mode-store';
 import { DjStage } from './dj-stage';
-import { LaneStrip, ZoomPill } from './dj-strip';
+import { LaneStrip, LoopControls, ZoomPill } from './dj-strip';
 
 export function DjModeStage({
   store = djModeStore(),
@@ -34,8 +34,18 @@ export function DjModeStage({
           b: <LaneStrip deck="b" store={store} session={session} outputs={outputs} />,
         },
         lineEnd: {
-          a: <ZoomPill deck="a" store={store} />,
-          b: <ZoomPill deck="b" store={store} />,
+          a: (
+            <>
+              <LoopControls deck="A" session={session} place="line" />
+              <ZoomPill deck="a" store={store} />
+            </>
+          ),
+          b: (
+            <>
+              <LoopControls deck="B" session={session} place="line" />
+              <ZoomPill deck="b" store={store} />
+            </>
+          ),
         },
         mixer: (
           <>

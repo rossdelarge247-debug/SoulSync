@@ -171,6 +171,23 @@ export interface MixView {
   /** Auto-gain (S6, on by default): B matched to A's loudness, dB on B's trim (A is the player's, untouched) */
   autoGain: boolean;
   gain: Record<DeckId, number>;
+  /** each deck's loop (step 6): its region, its size in beats, and whether it's looping now */
+  loops: Record<DeckId, DeckLoop | null>;
+  /** a loop's In set, waiting for its Out */
+  loopIn: Record<DeckId, number | null>;
+  /** each deck's auto loop size (beats: 1/32 … 32) and beatjump (1, 4, 16, 32) */
+  loopSize: Record<DeckId, number>;
+  jumpSize: Record<DeckId, number>;
+  /** Quantize (step 6, on by default): jumps, cues and loops on the beat */
+  quantize: boolean;
+}
+
+export interface DeckLoop {
+  start: number;
+  end: number;
+  /** its length in beats (null without a grid) */
+  beats: number | null;
+  active: boolean;
 }
 
 /** A window's level every `step` seconds from `offset` (track seconds), 0–1. */
@@ -231,6 +248,15 @@ export interface EngineLike {
   mode(deck: DeckId, mode: 'resample' | 'stretch'): void;
   position(deck: DeckId, at?: number): number | null;
   setPaused(on: boolean): void;
+  /** loops (step 6, engine/loops.ts): from a frame, a deck loops over a region; null ends it */
+  loop?(deck: DeckId, region: { start: number; end: number } | null, atFrame: number): void;
+  /** leave the loop at a frame and play on from where it is */
+  endLoop?(deck: DeckId, atFrame: number): void;
+  loopAt?(deck: DeckId, at?: number): { start: number; end: number } | null;
+  /** move a deck by track seconds from a frame, its map's shape kept */
+  shift?(deck: DeckId, atFrame: number, delta: number): void;
+  /** the limiter's lookahead measured on this browser (seconds), else LIMIT_DELAY_S */
+  lookahead?: number;
   /** the context stopping under the decks (lifecycle.ts), not the listener's own pause */
   onLifecycle?(fn: (e: { kind: 'interrupted' | 'resumed'; reason: string }) => void): () => void;
   /** the worklet node: its processor's errors end a blend */
@@ -263,6 +289,12 @@ export interface PlayerPort {
   seek?(seconds: number): void;
   /** the player's Next (A's end was DJ mode's, and the Hand over couldn't happen) */
   next?(): void;
+  /**
+   * A's end given back to the player (it was DJ mode's: `ownsAdvance`): the
+   * player's own end handling, its playing state, the sleep timer's end of
+   * track, the advance (step 6 round 3)
+   */
+  ended?(): void;
   /** Hand over (414): a queue row played, joining a deck where it is */
   playIndex?(index: number, options: { handoff?: HandoffLike }): Promise<{ status: string }>;
   /** B's row straight after the playing one (Up next after it stays as it was, 422); its index */
@@ -300,6 +332,8 @@ export interface SessionDeps {
   onPhase?: (view: MixView) => void;
   /** Auto-gain's start (the person's setting, step 5; on by default) */
   autoGain?: boolean;
+  /** Quantize's start (the person's setting, step 6; on by default) */
+  quantize?: boolean;
 }
 
 /** Scheduling lead: the decks start this far ahead (auto-mix's AHEAD_S). */
@@ -364,8 +398,10 @@ function covers(
 export class DjMixSession {
   private v: MixView;
   private readonly listeners = new Set<() => void>();
-  private readonly d: Required<Omit<SessionDeps, 'autoHold' | 'onPhase' | 'support' | 'autoGain'>> &
-    Pick<SessionDeps, 'autoHold' | 'onPhase' | 'support' | 'autoGain'>;
+  private readonly d: Required<
+    Omit<SessionDeps, 'autoHold' | 'onPhase' | 'support' | 'autoGain' | 'quantize'>
+  > &
+    Pick<SessionDeps, 'autoHold' | 'onPhase' | 'support' | 'autoGain' | 'quantize'>;
   private engine: EngineLike | null = null;
   private making: Promise<EngineLike | null> | null = null;
   private a: MixLane | null = null;
@@ -479,6 +515,11 @@ export class DjMixSession {
       rateA: null,
       autoGain: deps.autoGain ?? true,
       gain: { A: 0, B: 0 },
+      loops: { A: null, B: null },
+      loopIn: { A: null, B: null },
+      loopSize: { A: 4, B: 4 },
+      jumpSize: { A: 4, B: 4 },
+      quantize: deps.quantize ?? true,
     };
   }
 
@@ -711,9 +752,12 @@ export class DjMixSession {
   /** Something under the decks stopped: never "playing" while silent. */
   private broke(words: string): void {
     // the context stopped: deck A's place is frozen, so the element isn't
-    // put there (it's where the listener heard A last, near enough; L-new-2)
+    // put there (it's where the listener heard A last, near enough; L-new-2),
+    // except while A loops: the element ran on past the loop, so it comes
+    // back where A was heard, not a loop's length away (review round 2)
     if (this.v.solo) this.soloOut(0, words);
-    else if (this.v.aOnDeck || this.blending) this.hardStop(words, true, false);
+    else if (this.v.aOnDeck || this.blending)
+      this.hardStop(words, true, Boolean(this.v.loops.A?.active));
   }
 
   /** Let the engine go (its worklet, graph and lifecycle watch, review M4). */
@@ -1201,13 +1245,37 @@ export class DjMixSession {
       if (!covers(this.aWin, seconds, 4)) return 'outside';
       const sr = engine.sampleRate;
       const t = this.now() + 0.03;
+      // Quantize: the cue in phase with where A is (step 6), else exactly there
+      const target = this.inPhase('A', seconds, t);
+      this.leaveLoopFor('A', target, t);
       const el = this.el;
       if (el) {
         this.ownSeek = true;
-        el.currentTime = seconds;
+        // where deck A is heard: the limiter's lookahead behind it (review L5)
+        el.currentTime = Math.max(0, target - this.look() * this.rateA);
       }
-      engine.map('A', 0, [{ f: t * sr, p: seconds + 0.03 * this.rateA, r: this.rateA }], true);
+      engine.map('A', 0, [{ f: t * sr, p: target + 0.03 * this.rateA, r: this.rateA }], true);
       if (this.v.rateB !== null && this.v.phase === 'playing') this.relock();
+      return 'jumped';
+    }
+    // B in the headphones before the blend, or playing in it: at once, in
+    // phase with Quantize (step 6, the parity review's S7), its lock kept
+    const running =
+      (this.v.phase === 'ready' && this.v.previewB) ||
+      this.v.phase === 'playing' ||
+      this.v.phase === 'backing';
+    if (running && engine?.shift) {
+      if (!covers(this.bWin, seconds, 2)) return 'outside';
+      const t = this.now() + 0.03;
+      const pos = engine.position('B', t);
+      if (pos === null) return 'outside';
+      const target = this.inPhase('B', seconds, t);
+      // moved while its loop is in force (the map from where it's heard), then out of it
+      engine.shift('B', t * engine.sampleRate, target - pos);
+      this.leaveLoopFor('B', target, t);
+      // off the beat with Sync on: eased back onto A's over a bar
+      if (!this.quantizes('B') && this.v.rateB !== null && this.v.phase === 'playing')
+        this.relock();
       return 'jumped';
     }
     if (!['playing', 'starting', 'paused'].includes(this.v.phase) || !engine) return 'cue';
@@ -1225,6 +1293,393 @@ export class DjMixSession {
       this.hardStop('The blend stopped: the decks couldn’t start');
     }
     return 'jumped';
+  }
+
+  // ── loops, beatjump and Quantize (step 6) ──────────────────────────────
+
+  /** The limiter's lookahead on this browser (measured by the engine), else Chromium's. */
+  private look(): number {
+    return this.engine?.lookahead ?? LIMIT_DELAY_S;
+  }
+
+  /** Quantize on or off (the person's setting). */
+  setQuantize(on: boolean): void {
+    if (this.v.quantize === on) return;
+    this.update({ quantize: on });
+  }
+
+  private gridOf(deck: DeckId): BeatGrid | null {
+    return (deck === 'A' ? this.a : this.b)?.grid ?? null;
+  }
+
+  /** Quantize acts on this deck: it's on, and the deck has a grid. */
+  quantizes(deck: DeckId): boolean {
+    return this.v.quantize && this.gridOf(deck) !== null;
+  }
+
+  /** A beat's length (s) on a deck near track second p: its grid's, else its BPM's, else 0.5. */
+  private beatAt(deck: DeckId, p: number): number {
+    const g = this.gridOf(deck);
+    if (g) return g.periodAt(g.beatAt(p));
+    const bpm = (deck === 'A' ? this.a : this.b)?.bpm;
+    return bpm && bpm > 0 ? 60 / bpm : 0.5;
+  }
+
+  /** `beats` on from track second p (the grid's beats, else the BPM's). */
+  private beatsFrom(deck: DeckId, p: number, beats: number): number {
+    const g = this.gridOf(deck);
+    if (g) return g.timeAt(g.beatAt(p) + beats);
+    return p + beats * this.beatAt(deck, p);
+  }
+
+  /** A track second on the nearest beat with Quantize, else as it is. */
+  private snap(deck: DeckId, p: number): number {
+    const g = this.gridOf(deck);
+    return this.quantizes(deck) && g ? g.timeAt(Math.round(g.beatAt(p))) : p;
+  }
+
+  /** The first beat at or after track second p (p itself without a grid). */
+  private nextBeat(deck: DeckId, p: number): number {
+    const g = this.gridOf(deck);
+    return g ? g.timeAt(Math.ceil(g.beatAt(p) - 1e-9)) : p;
+  }
+
+  /** A jump's target in phase with where the deck is now (Quantize), else as it is. */
+  private inPhase(deck: DeckId, seconds: number, t: number): number {
+    const g = this.gridOf(deck);
+    const pos = this.engine?.position(deck, t) ?? null;
+    if (!this.quantizes(deck) || !g || pos === null) return seconds;
+    const b = g.beatAt(pos);
+    return g.timeAt(Math.round(g.beatAt(seconds)) + (b - Math.floor(b)));
+  }
+
+  /** Where a deck is: playing, its place; B stopped, where it's parked (or paused, or cued). */
+  private deckPos(deck: DeckId, t = this.now() + 0.03): number | null {
+    if (this.deckRuns(deck)) return this.engine?.position(deck, t) ?? null;
+    if (deck === 'A') return this.d.player.audio()?.currentTime ?? null;
+    if (this.v.phase === 'paused') return this.pausedAt;
+    return this.v.parkB ?? this.b?.cue ?? null;
+  }
+
+  /** A deck runs on the engine now (A on its deck; B in the headphones or the blend). */
+  private deckRuns(deck: DeckId): boolean {
+    if (deck === 'A') return this.v.aOnDeck && !this.suspended;
+    return this.v.previewB || ['starting', 'playing', 'backing', 'handing'].includes(this.v.phase);
+  }
+
+  /** Why a deck can't loop now, in words; null when it can. */
+  loopWhy(deck: DeckId): string | null {
+    if (!this.engine?.loop) return 'The decks aren’t ready';
+    if (deck === 'A')
+      return this.v.aOnDeck
+        ? null
+        : 'A loops once it’s on its deck (Play B): the player’s own playback can’t loop to the sample';
+    if (!this.b || !this.bWin || ['idle', 'loading', 'failed', 'handing'].includes(this.v.phase))
+      return 'B loops once it’s on its deck';
+    return null;
+  }
+
+  private loopName(deck: DeckId, beats: number | null): string {
+    return beats === null ? `Deck ${deck} loop` : `Deck ${deck} loop ${beatWords(beats)}`;
+  }
+
+  /**
+   * A loop's end kept inside what the deck has: its window (its 3 minutes)
+   * and the track's end, a little short of either (review L1); null when
+   * nothing sensible fits (under a 1/32 beat).
+   */
+  private fitEnd(deck: DeckId, start: number, end: number): number | null {
+    const win = deck === 'A' ? this.aWin : this.bWin;
+    const track = (deck === 'A' ? this.a : this.b)?.duration ?? Infinity;
+    const limit = Math.min(win ? win.offset + win.duration - 0.25 : Infinity, track - 0.1);
+    const e = Math.min(end, limit);
+    const shortest = this.beatAt(deck, start) / 32;
+    return e - start >= shortest ? e : null;
+  }
+
+  /** Beats between two places on a deck's grid (to a 1/32), or null without one. */
+  private beatsBetween(deck: DeckId, start: number, end: number): number | null {
+    const g = this.gridOf(deck);
+    return g ? Math.round((g.beatAt(end) - g.beatAt(start)) * 32) / 32 : null;
+  }
+
+  /** The deck loops over `region` from now (its In … Out), from where it is. */
+  private startLoop(deck: DeckId, start: number, end: number, beats: number | null): void {
+    const engine = this.engine!;
+    const f = (this.now() + 0.03) * engine.sampleRate;
+    engine.endLoop?.(deck, f);
+    engine.loop!(deck, { start, end }, f);
+    this.update({
+      loops: { ...this.v.loops, [deck]: { start, end, beats, active: true } },
+      loopIn: { ...this.v.loopIn, [deck]: null },
+    });
+  }
+
+  /** Auto loop (its size): on from the nearest beat with Quantize, else from here; pressed again, out. */
+  autoLoop(deck: DeckId): boolean {
+    const why = this.loopWhy(deck);
+    if (why) {
+      this.say(why);
+      return false;
+    }
+    if (this.v.loops[deck]?.active) return this.exitLoop(deck);
+    const pos = this.deckPos(deck);
+    if (pos === null) return false;
+    const want = this.v.loopSize[deck];
+    // on the beat, but never before what the deck has (its window's start)
+    const win = deck === 'A' ? this.aWin : this.bWin;
+    let start = this.snap(deck, pos);
+    if (win && start < win.offset + 0.05)
+      start =
+        this.gridOf(deck) && this.quantizes(deck)
+          ? this.nextBeat(deck, win.offset + 0.05)
+          : win.offset + 0.05;
+    const end = this.fitEnd(deck, start, this.beatsFrom(deck, start, want));
+    if (end === null) {
+      this.say(
+        `No room for a loop here: deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'} end`,
+      );
+      return false;
+    }
+    const beats = this.gridOf(deck) ? this.beatsBetween(deck, start, end) : null;
+    this.startLoop(deck, start, end, beats);
+    this.say(
+      `${this.loopName(deck, beats ?? want)}${this.gridOf(deck) ? '' : ': no beat grid, the length is by its BPM'}`,
+    );
+    return true;
+  }
+
+  /** Loop In: here (on the beat with Quantize). */
+  loopInHere(deck: DeckId): boolean {
+    const why = this.loopWhy(deck);
+    if (why) {
+      this.say(why);
+      return false;
+    }
+    const pos = this.deckPos(deck);
+    if (pos === null) return false;
+    const win = deck === 'A' ? this.aWin : this.bWin;
+    let at = this.snap(deck, pos);
+    if (win && at < win.offset + 0.05) at = this.nextBeat(deck, win.offset + 0.05);
+    this.update({ loopIn: { ...this.v.loopIn, [deck]: at } });
+    this.say(`Deck ${deck} loop in`);
+    return true;
+  }
+
+  /** Loop Out: the loop from its In to here, looping now (back to its In at once). */
+  loopOutHere(deck: DeckId): boolean {
+    const why = this.loopWhy(deck);
+    if (why) {
+      this.say(why);
+      return false;
+    }
+    const from = this.v.loopIn[deck];
+    const pos = this.deckPos(deck);
+    if (from === null || pos === null) {
+      this.say(`Set deck ${deck}’s loop in first (I)`);
+      return false;
+    }
+    const at = this.snap(deck, pos);
+    const end = at - from < 0.01 ? null : this.fitEnd(deck, from, at);
+    if (end === null) {
+      this.say('The loop’s out has to be after its in');
+      return false;
+    }
+    const beats = this.beatsBetween(deck, from, end);
+    this.startLoop(deck, from, end, beats);
+    this.say(this.loopName(deck, beats));
+    return true;
+  }
+
+  /** Reloop: the last loop again, from its start, looping. */
+  reloop(deck: DeckId): boolean {
+    const why = this.loopWhy(deck);
+    const l = this.v.loops[deck];
+    if (why || !l) {
+      this.say(why ?? `Deck ${deck} has no loop yet`);
+      return false;
+    }
+    const engine = this.engine!;
+    const t = this.now() + 0.03;
+    const f = t * engine.sampleRate;
+    if (this.deckRuns(deck)) {
+      const pos = engine.position(deck, t);
+      engine.endLoop?.(deck, f);
+      if (pos !== null) this.moveDeck(deck, f, l.start - pos, l.start);
+      engine.loop!(deck, { start: l.start, end: l.end }, f);
+    } else {
+      engine.loop!(deck, { start: l.start, end: l.end }, f);
+      this.moveStopped(deck, l.start);
+    }
+    this.update({ loops: { ...this.v.loops, [deck]: { ...l, active: true } } });
+    this.say(`${this.loopName(deck, l.beats)}: again`);
+    return true;
+  }
+
+  /** Out of the loop: the deck plays on from where it is (the loop stays drawn for Reloop). */
+  exitLoop(deck: DeckId, words = true): boolean {
+    const l = this.v.loops[deck];
+    if (!l?.active || !this.engine) return false;
+    const f = (this.now() + 0.03) * this.engine.sampleRate;
+    this.engine.endLoop?.(deck, f);
+    this.update({ loops: { ...this.v.loops, [deck]: { ...l, active: false } } });
+    // the element where A is again (it was let run while A looped)
+    if (deck === 'A') this.alignElement();
+    if (words) this.say(`Deck ${deck} out of the loop`);
+    return true;
+  }
+
+  /** The auto loop's size (beats, 1/32 … 32); an active loop takes it from its start. */
+  setLoopSize(deck: DeckId, beats: number): void {
+    const b = Math.max(1 / 32, Math.min(32, beats));
+    if (b === this.v.loopSize[deck] && !this.v.loops[deck]?.active) return;
+    this.update({ loopSize: { ...this.v.loopSize, [deck]: b } });
+    const l = this.v.loops[deck];
+    if (l?.active && this.engine?.loop) {
+      // smaller: the part of the loop the deck is in, so it doesn't jump (it
+      // wraps as usual, crossfaded); larger, from its start; kept inside the deck's window
+      const pos = this.deckRuns(deck) ? this.engine.position(deck, this.now() + 0.03) : null;
+      let start = l.start;
+      const g = this.gridOf(deck);
+      if (pos !== null && g && l.beats !== null && b < l.beats) {
+        const into = g.beatAt(pos) - g.beatAt(l.start);
+        start = g.timeAt(g.beatAt(l.start) + Math.max(0, Math.floor(into / b)) * b);
+      }
+      const end = this.fitEnd(deck, start, this.beatsFrom(deck, start, b));
+      if (end === null) {
+        this.say(
+          `No room for that loop: deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'} end`,
+        );
+        return;
+      }
+      this.startLoop(deck, start, end, g ? this.beatsBetween(deck, start, end) : null);
+    }
+    this.say(`${this.loopName(deck, b)}${l?.active ? '' : ' size'}`);
+  }
+
+  /** ½ and ×2: the size halved or doubled (an active loop with it). */
+  resizeLoop(deck: DeckId, factor: 0.5 | 2): void {
+    const l = this.v.loops[deck];
+    const now = l?.active && l.beats !== null ? l.beats : this.v.loopSize[deck];
+    this.setLoopSize(deck, now * factor);
+  }
+
+  /** Beatjump's size (beats: 1, 4, 16, 32). */
+  setJumpSize(deck: DeckId, beats: number): void {
+    this.update({ jumpSize: { ...this.v.jumpSize, [deck]: beats } });
+  }
+
+  /**
+   * Beatjump: back or on by its size (the loop's while looping), on the grid
+   * (the beat's phase kept); an active loop moves with it. A before Play B
+   * is the player's seek; B stopped moves where it's parked.
+   */
+  beatjump(deck: DeckId, dir: -1 | 1): boolean {
+    const engine = this.engine;
+    const l = this.v.loops[deck];
+    const looping = Boolean(l?.active);
+    const beats = looping && l!.beats !== null ? l!.beats : this.v.jumpSize[deck];
+    const t = this.now() + 0.03;
+    const pos = this.deckPos(deck, t);
+    if (pos === null) return false;
+    const by = looping && l!.beats === null ? dir * (l!.end - l!.start) : null;
+    const target = by !== null ? pos + by : this.beatsFrom(deck, pos, dir * beats);
+    const delta = target - pos;
+    const noGrid = !this.gridOf(deck);
+    // a loop moved with the jump has to fit the deck's window and track (review L1)
+    if (looping && this.fitEnd(deck, l!.start + delta, l!.end + delta) !== l!.end + delta) {
+      this.say(
+        `The loop would run past deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'}: no jump`,
+      );
+      return false;
+    }
+    if (deck === 'A' && !this.v.aOnDeck) {
+      // A on the player's element: the player's own seek
+      this.d.player.seek?.(Math.max(0, target));
+    } else if (this.deckRuns(deck) && engine?.shift) {
+      const win = deck === 'A' ? this.aWin : this.bWin;
+      if (!covers(win, target, 2)) {
+        this.say(`That jump is outside deck ${deck}’s 3 minutes`);
+        return false;
+      }
+      const f = t * engine.sampleRate;
+      // moved first (from where it's heard in its loop), then the loop moves with it
+      this.moveDeck(deck, f, delta, target);
+      if (looping) engine.loop!(deck, { start: l!.start + delta, end: l!.end + delta }, f);
+    } else if (deck === 'B') {
+      if (looping && engine?.loop) {
+        const f = t * engine.sampleRate;
+        engine.loop(deck, { start: l!.start + delta, end: l!.end + delta }, f);
+      }
+      this.moveStopped('B', this.clampB(target));
+    } else return false;
+    if (looping)
+      this.update({
+        loops: { ...this.v.loops, [deck]: { ...l!, start: l!.start + delta, end: l!.end + delta } },
+      });
+    this.say(
+      `Deck ${deck} ${dir < 0 ? 'back' : 'on'} ${beatWords(beats)}${noGrid ? ': no beat grid, by its BPM' : ''}`,
+    );
+    return true;
+  }
+
+  /** A running deck moved by delta from frame f (A's element with it, B's lock kept). */
+  private moveDeck(deck: DeckId, f: number, delta: number, target: number): void {
+    const engine = this.engine!;
+    engine.shift?.(deck, f, delta);
+    if (deck === 'A') {
+      const el = this.el;
+      if (el) {
+        this.ownSeek = true;
+        el.currentTime = Math.max(0, target - this.look() * this.rateA);
+      }
+      if (this.v.rateB !== null && this.v.phase === 'playing') this.relock();
+    } else if (!this.quantizes('B') && this.v.rateB !== null && this.v.phase === 'playing') {
+      this.relock();
+    }
+  }
+
+  /** B stopped: where it's parked (paused, or cued in the headphones' sense). */
+  private moveStopped(deck: DeckId, p: number): void {
+    if (deck !== 'B') return;
+    if (this.v.phase === 'paused') {
+      this.pausedAt = p;
+      this.update({});
+    } else this.update({ parkB: p });
+  }
+
+  /** A jump outside an active loop leaves it (Traktor's). */
+  private leaveLoopFor(deck: DeckId, target: number, t: number): void {
+    const l = this.v.loops[deck];
+    if (!l?.active || !this.engine) return;
+    if (target >= l.start && target < l.end) return;
+    this.engine.loop?.(deck, null, t * this.engine.sampleRate);
+    this.update({ loops: { ...this.v.loops, [deck]: { ...l, active: false } } });
+  }
+
+  /** Both decks out of their loops at once (a release, a stop, DJ mode off). */
+  private dropLoops(): void {
+    const engine = this.engine;
+    if (engine?.loop) {
+      // unwound: each deck plays on from where it is, no jump (review L2)
+      const f = (this.now() + 0.03) * engine.sampleRate;
+      for (const d of ['A', 'B'] as const)
+        if (this.v.loops[d]?.active) {
+          if (engine.endLoop) engine.endLoop(d, f);
+          else engine.loop(d, null, f);
+        }
+    }
+    const off = (l: DeckLoop | null) => (l ? { ...l, active: false } : null);
+    if (
+      this.v.loops.A?.active ||
+      this.v.loops.B?.active ||
+      this.v.loopIn.A !== null ||
+      this.v.loopIn.B !== null
+    )
+      this.update({
+        loops: { A: off(this.v.loops.A), B: off(this.v.loops.B) },
+        loopIn: { A: null, B: null },
+      });
   }
 
   setCentre(id: 'xf' | 'echoSend' | 'echoTime' | 'echoFeedback', value: number): void {
@@ -1374,7 +1829,7 @@ export class DjMixSession {
     const T = ctx.currentTime + AHEAD_S;
     // the decks are heard through the limiter's lookahead (LIMIT_DELAY_S), the
     // element isn't (review M2): deck A starts that much further on, in line
-    const from = el.currentTime + (AHEAD_S + LIMIT_DELAY_S) * this.rateA;
+    const from = el.currentTime + (AHEAD_S + this.look()) * this.rateA;
     this.applyAll(ctx.currentTime);
     this.applyPhones();
     engine.mode('A', this.modeFor('A', this.rateA / this.rateA0));
@@ -1721,10 +2176,11 @@ export class DjMixSession {
 
   /** A ran out under a blend: whose advance it is (the player asks, media-player.js). */
   ownsAdvance(): boolean {
-    return (
-      (this.v.aOnDeck && this.v.phase === 'playing' && this.handOverWhy() === null) ||
-      this.v.phase === 'handing'
-    );
+    // A on its deck in the blend (B playing, starting, paused; A looping or
+    // not): the element's end is the session's to handle, never the player's
+    // own skip under the decks (step 6 review N1). It hands over, or stops
+    // the blend and asks the player for the next track itself.
+    return this.v.aOnDeck || this.v.phase === 'handing';
   }
 
   /**
@@ -1746,6 +2202,16 @@ export class DjMixSession {
     this.clearLater();
     this.cancelSettle();
     this.dropHand();
+    // loops end here, each deck playing on from where it is (step 6): the
+    // player can't loop B, and A is leaving
+    if (this.v.loops.B?.active) {
+      this.exitLoop('B', false);
+      if (reason === 'press')
+        this.say(
+          `${this.b?.title || 'B'}’s loop ends: the player can’t loop, it plays on from here`,
+        );
+    }
+    if (this.v.loops.A?.active) this.exitLoop('A', false);
     const sr = engine.sampleRate;
     const t = this.now() + 0.03;
     let bar = this.barSeconds();
@@ -1907,12 +2373,13 @@ export class DjMixSession {
       engine.stop('B', Math.round((t + JOIN_S + 0.04) * sr));
     };
     const rate0 = this.rateA0;
+    const look = this.look();
     const handoff: HandoffLike = {
       // read once the player's load is ready; NaN once used or given up (review M-4)
       get currentTime() {
         // where deck B is heard (its place less the limiter's lookahead)
         const p = engine.position('B');
-        return used || p === null ? Number.NaN : p - LIMIT_DELAY_S * rate0;
+        return used || p === null ? Number.NaN : p - look * rate0;
       },
       pause: stopB,
       get src() {
@@ -2156,10 +2623,11 @@ export class DjMixSession {
       engine.stop('A', Math.round((now + JOIN_S + 0.04) * sr));
     };
     const rate0 = this.rateA0;
+    const look = this.look();
     const handoff: HandoffLike = {
       get currentTime() {
         const p = engine.position('A');
-        return used || p === null ? Number.NaN : p - LIMIT_DELAY_S * rate0;
+        return used || p === null ? Number.NaN : p - look * rate0;
       },
       pause: stopA,
       get src() {
@@ -2246,6 +2714,7 @@ export class DjMixSession {
   private soloOut(seconds: number, words: string | null, keep = true): void {
     const engine = this.engine;
     this.clearLater();
+    this.dropLoops();
     this.unbindSolo();
     if (engine && this.v.solo) {
       const t = engine.context.currentTime + 0.01;
@@ -2646,6 +3115,16 @@ export class DjMixSession {
           /* never block the decks */
         }
       }
+      // A looping on its deck: the muted element is kept where A is, so the
+      // player's clock, its end and Back's join stay A's (step 6)
+      // (seeked only once it's run past the loop, about once a loop, review L3)
+      const la = this.v.loops.A;
+      if (la?.active && this.el) {
+        const t = this.el.currentTime;
+        // and before it can reach the track's end under a loop near it (review N1)
+        const end = this.a?.duration ?? Infinity;
+        if (t < la.start - 0.5 || t > la.end + 0.5 || t > end - 1) this.alignElement(0.25);
+      }
       // A running out while B plays is a Hand over (37j), over what's left of A
       const leftA = this.trackLeftA();
       if (
@@ -2684,6 +3163,8 @@ export class DjMixSession {
   /** Output seconds until A's track ends on its deck, or null. */
   private trackLeftA(): number | null {
     if (!this.v.aOnDeck || !this.a?.duration) return null;
+    // looping, A can't run out: its end is weighed again once it's out of the loop (review M2)
+    if (this.v.loops.A?.active) return null;
     const posA = this.engine?.position('A') ?? null;
     return posA === null ? null : (this.a.duration - posA) / this.rateA;
   }
@@ -2743,6 +3224,11 @@ export class DjMixSession {
         done();
       }
       return;
+    }
+    // A goes back to the player's element, which can't loop: it plays on from where it is (step 6)
+    if (this.v.loops.A?.active) {
+      this.exitLoop('A', false);
+      this.say(`${this.a?.title || 'A'}’s loop ends: back on the player it plays on`);
     }
     const t = this.now() + 0.03;
     const bar = this.barSeconds();
@@ -2807,14 +3293,14 @@ export class DjMixSession {
    * element is put where A is when they've drifted apart (the session's own
    * seek, not a person's).
    */
-  private alignElement(): void {
+  private alignElement(within = ALIGN_S): void {
     const el = this.el;
-    if (!el || !this.v.aOnDeck || el.ended) return;
+    if (!el || !this.v.aOnDeck || (el.ended && within > 0)) return;
     const at = this.engine?.position('A') ?? null;
     // where deck A is heard: its place less the limiter's lookahead
-    const p = at === null ? null : at - LIMIT_DELAY_S * this.rateA;
+    const p = at === null ? null : at - this.look() * this.rateA;
     if (p === null || !Number.isFinite(p)) return;
-    if (Math.abs(el.currentTime - p) <= ALIGN_S) return;
+    if (within > 0 && Math.abs(el.currentTime - p) <= within) return;
     this.ownSeek = true;
     try {
       el.currentTime = p;
@@ -2864,6 +3350,8 @@ export class DjMixSession {
 
   private afterRelease(keep: boolean): void {
     this.handing = null;
+    // the decks' loops end with the blend (A is the element's again)
+    this.dropLoops();
     // A goes back onto its element at its own tempo (413)
     const el = this.el;
     if (el && this.v.aOnDeck && el.playbackRate !== this.rateA0) el.playbackRate = this.rateA0;
@@ -2930,6 +3418,7 @@ export class DjMixSession {
     this.hold(false);
     if (this.v.solo) this.soloOut(0, null, false);
     if (this.v.aOnDeck) this.hardStop(null, false);
+    this.dropLoops();
     this.clearLater();
     this.gen += 1;
     const engine = this.engine;
@@ -3113,6 +3602,13 @@ export class DjMixSession {
 
   /** A ran out on its deck's watch: the player goes on as it always does (Hand over is step 4). */
   private readonly onEnded = () => {
+    // A looping on its deck: the element ran on to the end under it; it's
+    // put back where A is and plays on (A hasn't ended, step 6)
+    if (this.v.loops.A?.active && this.v.aOnDeck && this.el) {
+      this.alignElement(0);
+      void this.el.play?.()?.catch?.(() => undefined);
+      return;
+    }
     if (this.ended) return;
     this.ended = true;
     // A ran out while B plays (37j): a Hand over now, B where it is; the
@@ -3121,11 +3617,15 @@ export class DjMixSession {
     if (this.v.phase === 'handing') return;
     if (this.v.phase === 'playing' && this.handOverWhy() === null) {
       if (this.handOver('ended', true)) return;
-      this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
-      this.d.player.next?.();
-      return;
     }
+    // the blend stops and the player goes on as it would have (its advance was left to us)
+    const owned = this.v.aOnDeck;
     this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
+    // the end given back: the player handles it as its own (once), else its Next
+    if (owned) {
+      if (this.d.player.ended) this.d.player.ended();
+      else this.d.player.next?.();
+    }
   };
 
   /** Another track loading on the element (Next, a row played): the player obeys (37j). */
@@ -3140,4 +3640,10 @@ export class DjMixSession {
     this.end();
     this.listeners.clear();
   }
+}
+
+/** A loop's or a jump's size in words: "4 beats", "1 beat", "1/8 beat". */
+export function beatWords(beats: number): string {
+  if (beats >= 1) return `${beats} ${beats === 1 ? 'beat' : 'beats'}`;
+  return `1/${Math.round(1 / beats)} beat`;
 }

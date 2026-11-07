@@ -7,7 +7,8 @@
  * - **the Tempo fader's direction** (M8): + at the bottom by default, as on
  *   a CDJ or a turntable (pulled towards you, faster); + at the top for
  *   those used to "up is more";
- * - **Auto-gain** (S6): B matched to A's analysed loudness, on by default.
+ * - **Auto-gain** (S6): B matched to A's analysed loudness, on by default;
+ * - **Quantize** (step 6): jumps, cues and loops on the beat, on by default.
  *
  * Storage that's blocked or empty gives the defaults; nothing here is
  * needed for DJ mode to work.
@@ -21,12 +22,18 @@ export interface DjPrefs {
   /** the Tempo fader's + end: 'down' (a CDJ's, the default) or 'up' */
   tempoPlus: 'down' | 'up';
   autoGain: boolean;
+  quantize: boolean;
 }
 
 export const DEFAULT_ZOOM: ZoomLevel = 16;
 
 export function defaultPrefs(): DjPrefs {
-  return { zoom: { a: DEFAULT_ZOOM, b: DEFAULT_ZOOM }, tempoPlus: 'down', autoGain: true };
+  return {
+    zoom: { a: DEFAULT_ZOOM, b: DEFAULT_ZOOM },
+    tempoPlus: 'down',
+    autoGain: true,
+    quantize: true,
+  };
 }
 
 export const DJ_PREFS_KEY = 'soulsync-dj-prefs';
@@ -66,6 +73,7 @@ export function readPrefs(
     zoom: { a: zoomOf(r.zoom?.a, d.zoom.a), b: zoomOf(r.zoom?.b, d.zoom.b) },
     tempoPlus: r.tempoPlus === 'up' ? 'up' : 'down',
     autoGain: r.autoGain !== false,
+    quantize: r.quantize !== false,
   };
 }
 

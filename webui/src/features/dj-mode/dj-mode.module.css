@@ -44,6 +44,9 @@
 /* ── a lane: a 14px card, a 3px deck-colour edge ── */
 
 .lane {
+  /* the playhead's place (0–1), written each frame on the lane: the
+     waveform's zoom layer reads it too (a loop drawn there, step 6) */
+  --played: 0;
   --deck: var(--dj-a);
   --deck-wave: var(--dj-a-wave);
   position: relative;
@@ -160,7 +163,6 @@
   position: relative;
   flex: 1;
   min-height: 56px;
-  --played: 0;
 }
 .waveSvg {
   position: absolute;
@@ -621,7 +623,8 @@
 }
 @container djstage (max-width: 1327px) {
   .lane[data-has-strip] .head {
-    /* the strip in the head's corner: Play and CUE (4b), Headphones, cues 1–4, Key lock */
+    /* the strip in the head's corner: Play and CUE (4b), Headphones, cues 1–4, Key lock;
+       the loops and beatjump (step 6) go to the line row, before the zoom pill */
     padding-right: 630px;
   }
 }
@@ -688,4 +691,57 @@
 }
 .wave:active {
   cursor: grabbing;
+}
+
+/* a deck's loop (step 6): green while it loops, outlined once left (Reloop) */
+.loop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-left: 2px solid #4ade80;
+  border-right: 2px solid #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  pointer-events: none;
+}
+.loop:not([data-active]) {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: transparent;
+}
+
+/* the phase meter (step 6): a mark off the centre by half a beat at each end */
+.phase {
+  position: relative;
+  display: inline-block;
+  width: 72px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  vertical-align: middle;
+}
+.phase::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.45);
+}
+.phaseMark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% + var(--phase, 0) * 100% - 4px);
+  width: 8px;
+  border-radius: 4px;
+  background: var(--deck);
+}
+.phase[data-mode='idle'] .phaseMark {
+  display: none;
+}
+.phase[data-mode='bar'] .phaseMark {
+  width: 25%;
+  left: calc(50% + var(--phase, 0) * 100% - 12.5%);
+  opacity: 0.7;
 }

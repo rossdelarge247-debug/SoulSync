@@ -84,6 +84,14 @@ describe('the table (one place for 287)', () => {
       '+': ['dj:+'],
       '⇧+': ['dj:+'],
       '=': ['dj:+'],
+      // step 6: loops and Quantize, DJ mode's
+      O: ['dj:O'],
+      '⇧O': ['dj:⇧O'],
+      I: ['dj:I'],
+      '⇧I': ['dj:⇧I'],
+      '[': ['dj:['],
+      ']': ['dj:]'],
+      Q: ['dj:Q'],
     });
   });
 
