@@ -137,8 +137,9 @@ export function phaseOffset(
   py: number,
   m = 1,
 ): number {
-  const fx = gridX.beatAt(px) / Math.max(1, m);
-  const fy = gridY.beatAt(py) * Math.min(1, m);
+  // from each grid's first downbeat, so a half- or double-time pair lines up on its bars (review round 2)
+  const fx = (gridX.beatAt(px) - gridX.downbeatIndex) / Math.max(1, m);
+  const fy = (gridY.beatAt(py) - gridY.downbeatIndex) * Math.min(1, m);
   let d = fx - Math.floor(fx) - (fy - Math.floor(fy));
   if (d > 0.5) d -= 1;
   if (d <= -0.5) d += 1;

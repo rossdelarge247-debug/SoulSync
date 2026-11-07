@@ -388,3 +388,83 @@ describe('review round 1 (step 6)', () => {
     expect(phaseOffset(a, a.timeAt(10), b, b.timeAt(20.5), 0.5)).toBeCloseTo(-0.25, 6);
   });
 });
+
+describe('review round 2 (step 6)', () => {
+  /** A player that advances by itself on the element's end unless DJ mode owns it (media-player.js's rule). */
+  function ownDeps(): { deps: Partial<SessionDeps>; advanced: () => number } {
+    let n = 0;
+    return {
+      advanced: () => n,
+      deps: {
+        player: {
+          audio: () => r.el as never,
+          state: () => ({
+            ...r.player,
+            index: 0,
+            queue: [{ id: '2', title: 'Night Ferry', file_path: '/m/2.flac' }],
+          }),
+          seek: (t) => {
+            r.el.currentTime = t;
+          },
+          next: () => (n += 1),
+        },
+      },
+    };
+  }
+
+  for (const how of ['B paused', 'B starting', 'Hand over not possible'] as const) {
+    it(`N1: A outro-looping with ${how}: the player never advances, the loop stays, the element stays in the track`, async () => {
+      r.session.dispose();
+      const o = ownDeps();
+      r = rig(vi, o.deps);
+      // the player's own rule: on the element's end it skips unless DJ mode owns the advance
+      r.el.addEventListener('ended', () => {
+        if (!r.session.ownsAdvance()) o.deps.player!.next!();
+      });
+      r.session.setLanes(laneA(), laneB());
+      await r.advance(0.01);
+      r.session.playB();
+      await r.advance(how === 'B starting' ? 0.05 : 3);
+      expect(r.session.jump('A', 270)).toBe('jumped');
+      r.session.setLoopSize('A', 32);
+      expect(r.session.autoLoop('A')).toBe(true);
+      expect(r.session.snapshot().loops.A!.end).toBeGreaterThan(285.5);
+      if (how === 'B paused') r.session.pauseB();
+      // the element (running free under the loop) never reaches the end: or, if it does, the session has it
+      for (let i = 0; i < 400; i++) {
+        await r.advance(0.1);
+        if (r.el.currentTime >= 286) {
+          r.el.ended = true;
+          r.el.dispatchEvent(new Event('ended'));
+          r.el.ended = false;
+        }
+        expect(r.el.currentTime).toBeLessThan(286);
+      }
+      expect(r.session.ownsAdvance()).toBe(true);
+      expect(o.advanced()).toBe(0);
+      expect(r.session.snapshot().loops.A!.active).toBe(true);
+      expect(r.session.snapshot().aOnDeck).toBe(true);
+    });
+  }
+
+  it('the phase meter counts from each grid’s downbeat (a half-time pair with an odd first downbeat)', async () => {
+    const { BeatGrid } = await import('@/features/engine/grid');
+    const { phaseOffset } = await import('./dj-sync');
+    // A at 174 BPM, its first downbeat on beat 3; B at 87, on beat 0
+    const a = new BeatGrid({ period: 60 / 174, firstBeat: 0.2, downbeatIndex: 3 });
+    const b = new BeatGrid({ period: 60 / 87, firstBeat: 0.3 });
+    // A on its downbeat, B on its: in phase in B's (the slower's) beats
+    const pa = a.timeAt(a.downbeatIndex + 8);
+    const pb = b.timeAt(b.downbeatIndex + 4);
+    expect(Math.abs(phaseOffset(a, pa, b, pb, 2))).toBeLessThan(1e-6);
+    // A a beat on: half of B's beat
+    expect(Math.abs(phaseOffset(a, a.timeAt(a.downbeatIndex + 9), b, pb, 2))).toBeCloseTo(0.5, 6);
+  });
+
+  it('Quantize at the window’s start: the loop starts inside B’s window', async () => {
+    await cued();
+    r.session.parkB(0.06);
+    expect(r.session.autoLoop('B')).toBe(true);
+    expect(r.session.snapshot().loops.B!.start).toBeGreaterThanOrEqual(0.05);
+  });
+});

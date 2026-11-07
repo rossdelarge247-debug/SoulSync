@@ -343,15 +343,17 @@ describe('A runs out mid-blend (37j): a Hand over', () => {
     expect(q.next).not.toHaveBeenCalled();
   });
 
-  it('B not in yet (starting): the blend stops and the player advances as it always does', async () => {
+  it('B not in yet (starting): the blend stops and the session asks the player for its next (step 6 review N1)', async () => {
     r.session.setLanes(laneA(), laneB({ queue: HARBOUR }));
     await r.advance(0.01);
     r.session.playB();
-    expect(r.session.ownsAdvance()).toBe(false);
+    // A on its deck: the element's end is the session's, never the player's own skip
+    expect(r.session.ownsAdvance()).toBe(true);
     r.el.ended = true;
     r.el.dispatchEvent(new Event('ended'));
     expect(r.session.snapshot().aOnDeck).toBe(false);
     expect(r.el.muted).toBe(false);
+    expect(q.next).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -746,9 +746,12 @@ export class DjMixSession {
   /** Something under the decks stopped: never "playing" while silent. */
   private broke(words: string): void {
     // the context stopped: deck A's place is frozen, so the element isn't
-    // put there (it's where the listener heard A last, near enough; L-new-2)
+    // put there (it's where the listener heard A last, near enough; L-new-2),
+    // except while A loops: the element ran on past the loop, so it comes
+    // back where A was heard, not a loop's length away (review round 2)
     if (this.v.solo) this.soloOut(0, words);
-    else if (this.v.aOnDeck || this.blending) this.hardStop(words, true, false);
+    else if (this.v.aOnDeck || this.blending)
+      this.hardStop(words, true, Boolean(this.v.loops.A?.active));
   }
 
   /** Let the engine go (its worklet, graph and lifecycle watch, review M4). */
@@ -1329,6 +1332,12 @@ export class DjMixSession {
     return this.quantizes(deck) && g ? g.timeAt(Math.round(g.beatAt(p))) : p;
   }
 
+  /** The first beat at or after track second p (p itself without a grid). */
+  private nextBeat(deck: DeckId, p: number): number {
+    const g = this.gridOf(deck);
+    return g ? g.timeAt(Math.ceil(g.beatAt(p) - 1e-9)) : p;
+  }
+
   /** A jump's target in phase with where the deck is now (Quantize), else as it is. */
   private inPhase(deck: DeckId, seconds: number, t: number): number {
     const g = this.gridOf(deck);
@@ -1411,7 +1420,14 @@ export class DjMixSession {
     const pos = this.deckPos(deck);
     if (pos === null) return false;
     const want = this.v.loopSize[deck];
-    const start = this.snap(deck, pos);
+    // on the beat, but never before what the deck has (its window's start)
+    const win = deck === 'A' ? this.aWin : this.bWin;
+    let start = this.snap(deck, pos);
+    if (win && start < win.offset + 0.05)
+      start =
+        this.gridOf(deck) && this.quantizes(deck)
+          ? this.nextBeat(deck, win.offset + 0.05)
+          : win.offset + 0.05;
     const end = this.fitEnd(deck, start, this.beatsFrom(deck, start, want));
     if (end === null) {
       this.say(
@@ -1436,7 +1452,9 @@ export class DjMixSession {
     }
     const pos = this.deckPos(deck);
     if (pos === null) return false;
-    const at = this.snap(deck, pos);
+    const win = deck === 'A' ? this.aWin : this.bWin;
+    let at = this.snap(deck, pos);
+    if (win && at < win.offset + 0.05) at = this.nextBeat(deck, win.offset + 0.05);
     this.update({ loopIn: { ...this.v.loopIn, [deck]: at } });
     this.say(`Deck ${deck} loop in`);
     return true;
@@ -2152,10 +2170,11 @@ export class DjMixSession {
 
   /** A ran out under a blend: whose advance it is (the player asks, media-player.js). */
   ownsAdvance(): boolean {
-    return (
-      (this.v.aOnDeck && this.v.phase === 'playing' && this.handOverWhy() === null) ||
-      this.v.phase === 'handing'
-    );
+    // A on its deck in the blend (B playing, starting, paused; A looping or
+    // not): the element's end is the session's to handle, never the player's
+    // own skip under the decks (step 6 review N1). It hands over, or stops
+    // the blend and asks the player for the next track itself.
+    return this.v.aOnDeck || this.v.phase === 'handing';
   }
 
   /**
@@ -3096,7 +3115,9 @@ export class DjMixSession {
       const la = this.v.loops.A;
       if (la?.active && this.el) {
         const t = this.el.currentTime;
-        if (t < la.start - 0.5 || t > la.end + 0.5) this.alignElement(0.25);
+        // and before it can reach the track's end under a loop near it (review N1)
+        const end = this.a?.duration ?? Infinity;
+        if (t < la.start - 0.5 || t > la.end + 0.5 || t > end - 1) this.alignElement(0.25);
       }
       // A running out while B plays is a Hand over (37j), over what's left of A
       const leftA = this.trackLeftA();
@@ -3590,11 +3611,11 @@ export class DjMixSession {
     if (this.v.phase === 'handing') return;
     if (this.v.phase === 'playing' && this.handOverWhy() === null) {
       if (this.handOver('ended', true)) return;
-      this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
-      this.d.player.next?.();
-      return;
     }
+    // the blend stops and the player goes on as it would have (its advance was left to us)
+    const owned = this.v.aOnDeck;
     this.hardStop(`${this.a?.title || 'The track'} ended: the blend stopped`, false, false);
+    if (owned) this.d.player.next?.();
   };
 
   /** Another track loading on the element (Next, a row played): the player obeys (37j). */
