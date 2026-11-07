@@ -166,11 +166,12 @@ describe('the advance', () => {
       new Function(
         'window',
         'playNextInQueue',
-        `let npSleepEndOfTrack = false, npXfadeActive = false, npLoadingQueueItem = false, npShuffleOn = false,
+        `let npAdvanceOwed = false;
+         let npSleepEndOfTrack = false, npXfadeActive = false, npLoadingQueueItem = false, npShuffleOn = false,
            npRepeatMode = 'off', npRadioMode = false, npQueueIndex = 0, currentTrack = { id: '1' };
          const npQueue = [{ id: '1' }, { id: '2' }];
          const setPlayingState = () => {}, npSpokenOnEnded = () => {};
-         ${pick('npAutomix', 'npAutomixOwnsAdvance', 'onAudioEnded')}
+         ${pick('npAutomix', 'npAutomixOwnsAdvance', 'onAudioEnded', 'npTrackEnded')}
          onAudioEnded();`,
       )(window, next);
     };
@@ -236,7 +237,7 @@ describe("[gauntlet review H1] 'ended' says when the next track is owed, through
        const npFetchRadioTracks = () => {};
        // the real sleep timer's end of track: it pauses and clears its flag
        function npFireSleepTimer() { npSleepEndOfTrack = false; }
-       ${pick('onAudioEnded', 'onAudioLoadStart')}
+       ${pick('onAudioEnded', 'npTrackEnded', 'onAudioLoadStart')}
        return { ended: onAudioEnded, loadstart: onAudioLoadStart,
                 get owed() { return npAdvanceOwed; }, get sleep() { return npSleepEndOfTrack; }, played };`,
     )(opts) as {
@@ -275,6 +276,54 @@ describe("[gauntlet review H1] 'ended' says when the next track is owed, through
     const last = player({ index: 2, loading: true });
     last.ended();
     expect(last.owed).toBe(false);
+  });
+});
+
+describe('DJ mode gives an end it owned back (step 6 round 3): SoulSyncPlayer.ended() is the player’s own end', () => {
+  function player(opts: { sleep?: boolean; queue?: number; index?: number }) {
+    return new Function(
+      'opts',
+      `let npAdvanceOwed = true;
+       let npSleepEndOfTrack = Boolean(opts.sleep), npXfadeActive = false, npRadioMode = false;
+       let npQueue = Array.from({ length: opts.queue ?? 2 }, (_, i) => ({ id: String(i + 1) }));
+       let npQueueIndex = opts.index ?? 0, npShuffleOn = false, npRepeatMode = 'off', npLoadingQueueItem = false;
+       let currentTrack = { id: '1', kind: 'library' };
+       const played = [], states = [], slept = [];
+       const setPlayingState = (on) => states.push(on), npSpokenOnEnded = () => {};
+       const playNextInQueue = () => played.push(npQueueIndex + 1);
+       const npFetchRadioTracks = () => {};
+       function npFireSleepTimer() { npSleepEndOfTrack = false; slept.push(true); }
+       ${pick('npTrackEnded')}
+       return { ended: npTrackEnded, played, states, slept, get owed() { return npAdvanceOwed; } };`,
+    )(opts) as {
+      ended: () => void;
+      played: number[];
+      states: boolean[];
+      slept: boolean[];
+      owed: boolean;
+    };
+  }
+
+  it('Up next empty: not playing any more, nothing played, nothing owed', () => {
+    const p = player({ queue: 1 });
+    p.ended();
+    expect(p.states).toEqual([false]);
+    expect(p.played).toEqual([]);
+    expect(p.owed).toBe(false);
+  });
+
+  it('“Sleep: end of track”: the player pauses there and doesn’t advance', () => {
+    const p = player({ sleep: true });
+    p.ended();
+    expect(p.slept).toEqual([true]);
+    expect(p.played).toEqual([]);
+    expect(p.states).toEqual([false]);
+  });
+
+  it('a next track: exactly one advance', () => {
+    const p = player({});
+    p.ended();
+    expect(p.played).toEqual([1]);
   });
 });
 
