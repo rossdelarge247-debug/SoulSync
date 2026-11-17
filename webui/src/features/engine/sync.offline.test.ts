@@ -240,7 +240,7 @@ describe('the engine’s level (the limiter’s makeup gain taken back)', () => 
       engine.load('A', prepareDeck(asBuffer({ left, right: left.slice() }), 0));
       engine.play('A', 0, 0);
       await engine.sync();
-      const out = (await ctx.startRendering()).getChannelData(0);
+      const out = (await ctx.startRendering()).getChannelData(0).slice();
       let e = 0;
       let peak = 0;
       for (let i = SR; i < n; i++) {

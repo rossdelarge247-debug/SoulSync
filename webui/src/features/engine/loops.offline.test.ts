@@ -55,7 +55,7 @@ async function render(
   engine.load('A', prepareDeck(data, 0));
   setup(engine);
   await engine.sync();
-  return { x: (await ctx.startRendering()).getChannelData(0), engine };
+  return { x: (await ctx.startRendering()).getChannelData(0).slice(), engine };
 }
 
 /** Where each click is (frames, interpolated a little from the three samples around its peak). */

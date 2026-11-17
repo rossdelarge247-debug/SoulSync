@@ -175,7 +175,10 @@ function isolator(ctx: BaseAudioContext, input: AudioNode) {
     const scale = ctx.createGain();
     scale.gain.value = 1 / DB_SPAN;
     const shaper = ctx.createWaveShaper();
-    shaper.curve = bandCurve() as Float32Array<ArrayBuffer>;
+    // a copy each: one array shared by every shaper (and every engine's
+    // context) isn't safe where an implementation keeps its memory rather
+    // than a copy (node-web-audio-api garbled renders that way, step 7)
+    shaper.curve = new Float32Array(bandCurve()) as Float32Array<ArrayBuffer>;
     shaper.oversample = 'none';
     db.connect(scale).connect(shaper).connect(g.gain);
     db.start();

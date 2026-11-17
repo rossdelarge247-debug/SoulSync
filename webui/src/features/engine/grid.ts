@@ -44,6 +44,8 @@ export class BeatGrid {
   readonly firstBeat: number;
   readonly downbeatIndex: number;
   readonly beats: readonly number[] | null;
+  /** the analysis found its downbeats (bars line up on them); false: beat 0 is only a guess */
+  readonly hasDownbeats: boolean;
 
   constructor(opts: {
     kind?: 'constant' | 'beats';
@@ -51,6 +53,7 @@ export class BeatGrid {
     firstBeat: number;
     downbeatIndex?: number;
     beats?: readonly number[] | null;
+    hasDownbeats?: boolean;
   }) {
     if (!(opts.period > 0) || !Number.isFinite(opts.period))
       throw new Error('a grid needs a period');
@@ -59,6 +62,7 @@ export class BeatGrid {
     this.firstBeat = opts.firstBeat;
     this.downbeatIndex = opts.downbeatIndex ?? 0;
     this.beats = this.kind === 'beats' ? (opts.beats ?? null) : null;
+    this.hasDownbeats = opts.hasDownbeats ?? true;
   }
 
   /** The time (seconds in the track) of beat i (fractional). */
@@ -118,6 +122,7 @@ export function gridFromApi(g: ApiGrid | null | undefined): BeatGrid | null {
     firstBeat: g.grid.first_beat,
     downbeatIndex: g.downbeats?.beat_index ?? 0,
     beats: g.grid.beats,
+    hasDownbeats: Boolean(g.downbeats),
   });
 }
 

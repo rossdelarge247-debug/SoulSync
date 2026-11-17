@@ -98,6 +98,13 @@ export interface EngineOptions {
    * cut), and given back when the engine goes.
    */
   element?: { source: AudioNode; sourceOut: GainNode } | null;
+  /**
+   * Auto-mix (step 7): the unity gain the element reaches the player's
+   * chain through, not routed: only its join (`quietElement`,
+   * `joinElement`) uses it, so a deck handing back to the element crosses
+   * over sample for sample.
+   */
+  sourceOut?: GainNode | null;
   /** how often the worklet reports positions (frames) */
   reportFrames?: number;
   limiter?: boolean;
@@ -154,6 +161,7 @@ export class Engine implements DeckPort {
     this.node.connect(this.graph.decks.A.input, 0);
     this.node.connect(this.graph.decks.B.input, 1);
     if (opts.element && this.graph.element) this.routeElement(opts.element);
+    this.sourceOut = opts.element ? null : (opts.sourceOut ?? null);
     try {
       this.start(opts);
     } catch (e) {
@@ -209,13 +217,12 @@ export class Engine implements DeckPort {
     }
     await loading;
     // measured first (the element is routed in the constructor), never
-    // waited on long: Chromium's 6 ms after half a second (review L6)
-    const look = opts.element
-      ? await Promise.race([
-          measureLookahead(opts.context.sampleRate),
-          new Promise<number>((done) => setTimeout(() => done(LIMIT_DELAY_S), 500)),
-        ])
-      : LIMIT_DELAY_S;
+    // waited on long: Chromium's 6 ms after half a second (review L6);
+    // every engine's (auto-mix's lines its decks up with it too, step 7)
+    const look = await Promise.race([
+      measureLookahead(opts.context.sampleRate),
+      new Promise<number>((done) => setTimeout(() => done(LIMIT_DELAY_S), 500)),
+    ]);
     const engine = new Engine(opts);
     engine.lookahead = look;
     return engine;
@@ -420,6 +427,56 @@ export class Engine implements DeckPort {
   // -- DJ mode's element strip (step 5) --
 
   private routed: { source: AudioNode; sourceOut: GainNode } | null = null;
+  /** auto-mix's way to the element's level (not routed), for its join */
+  private sourceOut: GainNode | null = null;
+  /** the element held quiet for a join, not yet back up */
+  private quiet = false;
+
+  /** The gain the element is heard through: the strip's input when routed, else the player's sourceOut. */
+  private elementGain(): AudioParam | null {
+    if (this.routed && this.graph.element) return this.graph.element.input.gain;
+    return this.sourceOut?.gain ?? null;
+  }
+
+  /**
+   * The element quiet from `at` (over `seconds`; 0: at once) for a join: a
+   * deck is about to hand over to it (Hand over, Undo, auto-mix's hand-back).
+   */
+  quietElement(at: number, seconds = 0): void {
+    const g = this.elementGain();
+    if (!g) return;
+    this.quiet = true;
+    try {
+      if (seconds > 0) fade(g, g.value, 0, at, seconds);
+      else {
+        g.cancelScheduledValues(at);
+        g.setValueAtTime(0, at);
+      }
+    } catch {
+      /* a closed context */
+    }
+  }
+
+  /**
+   * The join (step 7): the element up from 0 over `seconds` from `at`, as
+   * the deck going out fades over the same seconds, so the two cross over
+   * sample for sample (the sum never over the level, as it was by a few
+   * dB when the element came in at full). Also gives a quiet element back.
+   */
+  joinElement(at: number, seconds: number): void {
+    const g = this.elementGain();
+    if (!g || !this.quiet) return;
+    this.quiet = false;
+    try {
+      // the deck's fade is heard the limiter's lookahead later: the rise with it
+      const from = at + this.lookahead;
+      g.cancelScheduledValues(at);
+      g.setValueAtTime(0, at);
+      fade(g, 0, 1, from, Math.max(0.001, seconds));
+    } catch {
+      /* a closed context */
+    }
+  }
 
   /** The element's sound onto the element strip: a crossfade, nothing cut. */
   private routeElement(el: { source: AudioNode; sourceOut: GainNode }): void {
@@ -492,6 +549,16 @@ export class Engine implements DeckPort {
 
   dispose(): void {
     this.watch?.stop();
+    // a join left half done: the element's own level back
+    if (this.quiet && this.sourceOut) {
+      try {
+        this.sourceOut.gain.cancelScheduledValues(0);
+        this.sourceOut.gain.value = 1;
+      } catch {
+        /* a closed context */
+      }
+      this.quiet = false;
+    }
     for (const id of IDS) this.node.port.postMessage({ type: 'unload', deck: IDS.indexOf(id) });
     try {
       this.node.disconnect();

@@ -34,15 +34,22 @@ const saved = g.AudioWorkletNode;
 
 const go = globalThis as unknown as { OfflineAudioContext?: unknown };
 const savedOffline = go.OfflineAudioContext;
-beforeAll(() => {
+beforeAll(async () => {
   g.AudioWorkletNode = NodeWorkletNode;
-  // the engine measures the limiter's lookahead with one (this implementation's)
+  // the engine measures the limiter's lookahead with one (this implementation's),
+  // once, before any render: the engines then never wait on it
   go.OfflineAudioContext = OfflineAudioContext;
+  await measureLookahead(SR);
 });
 afterAll(() => {
   g.AudioWorkletNode = saved;
   go.OfflineAudioContext = savedOffline;
 });
+
+// Every render's samples are copied out (`.slice()`): node-web-audio-api's
+// getChannelData is a view on the rendered buffer's memory, and once that
+// buffer is collected the next render can write over it (one run of this
+// file in ten, before: garbage samples or a render gone quiet).
 
 /** The track: a 440 Hz sine at full scale, as the element's oscillator is, and in phase with it. */
 function sineTrack(seconds: number) {
@@ -66,6 +73,14 @@ function playerChain(ctx: OfflineAudioContext) {
   comp.release.value = 0.25;
   band.connect(comp).connect(ctx.destination);
   return band;
+}
+
+/** The player's way in (media-player.js npSourceOut): a unity gain, always two channels. */
+function playerWayIn(ctx: OfflineAudioContext) {
+  const g = ctx.createGain();
+  g.channelCount = 2;
+  g.channelCountMode = 'explicit';
+  return g;
 }
 
 /** RMS in dB over [a, b) seconds. */
@@ -104,11 +119,11 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       osc.frequency.value = HZ;
       const into = playerChain(ctx);
       if (unity) {
-        const sourceOut = ctx.createGain();
+        const sourceOut = playerWayIn(ctx);
         osc.connect(sourceOut).connect(into);
       } else osc.connect(into);
       osc.start();
-      return (await ctx.startRendering()).getChannelData(0);
+      return (await ctx.startRendering()).getChannelData(0).slice();
     };
     const plain = await render(false);
     const now = await render(true);
@@ -124,7 +139,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       osc.frequency.value = HZ;
       const elVolume = ctx.createGain();
       elVolume.gain.value = 0.7;
-      const sourceOut = ctx.createGain();
+      const sourceOut = playerWayIn(ctx);
       const into = playerChain(ctx);
       osc.connect(elVolume).connect(sourceOut).connect(into);
       osc.start();
@@ -142,7 +157,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
         expect(engine.elementParams()).not.toBeNull();
         await engine.sync();
       }
-      return (await ctx.startRendering()).getChannelData(0);
+      return (await ctx.startRendering()).getChannelData(0).slice();
     };
     const straight = rmsDb(await render(false), 0.5, 0.95);
     const routed = rmsDb(await render(true), 0.5, 0.95);
@@ -164,7 +179,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       // the element's volume (the player's level, 0.7), as MediaElementSource has it applied
       const elVolume = ctx.createGain();
       elVolume.gain.value = vol;
-      const sourceOut = ctx.createGain();
+      const sourceOut = playerWayIn(ctx);
       const into = playerChain(ctx);
       osc.connect(elVolume).connect(sourceOut).connect(into);
       osc.start(0);
@@ -201,7 +216,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       master.linearRampToValueAtTime(0, B + FADE);
       engine.stop('A', Math.round((B + FADE + 0.05) * SR));
       await engine.sync();
-      const x = (await ctx.startRendering()).getChannelData(0);
+      const x = (await ctx.startRendering()).getChannelData(0).slice();
       const onElement = rmsDb(x, 0.6, 0.95);
       const onDeck = rmsDb(x, 1.3, 1.95);
       const back = rmsDb(x, 2.3, 2.9);
@@ -227,7 +242,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     const ctx = new OfflineAudioContext(1, SR, SR);
     const osc = ctx.createOscillator();
     osc.frequency.value = HZ;
-    const sourceOut = ctx.createGain();
+    const sourceOut = playerWayIn(ctx);
     const tap = ctx.createGain();
     tap.connect(ctx.destination);
     osc.connect(sourceOut).connect(tap);
@@ -240,7 +255,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       watch: false,
     });
     await engine.sync();
-    const x = (await ctx.startRendering()).getChannelData(0);
+    const x = (await ctx.startRendering()).getChannelData(0).slice();
     let peak = 0;
     for (let i = SR / 2; i < SR; i++) peak = Math.max(peak, Math.abs(x[i]!));
     const level = rmsDb(x, 0.5, 0.95);
@@ -259,7 +274,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     osc.frequency.value = HZ;
     const half = ctx.createGain();
     half.gain.value = 0.5;
-    const sourceOut = ctx.createGain();
+    const sourceOut = playerWayIn(ctx);
     const tap = ctx.createGain();
     tap.connect(ctx.destination);
     osc.connect(half).connect(sourceOut).connect(tap);
@@ -281,7 +296,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     // the first one's late cut comes and goes
     await new Promise((r) => setTimeout(r, (ROUTE_S + 0.12) * 1000));
     await second.sync();
-    const x = (await ctx.startRendering()).getChannelData(0);
+    const x = (await ctx.startRendering()).getChannelData(0).slice();
     const level = rmsDb(x, 0.5, 0.95);
     console.info(`made, let go, made again: ${level.toFixed(2)} dB (one way is −9.03)`);
     expect(Math.abs(level - -9.03)).toBeLessThan(0.3);
@@ -290,7 +305,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
   it('an engine that fails as it’s made gives the element straight back (review L2)', async () => {
     const ctx = new OfflineAudioContext(1, SR / 4, SR);
     const osc = ctx.createOscillator();
-    const sourceOut = ctx.createGain();
+    const sourceOut = playerWayIn(ctx);
     osc.connect(sourceOut).connect(ctx.destination);
     const broken = {
       addEventListener: () => {
@@ -334,7 +349,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       buf.getChannelData(0).set(noise);
       const src = ctx.createBufferSource();
       src.buffer = buf;
-      const sourceOut = ctx.createGain();
+      const sourceOut = playerWayIn(ctx);
       const tap = ctx.createGain();
       tap.connect(ctx.destination);
       src.connect(sourceOut).connect(tap);
@@ -362,7 +377,7 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
       // as takeOverNow: deck A at T from where the element is, its lookahead on
       if (which === 'deck') engine.play('A', 0.5, 0.5 + engine.lookahead);
       await engine.sync();
-      return (await ctx.startRendering()).getChannelData(0);
+      return (await ctx.startRendering()).getChannelData(0).slice();
     };
     const el = await render('element');
     const deck = await render('deck');
@@ -384,4 +399,150 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     );
     expect(Math.abs(bestLag)).toBeLessThanOrEqual(1);
   }, 120_000);
+
+  for (const via of [
+    'the element strip (DJ mode)',
+    'the player’s own way in (auto-mix)',
+  ] as const) {
+    it(`the join through ${via}: a deck handing to the element never sums over the level (step 7)`, async () => {
+      const render = async (crossover: boolean) => {
+        const seconds = 1.2;
+        const ctx = new OfflineAudioContext(1, seconds * SR, SR);
+        const osc = ctx.createOscillator();
+        osc.frequency.value = HZ;
+        const elVolume = ctx.createGain();
+        elVolume.gain.value = 0.7;
+        const sourceOut = playerWayIn(ctx);
+        const tap = ctx.createGain();
+        tap.connect(ctx.destination);
+        osc.connect(elVolume).connect(sourceOut).connect(tap);
+        osc.start(0);
+        const routed = via.startsWith('the element strip');
+        const engine = await Engine.create({
+          context: ctx as unknown as BaseAudioContext,
+          workletUrl: WORKLET_PATH,
+          tap: tap as unknown as AudioNode,
+          element: routed
+            ? {
+                source: elVolume as unknown as AudioNode,
+                sourceOut: sourceOut as unknown as GainNode,
+              }
+            : null,
+          sourceOut: routed ? null : (sourceOut as unknown as GainNode),
+          watch: false,
+        });
+        engine.load('A', prepareDeck(sineTrack(seconds + 1), 0));
+        // the deck plays the track, in line with the element; the element quiet
+        const master = engine.graph.master.gain;
+        master.value = 0.7;
+        engine.play('A', 0.05, 0.05 + engine.lookahead);
+        engine.quietElement(0.1);
+        // the player joins at 0.6 s: the deck out over 60 ms, the element up
+        const J = 0.6;
+        master.setValueAtTime(0.7, J);
+        master.linearRampToValueAtTime(0, J + 0.06);
+        if (crossover) engine.joinElement(J, 0.06);
+        else {
+          // as before: the element at full at once
+          const g = routed ? engine.graph.element!.input.gain : sourceOut.gain;
+          g.setValueAtTime(1, J);
+        }
+        await engine.sync();
+        return (await ctx.startRendering()).getChannelData(0).slice();
+      };
+      const peakDb = (x: Float32Array, a: number, b: number) => {
+        let p = 0;
+        for (let i = Math.round(a * SR); i < Math.round(b * SR); i++)
+          p = Math.max(p, Math.abs(x[i]!));
+        return 20 * Math.log10(p);
+      };
+      // a render that isn't a sine at a sane level is a broken graph, not a measure
+      const sane = (x: Float32Array) =>
+        x.every((v) => Number.isFinite(v) && Math.abs(v) < 4) && peakDb(x, 0.3, 0.55) > -30;
+      const now = await render(true);
+      const before = await render(false);
+      expect(sane(now)).toBe(true);
+      const steady = peakDb(now, 0.3, 0.55);
+      const through = peakDb(now, 0.58, 0.7);
+      const after = peakDb(now, 0.8, 1.1);
+      const old = peakDb(before, 0.58, 0.7);
+      console.info(
+        `join through ${via} (peak dB): steady ${steady.toFixed(2)} · through the join ${through.toFixed(2)} · after ${after.toFixed(2)} · as before (the element at full at once) ${old.toFixed(2)}`,
+      );
+      expect(through - steady).toBeLessThan(0.5);
+      expect(Math.abs(after - steady)).toBeLessThan(0.5);
+    }, 60_000);
+  }
+
+  it('auto-mix into the player’s chain (step 7): with its decks idle the player is bit for bit as without it', async () => {
+    const render = async (withEngine: boolean) => {
+      const ctx = new OfflineAudioContext(1, SR / 2, SR);
+      const osc = ctx.createOscillator();
+      osc.frequency.value = HZ;
+      const sourceOut = playerWayIn(ctx);
+      const into = playerChain(ctx);
+      osc.connect(sourceOut).connect(into);
+      osc.start();
+      if (withEngine) {
+        const engine = await Engine.create({
+          context: ctx as unknown as BaseAudioContext,
+          workletUrl: WORKLET_PATH,
+          tap: into as unknown as AudioNode,
+          sourceOut: sourceOut as unknown as GainNode,
+          watch: false,
+        });
+        engine.graph.master.gain.value = 0;
+        await engine.sync();
+      }
+      return (await ctx.startRendering()).getChannelData(0).slice();
+    };
+    const plain = await render(false);
+    const idle = await render(true);
+    let diff = 0;
+    for (let i = 0; i < plain.length; i++) diff = Math.max(diff, Math.abs(plain[i]! - idle[i]!));
+    console.info(`auto-mix idle on the player's chain: largest difference ${diff}`);
+    expect(diff).toBe(0);
+  }, 60_000);
+
+  it('auto-mix’s take-over through the player’s chain: deck A in line with the element, the level the same before and after (step 7)', async () => {
+    const seconds = 2;
+    const ctx = new OfflineAudioContext(1, seconds * SR, SR);
+    const osc = ctx.createOscillator();
+    osc.frequency.value = HZ;
+    const elVolume = ctx.createGain();
+    elVolume.gain.value = 0.7;
+    const sourceOut = playerWayIn(ctx);
+    const into = playerChain(ctx);
+    osc.connect(elVolume).connect(sourceOut).connect(into);
+    osc.start(0);
+    const engine = await Engine.create({
+      context: ctx as unknown as BaseAudioContext,
+      workletUrl: WORKLET_PATH,
+      tap: into as unknown as AudioNode,
+      sourceOut: sourceOut as unknown as GainNode,
+      watch: false,
+    });
+    engine.load('A', prepareDeck(sineTrack(seconds + 1), 0));
+    const master = engine.graph.master.gain;
+    master.value = 0;
+    // as controller.ts takeOver: deck A at T from where the element is, its lookahead on
+    const T = 1;
+    const FADE = 0.08;
+    engine.play('A', T, T + engine.lookahead);
+    master.setValueAtTime(0, T);
+    master.linearRampToValueAtTime(0.7, T + FADE);
+    for (let n = 1; n <= 6; n++)
+      elVolume.gain.setValueAtTime(0.7 * (1 - n / 6), T + (n * FADE) / 6);
+    await engine.sync();
+    const x = (await ctx.startRendering()).getChannelData(0).slice();
+    const before = rmsDb(x, 0.6, 0.95);
+    const after = rmsDb(x, 1.3, 1.9);
+    const through = spread(x, 0.95, 1.2);
+    console.info(
+      `auto-mix take-over (dB): element ${before.toFixed(2)} · deck A ${after.toFixed(2)} · through ${through.lo.toFixed(2)}…${through.hi.toFixed(2)}`,
+    );
+    expect(Math.abs(after - before)).toBeLessThan(0.1);
+    expect(before - through.lo).toBeLessThan(3);
+    expect(through.hi - before).toBeLessThan(1.5);
+  }, 60_000);
 });
