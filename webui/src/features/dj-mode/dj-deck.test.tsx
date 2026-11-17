@@ -1014,3 +1014,57 @@ describe('step 6: loops, beatjump, Quantize and the phase meter', () => {
     expect(pb.dataset.mode).toBe('idle');
   });
 });
+
+describe('step 7: a loop kept in a hot cue (question 521)', () => {
+  it('⇧-click an empty cue while B loops: a loop cue, saved with its length; pressed later it jumps and loops', async () => {
+    resetDjPrefs(null);
+    await withB();
+    const cue1 = document.querySelector<HTMLElement>('[data-dj-strip="b"] [data-dj-cue="1"]')!;
+    expect(cue1.title).toBe(
+      'Cue 1: pick it, then click the waveform to place it (1) · ⇧-click while looping to keep the loop here',
+    );
+    // not looping: said, nothing kept
+    fireEvent.click(cue1, { shiftKey: true });
+    expect(said.at(-1)).toBe('Deck B isn’t looping: ⇧ on an empty cue keeps the loop playing');
+    expect(store.snapshot().b!.cues[0]).toBeNull();
+    act(() => {
+      r.session.previewB(true);
+    });
+    await flush(400);
+    const b = document.querySelector<HTMLElement>('[data-dj-loops="b"]')!;
+    fireEvent.click(within(b).getByRole('button', { name: 'Loop' }));
+    const loop = r.session.snapshot().loops.B!;
+    expect(loop.active).toBe(true);
+    fireEvent.click(cue1, { shiftKey: true });
+    const kept = store.snapshot().b!.cues[0]!;
+    expect(kept.loop).toBeCloseTo(loop.end - loop.start, 4);
+    expect(kept.seconds).toBeCloseTo(loop.start, 2);
+    expect(said.at(-1)).toBe('Loop 1 on deck B kept: 4 beats');
+    expect(cue1).toHaveAttribute('data-loop');
+    expect(cue1.textContent).not.toContain('↻');
+    expect(cue1.title).toBe('Loop 1: jump there and loop (1) · ⌥-click to move it');
+    expect(cue1.getAttribute('aria-label')).toMatch(/^Loop 1, bar [\d.]+, [\d.]+ s$/);
+    // drawn on the lane as a loop
+    expect(
+      document.querySelector('[data-dj-lane="b"] [data-dj-cue-disc="1"][data-loop]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[data-dj-lane="b"] [data-dj-cue-loop="1"]')).not.toBeNull();
+    await flush(700);
+    const put = cuesPut.at(-1) as { cues: { slot: number; loop?: number | null }[] };
+    expect(put.cues.find((c) => c.slot === 1)!.loop).toBeCloseTo(kept.loop!, 4);
+    // a set cue isn't written over
+    const cue2 = document.querySelector<HTMLElement>('[data-dj-strip="b"] [data-dj-cue="2"]')!;
+    fireEvent.click(cue2, { shiftKey: true });
+    expect(said.at(-1)).toBe('Cue 2 is set: ⌥-click it, then Delete, to free it');
+    expect(store.snapshot().b!.cues[1]!.loop).toBeUndefined();
+    // loop off, somewhere else; the loop cue pressed: there, looping again
+    fireEvent.click(within(b).getByRole('button', { name: 'Loop' }));
+    expect(r.session.snapshot().loops.B!.active).toBe(false);
+    fireEvent.click(cue1);
+    const again = r.session.snapshot().loops.B!;
+    expect(again.active).toBe(true);
+    expect(again.start).toBeCloseTo(kept.seconds, 2);
+    expect(again.end - again.start).toBeCloseTo(kept.loop!, 3);
+    expect(said.at(-1)).toMatch(/: from the saved loop$/);
+  });
+});

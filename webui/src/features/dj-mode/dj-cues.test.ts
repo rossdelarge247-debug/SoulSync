@@ -8,11 +8,13 @@ import {
   cueAt,
   cueButtonName,
   cueButtonText,
+  cueButtonTitle,
   cueSeconds,
   cueSetOf,
   CueStore,
   cueWords,
   emptyCues,
+  loopLengthWords,
   MAX_BAR,
   MIN_BAR,
   placeLabel,
@@ -133,5 +135,23 @@ describe('the store', () => {
     store.save('2', emptyCues(), onFail);
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS + 10);
     expect(onFail).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a saved loop (step 7, question 521)', () => {
+  it('read from the route with its length (a null one is a plain cue); its words and its mark', () => {
+    const set = cueSetOf([
+      { slot: 1, bar: 4, seconds: 9, loop: 1.875 },
+      { slot: 2, bar: 8, seconds: 17, loop: null as unknown as number },
+      { slot: 3, bar: 8, seconds: 17, loop: -2 },
+    ]);
+    expect(set[0]).toEqual({ slot: 1, bar: 4, seconds: 9, loop: 1.875 });
+    expect(set[1]).toEqual({ slot: 2, bar: 8, seconds: 17 });
+    expect(set[2]).toEqual({ slot: 3, bar: 8, seconds: 17 });
+    expect(cueButtonText(1, set[0]!)).toBe('1 · 5');
+    expect(cueButtonName(1, set[0]!, false)).toBe('Loop 1, bar 5, 1.9 s');
+    expect(cueButtonTitle(1, set[0]!)).toBe('Loop 1: jump there and loop (1) · ⌥-click to move it');
+    expect(cueButtonTitle(2, set[1]!)).toBe('Cue 2: jump to it (2) · ⌥-click to move it');
+    expect(loopLengthWords(15.4)).toBe('15 s');
   });
 });

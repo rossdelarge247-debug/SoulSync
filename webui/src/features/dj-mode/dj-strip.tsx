@@ -87,12 +87,14 @@ export function LaneStrip({
               aria-keyshortcuts={String(slot)}
               data-dj-cue={slot}
               title={cueButtonTitle(slot, cue)}
-              // ⌥ picks a set cue to move it; a plain press only jumps (M1)
-              onClick={(e) => store.pressCue(deck, slot, { move: e.altKey })}
+              data-loop={cue?.loop ? '' : undefined}
+              // ⌥ picks a set cue to move it; a plain press only jumps (M1);
+              // ⇧ keeps the deck's loop in an empty one (step 7)
+              onClick={(e) => store.pressCue(deck, slot, { move: e.altKey, keep: e.shiftKey })}
               onKeyDown={(e) => {
-                if (e.altKey && (e.key === 'Enter' || e.key === ' ')) {
+                if ((e.altKey || e.shiftKey) && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault();
-                  store.pressCue(deck, slot, { move: true });
+                  store.pressCue(deck, slot, { move: e.altKey, keep: e.shiftKey && !e.altKey });
                 }
               }}
             >

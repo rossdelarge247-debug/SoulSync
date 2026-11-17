@@ -46,6 +46,7 @@ import {
   cueSeconds,
   cueWords,
   emptyCues,
+  loopLengthWords,
   MAIN_SLOT,
   withCue,
   withoutCue,
@@ -210,6 +211,8 @@ export interface MixerHooks {
   ownsAdvance?(): boolean;
   /** loops and beatjump (step 6) */
   loopAction?(deck: 'A' | 'B', action: LoopAction): boolean;
+  /** a saved loop pressed (step 7): the deck jumps there and loops */
+  loopCue?(deck: 'A' | 'B', seconds: number, length: number): 'seek' | 'cue' | 'jumped' | 'outside';
   /** Quantize's toggle (step 6) */
   toggleQuantize?(): void;
 }
@@ -1152,10 +1155,19 @@ export class DjModeStore {
    * only `move` (⌥-click, or ⌥ with Enter on the button) picks a set one, so
    * the next click on the waveform moves it.
    */
-  pressCue(deck: Deck, slot: number, { move = false }: { move?: boolean } = {}): void {
+  pressCue(
+    deck: Deck,
+    slot: number,
+    { move = false, keep = false }: { move?: boolean; keep?: boolean } = {},
+  ): void {
     const lane = this.s[deck];
     if (!this.s.on || !lane || slot < 1 || slot > 4) return;
     const cue = lane.cues[slot - 1] ?? null;
+    // ⇧ (step 7): the deck's loop kept in an empty slot, Traktor's loop cue
+    if (keep) {
+      this.keepLoop(deck, slot);
+      return;
+    }
     if (!cue || move) {
       if (this.s.pick[deck] === slot) {
         this.clearPick(deck);
@@ -1173,13 +1185,48 @@ export class DjModeStore {
     if (this.s.pick[deck] === slot) this.set({ pick: { ...this.s.pick, [deck]: null } });
     const grid = lane.phase === 'ready' ? (lane.grid?.grid ?? null) : null;
     const at = cueSeconds(cue, grid);
-    const how = this.mixer?.jump?.(this.deckName(deck), at) ?? (deck === 'a' ? 'seek' : 'cue');
+    // a saved loop jumps there and loops (step 7); a plain cue jumps
+    const how =
+      cue.loop && this.mixer?.loopCue
+        ? this.mixer.loopCue(this.deckName(deck), at, cue.loop)
+        : (this.mixer?.jump?.(this.deckName(deck), at) ?? (deck === 'a' ? 'seek' : 'cue'));
     if (how === 'outside') {
       this.say(`Cue ${slot} is outside deck ${this.deckName(deck)}’s 3 minutes`);
       return;
     }
     if (deck === 'b' && how === 'cue') this.setLane('b', { cue: at });
-    this.say(cueWords('jumped', this.deckName(deck), cue));
+    if (!cue.loop) this.say(cueWords('jumped', this.deckName(deck), cue));
+  }
+
+  /**
+   * ⇧ on an empty cue while its deck loops (step 7): the loop kept there, a
+   * loop cue (its start on the beat with Quantize, its length in seconds).
+   */
+  private keepLoop(deck: Deck, slot: number): void {
+    const lane = this.s[deck];
+    if (!lane) return;
+    const D = this.deckName(deck);
+    const loop = this.s.mix.loops?.[D] ?? null;
+    if (!loop?.active) {
+      this.say(`Deck ${D} isn’t looping: ⇧ on an empty cue keeps the loop playing`);
+      return;
+    }
+    if (lane.cues[slot - 1]) {
+      this.say(`Cue ${slot} is set: ⌥-click it, then Delete, to free it`);
+      return;
+    }
+    const grid =
+      lane.phase === 'ready' && this.prefs.snapshot().quantize ? (lane.grid?.grid ?? null) : null;
+    const cue: Cue = {
+      ...cueAt(slot, loop.start, grid, lane.duration ?? 0),
+      loop: Math.round((loop.end - loop.start) * 1e5) / 1e5,
+    };
+    const cues = withCue(lane.cues, cue);
+    this.setLane(deck, { cues });
+    this.saveCues(lane.track.id, cues);
+    this.say(
+      `Loop ${slot} on deck ${D} kept: ${loop.beats ? `${loop.beats} beats` : loopLengthWords(cue.loop!)}`,
+    );
   }
 
   /** The picked cue placed (or moved) where the waveform was clicked: on the nearest beat; the pick goes. */
@@ -1190,7 +1237,9 @@ export class DjModeStore {
     const grid =
       lane.phase === 'ready' && this.prefs.snapshot().quantize ? (lane.grid?.grid ?? null) : null;
     const had = lane.cues[slot - 1];
-    const cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
+    const cue: Cue = cueAt(slot, seconds, grid, lane.duration ?? 0);
+    // a loop cue moved stays a loop cue
+    if (had?.loop) cue.loop = had.loop;
     const cues = withCue(lane.cues, cue);
     this.setLane(deck, { cues });
     // one place (or move) a pick: a later click can't move it again by accident (M1)

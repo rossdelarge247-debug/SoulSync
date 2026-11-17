@@ -430,3 +430,30 @@ describe('review L1: Play B from the preview catches up within 8% of Sync’s sp
     expect(worst).toBeLessThan(0.081);
   });
 });
+
+describe('step 7: the join (Hand over, Undo) crosses over, never both at full', () => {
+  it('Hand over: deck B down and the element up over the same 60 ms; the sum stays at one', async () => {
+    await cued();
+    r.session.playB();
+    await r.advance(3);
+    r.session.setCentre('xf', 100);
+    await r.advance(0.05);
+    r.session.handOver('press');
+    // the bar, then the player's 200 ms load: deck B and the element meet
+    let worst = 0;
+    let joined = false;
+    for (let i = 0; i < 800; i++) {
+      await r.advance(0.005);
+      const t = r.engine.port.time;
+      const deck = r.engine.value('B.xf', t);
+      const el = r.engine.join.browser.valueAt(t);
+      if (r.engine.port.stops.B !== Infinity && r.engine.port.stops.B / 48000 < t) continue;
+      if (el < 1) joined = true;
+      // the element heard once the player has it (playing, unmuted)
+      if (!r.el.paused && !r.el.muted) worst = Math.max(worst, deck + el);
+    }
+    expect(joined).toBe(true);
+    expect(worst).toBeLessThanOrEqual(1.000001);
+    expect(r.engine.join.browser.valueAt(r.engine.port.time)).toBe(1);
+  });
+});

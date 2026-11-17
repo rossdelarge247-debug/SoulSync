@@ -255,6 +255,9 @@ export interface EngineLike {
   loopAt?(deck: DeckId, at?: number): { start: number; end: number } | null;
   /** move a deck by track seconds from a frame, its map's shape kept */
   shift?(deck: DeckId, atFrame: number, delta: number): void;
+  /** the element quiet for a join, then up as the deck going out fades (step 7) */
+  quietElement?(at: number, seconds?: number): void;
+  joinElement?(at: number, seconds: number): void;
   /** the limiter's lookahead measured on this browser (seconds), else LIMIT_DELAY_S */
   lookahead?: number;
   /** the context stopping under the decks (lifecycle.ts), not the listener's own pause */
@@ -364,6 +367,8 @@ const HAND_TAU = 0.06;
 const HAND_MAX = 4;
 /** Play B from B's preview: its catch-up onto A's beat stays within this of Sync's speed (review L1) */
 const CATCH_UP = 0.08;
+/** … looking this many of A's bars ahead for one B's downbeat can reach (step 7) */
+const BAR_SEARCH = 16;
 /** an arrow-key nudge: 4% faster or slower while held */
 export const NUDGE = 0.04;
 /** A window starts this far before where it's needed. */
@@ -1295,6 +1300,31 @@ export class DjMixSession {
     return 'jumped';
   }
 
+  /**
+   * A saved loop pressed (step 7, Traktor's loop cue): the deck jumps there
+   * as a cue does (in phase with Quantize) and loops from the cue's place
+   * for its length (kept inside the deck's window). A before Play B is the
+   * player's seek, and its loop waits for its deck (said).
+   */
+  loopCue(deck: DeckId, seconds: number, length: number): 'seek' | 'cue' | 'jumped' | 'outside' {
+    const how = this.jump(deck, seconds);
+    if (how === 'outside') return how;
+    const why = this.loopWhy(deck);
+    if (why) {
+      this.say(why);
+      return how;
+    }
+    const end = this.fitEnd(deck, seconds, seconds + length);
+    if (end === null) {
+      this.say(`No room for that loop: deck ${deck}’s ${deck === 'A' ? 'track' : '3 minutes'} end`);
+      return how;
+    }
+    const beats = this.beatsBetween(deck, seconds, end);
+    this.startLoop(deck, seconds, end, beats);
+    this.say(`${this.loopName(deck, beats ?? null)}: from the saved loop`);
+    return how;
+  }
+
   // ── loops, beatjump and Quantize (step 6) ──────────────────────────────
 
   /** The limiter's lookahead on this browser (measured by the engine), else Chromium's. */
@@ -1866,10 +1896,11 @@ export class DjMixSession {
 
   /**
    * Play B while B plays in the headphones (M7): B isn't started again from
-   * its cue. With Sync it glides from where it is onto A's beat (its nearest
-   * beat lands on the first of A's bars, at least a beat away, it can reach
-   * within 8% of Sync's speed, so the catch-up doesn't warble) at A's tempo,
-   * and stays locked there; without Sync (or a grid) it carries on at its own speed.
+   * its cue. With Sync it glides from where it is onto A's bar: its nearest
+   * downbeat lands on the first of A's bars (at least a beat away, up to 16
+   * bars on) it can reach within 8% of Sync's speed, so the catch-up doesn't
+   * warble (step 7, 512; its nearest beat when no bar's in reach or a grid
+   * has no downbeats, said), at A's tempo, and stays locked there; without Sync (or a grid) it carries on at its own speed.
    * The room hears it from that bar (A's next beat without Sync), at the
    * crossfader's level: until then it's in the headphones only, as before.
    */
@@ -1892,18 +1923,43 @@ export class DjMixSession {
       const beat = a.grid.periodAt(a.grid.beatAt(posA));
       const first = nextBar(a.grid, posA, Math.max(MIN_LEAD_S * this.rateA, beat));
       const r0 = rateAt(engine.current('B'), T, sr) ?? tempoRate(this.v.values.B.tempo);
-      // the first of A's bars B can reach within CATCH_UP of Sync's speed
-      // (no warble), its nearest beat on that bar (review L1)
-      for (let k = 0; k < 8; k++) {
-        const tb = T + (a.grid.barTime(first.bar + k) - posA) / this.rateA;
-        const aBeat = a.grid.barBeat(first.bar + k);
+      // the first of A's bars (up to BAR_SEARCH) B can reach within CATCH_UP
+      // of Sync's speed (no warble): B's nearest downbeat on it, so the
+      // phrases line up (step 7, 512); none in reach, or no downbeats in B's
+      // grid: its nearest beat (as step 6), said
+      const reach = (onBar: boolean) => {
+        for (let k = 0; k < BAR_SEARCH; k++) {
+          const tb = T + (a.grid!.barTime(first.bar + k) - posA) / this.rateA;
+          const aBeat = a.grid!.barBeat(first.bar + k);
+          const free = g.beatAt(pB + (tb - T) * r0);
+          const b0 = onBar ? g.barBeat(Math.round((free - g.downbeatIndex) / 4)) : Math.round(free);
+          const ratio = syncRatio(a.grid!.periodAt(aBeat), g.periodAt(b0), this.rateA);
+          if (!ratio) return null;
+          const r = (g.timeAt(b0) - pB) / Math.max(0.05, tb - T);
+          if (Math.abs(r / ratio.rate - 1) <= CATCH_UP)
+            return { tb, plan: { aBeat, b0, ratio, r } };
+        }
+        return null;
+      };
+      const bars = g.hasDownbeats && a.grid.hasDownbeats ? reach(true) : null;
+      const beats = bars ?? reach(false);
+      if (beats) {
+        Tb = beats.tb;
+        plan = beats.plan;
+        if (!bars && g.hasDownbeats && a.grid.hasDownbeats)
+          this.say(
+            `${b.title || 'B'} lands on ${a.title || 'A'}’s beat, not its bar: too far to catch up`,
+          );
+      } else {
+        // nothing within the catch-up: the first bar, clamped (as before)
+        const tb = T + (a.grid.barTime(first.bar) - posA) / this.rateA;
+        const aBeat = a.grid.barBeat(first.bar);
         const b0 = Math.round(g.beatAt(pB + (tb - T) * r0));
         const ratio = syncRatio(a.grid.periodAt(aBeat), g.periodAt(b0), this.rateA);
-        if (!ratio) break;
-        const r = (g.timeAt(b0) - pB) / Math.max(0.05, tb - T);
-        Tb = tb;
-        plan = { aBeat, b0, ratio, r };
-        if (Math.abs(r / ratio.rate - 1) <= CATCH_UP) break;
+        if (ratio) {
+          Tb = tb;
+          plan = { aBeat, b0, ratio, r: (g.timeAt(b0) - pB) / Math.max(0.05, tb - T) };
+        }
       }
     } else if (a.grid) {
       const i = Math.ceil(a.grid.beatAt(posA + MIN_LEAD_S * this.rateA) - 1e-6);
@@ -2370,6 +2426,8 @@ export class DjMixSession {
       p?.hold(t);
       p?.linear(t + JOIN_S, 0);
       this.applied['B.xf'] = 0;
+      // the element up over the same seconds: a crossover, never both at full (step 7)
+      engine.joinElement?.(t, JOIN_S);
       engine.stop('B', Math.round((t + JOIN_S + 0.04) * sr));
     };
     const rate0 = this.rateA0;
@@ -2395,6 +2453,8 @@ export class DjMixSession {
         /* the deck's level is the fader's */
       },
     };
+    // the element quiet until the player joins deck B: then it comes up as B goes (step 7)
+    engine.quietElement?.(engine.context.currentTime);
     // A is off its deck: the player's own from here (its speed, its keys)
     this.update({ aOnDeck: false, solo: false, rateA: null });
     let idx = -1;
@@ -2419,9 +2479,14 @@ export class DjMixSession {
     // later load would stop deck B through it; it's spent now (N-2)
     const wasStopped = stopped;
     if (result.status !== 'played') stopped = true;
-    if (gen !== this.gen) return;
+    if (gen !== this.gen) {
+      engine.joinElement?.(engine.context.currentTime, RAMP_S);
+      return;
+    }
     if (result.status !== 'played') {
       this.switching = false;
+      // the element's own level back whatever happened
+      engine.joinElement?.(engine.context.currentTime, RAMP_S);
       this.handFailed(b, result.status, reason, row, bFrom, deckA, wasStopped);
       return;
     }
@@ -2612,6 +2677,8 @@ export class DjMixSession {
       this.applied[key] = to;
     }
     this.fadeMaster(this.level(), t, FADE_S);
+    // B on the element out as deck A comes in; the element comes back up as A when the player joins
+    engine.quietElement?.(t, FADE_S);
     let stopped = false;
     let used = false;
     const stopA = () => {
@@ -2620,6 +2687,8 @@ export class DjMixSession {
       used = true;
       const now = engine.context.currentTime;
       this.fadeMaster(0, now + 0.005, JOIN_S);
+      // the element (A again) up over the same seconds (step 7)
+      engine.joinElement?.(now + 0.005, JOIN_S);
       engine.stop('A', Math.round((now + JOIN_S + 0.04) * sr));
     };
     const rate0 = this.rateA0;
@@ -2653,6 +2722,8 @@ export class DjMixSession {
     used = true;
     if (!stopped) stopA();
     if (result.status !== 'played') {
+      // the element's own level back: B carries on there
+      engine.joinElement?.(engine.context.currentTime, RAMP_S);
       // B carries on as the player's track (review M-3)
       this.say(`Couldn’t put ${u.aTitle} back: the player carries on`);
       if (!this.b) this.end();

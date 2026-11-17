@@ -21,6 +21,8 @@ export interface Cue {
   /** bars from the first downbeat (to the beat), when there's a grid */
   bar: number | null;
   seconds: number;
+  /** a saved loop's length, seconds (step 7, Traktor's loop cue): pressed, it jumps there and loops */
+  loop?: number;
 }
 
 /** Four slots, null where nothing is set. */
@@ -46,8 +48,11 @@ export function emptyCues(): CueSet {
 export function cueSetOf(list: readonly Cue[] | null | undefined): CueSet {
   const out: (Cue | null)[] = [null, null, null, null];
   for (const c of list ?? []) {
-    if (c && SLOTS.includes(c.slot as 1) && Number.isFinite(c.seconds) && c.seconds >= 0)
-      out[c.slot - 1] = { slot: c.slot, bar: c.bar ?? null, seconds: c.seconds };
+    if (c && SLOTS.includes(c.slot as 1) && Number.isFinite(c.seconds) && c.seconds >= 0) {
+      const cue: Cue = { slot: c.slot, bar: c.bar ?? null, seconds: c.seconds };
+      if (typeof c.loop === 'number' && Number.isFinite(c.loop) && c.loop > 0) cue.loop = c.loop;
+      out[c.slot - 1] = cue;
+    }
   }
   return out;
 }
@@ -104,19 +109,36 @@ export function barWords(cue: Cue): string | null {
 export function cueButtonText(slot: number, cue: Cue | null): string {
   if (!cue) return String(slot);
   const bar = barWords(cue);
+  // a saved loop (step 7) reads the same: its look (green, a bar along its
+  // foot) and its name ("Loop 2, …") say it's a loop, and the button keeps
+  // its width (at 1280 the strip has none to spare)
   return bar ? `${slot} · ${bar}` : `${slot} · ${clock(cue.seconds)}`;
+}
+
+/** A saved loop's length in words: "3.9 s" (seconds; the deck's beats aren't known here). */
+export function loopLengthWords(seconds: number): string {
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 }
 
 /** Its accessible name: "Cue 2, bar 17: press to jump there" / "Cue 3, empty: press, then click the waveform". */
 export function cueButtonName(slot: number, cue: Cue | null, picked: boolean): string {
   const where = cue ? (barWords(cue) ? `bar ${barWords(cue)}` : clock(cue.seconds)) : null;
   if (!cue) return `Cue ${slot}, empty${picked ? ', picked: click the waveform to place it' : ''}`;
-  return `Cue ${slot}, ${where}${picked ? ', picked: click the waveform to move it' : ''}`;
+  const name = cue.loop
+    ? `Loop ${slot}, ${where}, ${loopLengthWords(cue.loop)}`
+    : `Cue ${slot}, ${where}`;
+  return `${name}${picked ? ', picked: click the waveform to move it' : ''}`;
 }
 
-/** A set cue's tooltip (M1): a press jumps; moving it takes ⌥. */
+/**
+ * A cue's tooltip (M1; step 7's saved loops): a press jumps (a loop cue
+ * jumps and loops); moving takes ⌥; ⇧ on an empty one while the deck loops
+ * keeps that loop there.
+ */
 export function cueButtonTitle(slot: number, cue: Cue | null): string {
-  if (!cue) return `Cue ${slot}: pick it, then click the waveform to place it (${slot})`;
+  if (!cue)
+    return `Cue ${slot}: pick it, then click the waveform to place it (${slot}) · ⇧-click while looping to keep the loop here`;
+  if (cue.loop) return `Loop ${slot}: jump there and loop (${slot}) · ⌥-click to move it`;
   return `Cue ${slot}: jump to it (${slot}) · ⌥-click to move it`;
 }
 

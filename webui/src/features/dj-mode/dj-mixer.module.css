@@ -806,6 +806,15 @@
   background: color-mix(in oklab, var(--deck, #fff) 18%, transparent);
   color: var(--ss-text);
 }
+/* a saved loop (step 7): the loop's green, a bar along its foot */
+.cue[data-loop] {
+  border-color: color-mix(in oklab, #4ade80 70%, transparent);
+  background: linear-gradient(
+    to top,
+    color-mix(in oklab, #4ade80 45%, transparent) 0 3px,
+    color-mix(in oklab, #4ade80 14%, transparent) 3px
+  );
+}
 .cue[aria-pressed='true'] {
   box-shadow: 0 0 0 2px #fff;
 }

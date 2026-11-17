@@ -6,6 +6,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { BeatGrid } from '@/features/engine/grid';
+
 import type { SessionDeps } from './dj-mix-session';
 
 import { beatWords } from './dj-mix-session';
@@ -491,5 +493,44 @@ describe('round 3: an end given back is the player’s own', () => {
     r.el.dispatchEvent(new Event('ended'));
     expect(r.session.snapshot().aOnDeck).toBe(false);
     expect(calls).toEqual(['ended']);
+  });
+});
+
+describe('step 7: B from the headphones lands on A’s bar (512)', () => {
+  /** B's place in its bar (0 = a downbeat, −2…2 beats) where A is on a downbeat, a little after B's in. */
+  async function landing(grid: BeatGrid, bpm: number) {
+    r.session.setLanes(laneA(), laneB({ grid, bpm }));
+    await r.advance(0.01);
+    r.session.previewB(true);
+    await r.advance(1.37);
+    r.session.playB();
+    // up to 16 of A's bars on (2 beats at an 8% catch-up is about 12 s)
+    await r.advance(34);
+    expect(r.session.snapshot().phase).toBe('playing');
+    const a = gridA();
+    // A's next downbeat from now
+    const pa = posA();
+    const bar = Math.ceil((a.beatAt(pa) - a.downbeatIndex) / 4);
+    const t = r.engine.port.time + (a.barTime(bar) - pa);
+    const fb = grid.beatAt(r.engine.position('B', t)!) - grid.downbeatIndex;
+    const off = ((fb % 4) + 4) % 4;
+    return off > 2 ? off - 4 : off;
+  }
+
+  it('an odd first downbeat: B’s downbeat on A’s', async () => {
+    const g = new BeatGrid({ period: 0.48, firstBeat: 0.5, downbeatIndex: 1 });
+    expect(Math.abs(await landing(g, 125))).toBeLessThan(0.02);
+  });
+
+  it('double time (B at twice A’s BPM): B’s downbeat on A’s', async () => {
+    const g = new BeatGrid({ period: 0.25, firstBeat: 0.4, downbeatIndex: 3 });
+    expect(Math.abs(await landing(g, 240))).toBeLessThan(0.04);
+  });
+
+  it('a grid without downbeats: its nearest beat, as before', async () => {
+    const g = new BeatGrid({ period: 0.48, firstBeat: 0.5, hasDownbeats: false });
+    const off = await landing(g, 125);
+    // on a beat, wherever in its bar
+    expect(Math.abs(off - Math.round(off))).toBeLessThan(0.02);
   });
 });

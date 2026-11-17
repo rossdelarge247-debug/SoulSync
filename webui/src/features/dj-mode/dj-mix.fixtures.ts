@@ -90,6 +90,25 @@ export class FakeEngine {
   elementParams(): Record<ParamName, AutomatedParam> | null {
     return this.routed ? this.elementAuto : null;
   }
+  /** the element's join gain (step 7): quiet for a join, up as a deck goes */
+  readonly join = new FakeParam(1);
+  quietElement(at: number, seconds = 0) {
+    if (seconds > 0) {
+      this.join.cancelScheduledValues(at);
+      this.join.setValueAtTime(this.join.browser.valueAt(at), at);
+      this.join.linearRampToValueAtTime(0, at + seconds);
+    } else {
+      this.join.cancelScheduledValues(at);
+      this.join.setValueAtTime(0, at);
+    }
+  }
+  joinElement(at: number, seconds: number) {
+    if (this.join.browser.valueAt(at) >= 1 && this.join.browser.events.every((e) => e.value >= 1))
+      return;
+    this.join.cancelScheduledValues(at);
+    this.join.setValueAtTime(0, at);
+    this.join.linearRampToValueAtTime(1, at + seconds);
+  }
   /** an element strip param's value as the browser would play it at t */
   elementValue(name: ParamName, t = this.port.time): number {
     return this.elementFakes[name].browser.valueAt(t);

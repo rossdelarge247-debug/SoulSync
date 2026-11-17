@@ -174,18 +174,34 @@ export function LaneBody({
   const gridT = grid?.grid ?? null;
   const cues = lane.cues
     .map((c) =>
-      c ? { slot: c.slot, x: duration > 0 ? cueSeconds(c, gridT) / duration : 0 } : null,
+      c
+        ? {
+            slot: c.slot,
+            x: duration > 0 ? cueSeconds(c, gridT) / duration : 0,
+            // a saved loop's length on the same scale (step 7)
+            w: c.loop && duration > 0 ? c.loop / duration : 0,
+          }
+        : null,
     )
-    .filter((c): c is { slot: number; x: number } => c !== null && c.x >= 0 && c.x <= 1);
+    .filter((c): c is { slot: number; x: number; w: number } => c !== null && c.x >= 0 && c.x <= 1);
   const discs = cues.map((c) => (
-    <span
-      key={c.slot}
-      className={styles.cueDisc}
-      data-picked={pick === c.slot ? '' : undefined}
-      data-dj-cue-disc={c.slot}
-      style={{ left: `${c.x * 100}%` }}
-    >
-      {c.slot}
+    <span key={c.slot}>
+      {c.w > 0 ? (
+        <span
+          className={styles.cueLoop}
+          data-dj-cue-loop={c.slot}
+          style={{ left: `${c.x * 100}%`, width: `${c.w * 100}%` }}
+        />
+      ) : null}
+      <span
+        className={styles.cueDisc}
+        data-picked={pick === c.slot ? '' : undefined}
+        data-loop={c.w > 0 ? '' : undefined}
+        data-dj-cue-disc={c.slot}
+        style={{ left: `${c.x * 100}%` }}
+      >
+        {c.slot}
+      </span>
     </span>
   ));
   const layer = { '--zoom-scale': String(scale) } as CSSProperties;
