@@ -58,6 +58,11 @@ def _number(value: Any) -> Optional[float]:
     return v if math.isfinite(v) else None
 
 
+#: a cue sent without a ``loop`` key (a page from before step 7): the slot's
+#: stored loop is kept (review L3); ``"loop": null`` clears it
+KEEP = object()
+
+
 def clean(cues: Any) -> List[Dict[str, Any]]:
     """The body's cues, checked: the main cue (slot 0, CUE's point) and hot
     cues 1–4, each once, a place in range. Raises CueError with the words to
@@ -83,8 +88,8 @@ def clean(cues: Any) -> List[Dict[str, Any]]:
             bar = _number(bar)
             if bar is None or not MIN_BAR <= bar <= MAX_BAR:
                 raise CueError("A cue's bar is a number on the grid")
-        loop = cue.get("loop")
-        if loop is not None:
+        loop = cue.get("loop", KEEP)
+        if loop is not None and loop is not KEEP:
             loop = _number(loop)
             if loop is None or not MIN_LOOP <= loop <= MAX_LOOP:
                 raise CueError("A loop's length is seconds, over 0 and at most two minutes")
@@ -158,6 +163,14 @@ def put(database, profile_id: int, track_id: str, cues: Any) -> Optional[List[Di
     now = time.time()
     with closing(database._get_connection()) as conn:
         with conn:
+            # a cue sent without its loop keeps the slot's stored one (review L3:
+            # a page from before step 7 saving its cues erased saved loops)
+            stored = {} if all(c["loop"] is not KEEP for c in checked) else dict(conn.execute(
+                "SELECT slot, loop_seconds FROM track_dj_cues WHERE profile_id = ? AND track_id = ?",
+                (int(profile_id), track_id)).fetchall())
+            for c in checked:
+                if c["loop"] is KEEP:
+                    c["loop"] = stored.get(c["slot"]) if c["slot"] != MAIN else None
             conn.execute("DELETE FROM track_dj_cues WHERE profile_id = ? AND track_id = ?",
                          (int(profile_id), track_id))
             conn.executemany(

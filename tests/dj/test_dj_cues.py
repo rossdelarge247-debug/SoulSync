@@ -222,6 +222,21 @@ def test_a_hot_cue_holds_a_loop_and_the_main_cue_never_does(client):
     assert client.get(URL + "1").get_json()["cues"][1]["loop"] == 3.871
 
 
+def test_a_cue_saved_without_its_loop_keeps_the_stored_one_and_null_clears_it(client):
+    """Review L3: a page from before step 7 sends no ``loop``; its save
+    keeps the slot's saved loop (moved or not). An explicit null clears it."""
+    url = URL + "1"
+    assert client.put(url, json={"cues": [{"slot": 2, "bar": 8, "seconds": 17.0, "loop": 1.875}]}).status_code == 200
+    # an old page: the cue moved, no loop key
+    body = client.put(url, json={"cues": [{"slot": 2, "bar": 9, "seconds": 18.9},
+                                          {"slot": 3, "bar": 12, "seconds": 25.0}]}).get_json()
+    assert [(c["slot"], c["loop"]) for c in body["cues"]] == [(2, 1.875), (3, None)]
+    assert [(c["slot"], c["loop"]) for c in client.get(url).get_json()["cues"]] == [(2, 1.875), (3, None)]
+    # null: a plain cue again
+    body = client.put(url, json={"cues": [{"slot": 2, "bar": 9, "seconds": 18.9, "loop": None}]}).get_json()
+    assert [(c["slot"], c["loop"]) for c in body["cues"]] == [(2, None)]
+
+
 @pytest.mark.parametrize("loop", [-1, 0, 0.001, 121, float("inf"), "2", True])
 def test_a_loop_that_isnt_a_sensible_length_is_refused(client, loop):
     r = client.put(URL + "1", json={"cues": [{"slot": 1, "bar": 0, "seconds": 1.0, "loop": loop}]})
