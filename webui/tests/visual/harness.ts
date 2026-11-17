@@ -75,6 +75,8 @@ export function renderIndex() {
     'profile_gate_rules | tojson': 'null',
     // no module switched off: every sidebar entry shows
     'initial_modules | default([]) | tojson': '[]',
+    // the Mix tab (Settings → Library → DJ) off, its default
+    'initial_mix_tab | default(false) | tojson': 'false',
     soulsync_base_version: '0.0.0',
   };
   const flags: Record<string, boolean> = {

@@ -63,6 +63,9 @@ rating, ``INFO RANKING="255"`` (Traktor keeps a rating as 0–255 in steps of
 DJ mode's cue points (core/dj/cues.py, the exporting profile's own) are
 written as hot cues 1–4: ``CUE_V2 TYPE="0" HOTCUE="0"…"3" START`` in
 milliseconds from the file's start, ``LEN="0"``, named "Cue 1"…"Cue 4".
+A hot cue that holds a loop (step 7) is Traktor's loop cue: ``TYPE="5"``,
+``LEN`` its length in milliseconds, named "Loop 1"…"Loop 4". The main cue
+(slot 0) is the Load marker (``TYPE="3"``, ``HOTCUE="-1"``).
 Each cue's place is worked out from the track's grid now, so a re-analysis
 that moved the grid moves it. Assumed: Traktor counts START from the same
 first sample the analysis decoded (true of FLAC and WAV; an MP3's encoder
@@ -532,6 +535,18 @@ def _hot_cues(entry: ET.Element, cues: Optional[Sequence[Dict[str, Any]]]) -> No
                 "HOTCUE": "-1"})
             continue
         if slot not in (1, 2, 3, 4):
+            continue
+        loop = cue.get("loop")
+        try:
+            length = float(loop) if loop is not None else 0.0
+        except (TypeError, ValueError):
+            length = 0.0
+        if 0 < length <= 120:
+            # a saved loop: Traktor's loop cue, its length in milliseconds
+            ET.SubElement(entry, "CUE_V2", {
+                "NAME": f"Loop {slot}", "DISPL_ORDER": "0", "TYPE": "5",
+                "START": f"{seconds * 1000:.6f}", "LEN": f"{length * 1000:.6f}", "REPEATS": "-1",
+                "HOTCUE": str(slot - 1)})
             continue
         ET.SubElement(entry, "CUE_V2", {
             "NAME": f"Cue {slot}", "DISPL_ORDER": "0", "TYPE": "0",

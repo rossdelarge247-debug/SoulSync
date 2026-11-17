@@ -181,6 +181,11 @@ export interface EngineLike {
   report(deck: DeckId): { frame: number; report: DeckReport } | null;
   mix(input: TransitionInput): TransitionLike;
   setPaused(on: boolean): void;
+  /** the limiter's lookahead (s): the decks are heard this much after the element (step 7) */
+  lookahead?: number;
+  /** the element quiet for a join, then up as the deck going out fades (step 7) */
+  quietElement?(at: number, seconds?: number): void;
+  joinElement?(at: number, seconds: number): void;
 }
 
 export interface AutomixServices {
@@ -1139,7 +1144,9 @@ export class AutomixController {
       return;
     }
     const T = ctx.currentTime + AHEAD_S;
-    const from = el.currentTime + AHEAD_S;
+    // the decks are heard the limiter's lookahead after the element: deck A
+    // starts that much further on, in line with it (step 7)
+    const from = el.currentTime + AHEAD_S + (engine.lookahead ?? 0);
     if (from < d.w.a.start || from > d.w.a.start + d.w.a.dur - 1) {
       p.missed = "the tracks didn't load in time";
       return;
@@ -1274,13 +1281,18 @@ export class AutomixController {
       stopped = true;
       const now = engine.context.currentTime;
       this.fadeMaster(0, now + 0.01, 0.06);
+      // the element up over the same 60 ms: a crossover, never both at full (step 7)
+      engine.joinElement?.(now + 0.01, 0.06);
       engine.stop('B', Math.round((now + 0.1) * engine.sampleRate));
       engine.stop('A', Math.round((now + 0.1) * engine.sampleRate));
       this.later(() => this.letGo(), 200);
     };
+    const look = engine.lookahead ?? 0;
     const handoff: HandoffLike = {
+      // where deck B is heard (its place less the limiter's lookahead)
       get currentTime() {
-        return engine.position('B') ?? 0;
+        const p = engine.position('B');
+        return p === null ? 0 : p - look;
       },
       pause: stop,
       get src() {
@@ -1306,6 +1318,8 @@ export class AutomixController {
     } finally {
       this.own--;
     }
+    // the element quiet until the player joins deck B (then it comes up as B goes)
+    engine.quietElement?.(engine.context.currentTime);
     this.own++;
     let result: { status: string } | undefined;
     try {
@@ -1369,15 +1383,21 @@ export class AutomixController {
     this.own++;
     try {
       if (precise) {
+        // where deck A is heard (its place less the limiter's lookahead, step 7)
+        const look = engine.lookahead ?? 0;
+        const heard = () => {
+          const p = engine.position('A');
+          return p === null ? null : p - look;
+        };
         for (let attempt = 0; attempt < 3; attempt++) {
-          const a = engine.position('A');
+          const a = heard();
           if (a === null) break;
           const target = a + 0.6 + attempt * 0.6;
           el.pause();
           el.currentTime = target;
           await seeked(el, 1500, this.timers);
           if (gone()) return;
-          const now = engine.position('A');
+          const now = heard();
           if (now === null) break;
           const wait = target - now - 0.03;
           if (wait < 0) continue;

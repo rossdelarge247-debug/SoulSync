@@ -4105,6 +4105,10 @@ class MusicDatabase:
         ('bar', 'REAL'),
         ('seconds', 'REAL'),
         ('updated_at', 'REAL'),
+        # a saved loop's length in seconds (DJ mode step 7: a hot cue that
+        # holds a loop, Traktor's loop cue); NULL for a plain cue. Added to
+        # an older table by the column loop below (add-only)
+        ('loop_seconds', 'REAL'),
     )
 
     def _add_track_dj_cues_table(self, cursor):

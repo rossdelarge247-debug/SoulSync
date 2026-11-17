@@ -36,7 +36,9 @@ let q: {
   index: number;
   plays: { index: number; handoff: HandoffLike | null; joinedAt: number | null }[];
   removed: number[];
-  result: 'played' | 'failed' | 'busy' | 'stopped-then-failed';
+  result: 'played' | 'failed' | 'busy' | 'stopped-then-failed' | 'superseded-late';
+  /** when a newer load's cancel stopped the handoff ('superseded-late') */
+  cancelledAt?: number;
   loadMs: number;
   next: ReturnType<typeof vi.fn<() => void>>;
 };
@@ -81,6 +83,16 @@ function handRigDeps(): Partial<import('./dj-mix-session').SessionDeps> {
         if (q.result === 'stopped-then-failed') {
           handoff?.pause();
           return { status: 'failed' };
+        }
+        // a newer load (Next) 50 ms in: its cancel stops this handoff
+        // (npCancelCrossfade), and this load says superseded only once it
+        // looks again, after its own awaits (review L2)
+        if (q.result === 'superseded-late') {
+          await new Promise((res) => setTimeout(res, 50));
+          q.cancelledAt = r.engine.port.time;
+          handoff?.pause();
+          await new Promise((res) => setTimeout(res, q.loadMs));
+          return { status: 'superseded' };
         }
         // the player's load: pause, empty, then the new source loads
         r.el.pause();
@@ -218,6 +230,23 @@ describe('Hand over (414, 37i)', () => {
     await r.advance(1.6);
     expect(q.plays).toHaveLength(1);
     expect(r.session.snapshot().handed?.title).toBe('Harbour Lights');
+  });
+
+  it('Next under the Hand over’s load (review L2): the element is back up at the newer load’s cancel, not when the old load gives up', async () => {
+    await blending();
+    q.result = 'superseded-late';
+    q.loadMs = 1500;
+    r.session.handOver();
+    for (let i = 0; i < 400 && q.cancelledAt === undefined; i++) await r.advance(0.01);
+    expect(q.cancelledAt).toBeDefined();
+    // the element held quiet for the join until the cancel
+    expect(r.engine.join.browser.valueAt(q.cancelledAt! - 0.01)).toBe(0);
+    await r.advance(0.12);
+    // up within the join (60 ms past the lookahead), the old load still waiting
+    expect(r.engine.join.browser.valueAt(r.engine.port.time)).toBe(1);
+    expect(r.engine.port.time).toBeLessThan(q.cancelledAt! + q.loadMs / 1000);
+    await r.advance(2);
+    expect(r.engine.join.browser.valueAt(r.engine.port.time)).toBe(1);
   });
 
   it('a load that doesn’t play (H-2): B plays on, on its own, the queue as it was; nothing goes quiet', async () => {

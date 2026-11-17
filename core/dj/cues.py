@@ -1,6 +1,9 @@
 """DJ mode's cue points (Brief F 3b, 37g; 439, 445): four per track, a
 person's own (one profile's cues never show for another), on the track's
-beat grid.
+beat grid. A hot cue (1–4) can hold a loop (step 7, Traktor's loop cue):
+``loop`` is its length in seconds (the deck's speed doesn't change it; a
+length in seconds survives a re-analysis that moves the grid's offset),
+null for a plain cue; the main cue (slot 0) never holds one.
 
 Each cue is a slot 1–4 with its place as a bar on the grid (``bar``: bars
 from the first downbeat, fractional to the beat) and as seconds. The bar is
@@ -36,6 +39,10 @@ MAX_SECONDS = 36_000.0
 #: hour at 120 BPM, past any intro; the client clamps to the same
 MIN_BAR = -1_000.0
 MAX_BAR = 10_000.0
+#: a saved loop's length (seconds): over 5 ms (a 1/32 beat at 200 BPM is
+#: 9 ms) and at most two minutes (32 beats at 16 BPM)
+MIN_LOOP = 0.005
+MAX_LOOP = 120.0
 #: how many tracks' cues one read for an export takes at a time
 _CHUNK = 250
 
@@ -49,6 +56,11 @@ def _number(value: Any) -> Optional[float]:
         return None
     v = float(value)
     return v if math.isfinite(v) else None
+
+
+#: a cue sent without a ``loop`` key (a page from before step 7): the slot's
+#: stored loop is kept (review L3); ``"loop": null`` clears it
+KEEP = object()
 
 
 def clean(cues: Any) -> List[Dict[str, Any]]:
@@ -76,7 +88,15 @@ def clean(cues: Any) -> List[Dict[str, Any]]:
             bar = _number(bar)
             if bar is None or not MIN_BAR <= bar <= MAX_BAR:
                 raise CueError("A cue's bar is a number on the grid")
-        out[int(slot)] = {"slot": int(slot), "bar": bar, "seconds": round(seconds, 4)}
+        loop = cue.get("loop", KEEP)
+        if loop is not None and loop is not KEEP:
+            loop = _number(loop)
+            if loop is None or not MIN_LOOP <= loop <= MAX_LOOP:
+                raise CueError("A loop's length is seconds, over 0 and at most two minutes")
+            if slot == MAIN:
+                raise CueError("The main cue can't hold a loop")
+            loop = round(loop, 5)
+        out[int(slot)] = {"slot": int(slot), "bar": bar, "seconds": round(seconds, 4), "loop": loop}
     return [out[s] for s in sorted(out)]
 
 
@@ -114,7 +134,9 @@ def _placed(row: Dict[str, Any], grid) -> Dict[str, Any]:
             seconds = max(0.0, float(grid.bar(float(bar))))
         except Exception as exc:  # noqa: BLE001 - the stored seconds stand
             logger.debug("cue off its grid: %s", exc)
-    return {"slot": int(row["slot"]), "bar": bar, "seconds": round(seconds, 4)}
+    loop = row.get("loop")
+    return {"slot": int(row["slot"]), "bar": bar, "seconds": round(seconds, 4),
+            "loop": float(loop) if loop is not None else None}
 
 
 def get(database, profile_id: int, track_id: str) -> Optional[List[Dict[str, Any]]]:
@@ -125,10 +147,10 @@ def get(database, profile_id: int, track_id: str) -> Optional[List[Dict[str, Any
     with closing(database._get_connection()) as conn:
         conn.row_factory = None
         rows = conn.execute(
-            "SELECT slot, bar, seconds FROM track_dj_cues WHERE profile_id = ? AND track_id = ? "
-            "ORDER BY slot LIMIT 5", (int(profile_id), track_id)).fetchall()
+            "SELECT slot, bar, seconds, loop_seconds FROM track_dj_cues WHERE profile_id = ? "
+            "AND track_id = ? ORDER BY slot LIMIT 5", (int(profile_id), track_id)).fetchall()
     grid = _grids(database, [track_id]).get(track_id)
-    return [_placed({"slot": s, "bar": b, "seconds": sec}, grid) for s, b, sec in rows]
+    return [_placed({"slot": s, "bar": b, "seconds": sec, "loop": lp}, grid) for s, b, sec, lp in rows]
 
 
 def put(database, profile_id: int, track_id: str, cues: Any) -> Optional[List[Dict[str, Any]]]:
@@ -141,12 +163,21 @@ def put(database, profile_id: int, track_id: str, cues: Any) -> Optional[List[Di
     now = time.time()
     with closing(database._get_connection()) as conn:
         with conn:
+            # a cue sent without its loop keeps the slot's stored one (review L3:
+            # a page from before step 7 saving its cues erased saved loops)
+            stored = {} if all(c["loop"] is not KEEP for c in checked) else dict(conn.execute(
+                "SELECT slot, loop_seconds FROM track_dj_cues WHERE profile_id = ? AND track_id = ?",
+                (int(profile_id), track_id)).fetchall())
+            for c in checked:
+                if c["loop"] is KEEP:
+                    c["loop"] = stored.get(c["slot"]) if c["slot"] != MAIN else None
             conn.execute("DELETE FROM track_dj_cues WHERE profile_id = ? AND track_id = ?",
                          (int(profile_id), track_id))
             conn.executemany(
-                "INSERT INTO track_dj_cues (profile_id, track_id, slot, bar, seconds, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                [(int(profile_id), track_id, c["slot"], c["bar"], c["seconds"], now) for c in checked])
+                "INSERT INTO track_dj_cues (profile_id, track_id, slot, bar, seconds, updated_at, "
+                "loop_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(int(profile_id), track_id, c["slot"], c["bar"], c["seconds"], now, c["loop"])
+                 for c in checked])
     return get(database, profile_id, track_id)
 
 
@@ -161,11 +192,12 @@ def for_export(database, profile_id: int, track_ids: Iterable[Any]) -> Dict[str,
             chunk = ids[start:start + _CHUNK]
             marks = ",".join("?" * len(chunk))
             # only "?" marks are formatted in; the ids are bound
-            for tid, slot, bar, sec in conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
-                    f"SELECT track_id, slot, bar, seconds FROM track_dj_cues "
+            for tid, slot, bar, sec, loop in conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+                    f"SELECT track_id, slot, bar, seconds, loop_seconds FROM track_dj_cues "
                     f"WHERE profile_id = ? AND track_id IN ({marks}) ORDER BY track_id, slot",
                     [int(profile_id), *chunk]).fetchall():
-                found.setdefault(str(tid), []).append({"slot": slot, "bar": bar, "seconds": sec})
+                found.setdefault(str(tid), []).append({"slot": slot, "bar": bar, "seconds": sec,
+                                                       "loop": loop})
     grids = _grids(database, list(found))
     # the main cue (slot 0) and hot cues 1–4: five at most (review M-1)
     return {tid: [_placed(r, grids.get(tid)) for r in rows][:len(ALL_SLOTS)] for tid, rows in found.items()}

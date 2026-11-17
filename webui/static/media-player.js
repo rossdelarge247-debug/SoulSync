@@ -3353,6 +3353,12 @@ function npInitVisualizer() {
             npAnalyser.fftSize = 64;
             npAnalyser.smoothingTimeConstant = 0.8;
             npSourceOut = npAudioContext.createGain();
+            // always two channels (a mono file up-mixed here, as the stereo
+            // output would anyway): the decks joining the chain (DJ mode,
+            // auto-mix) then never change its channel count, which would
+            // reset Normalize's compressor under the playing track (step 7)
+            npSourceOut.channelCount = 2;
+            npSourceOut.channelCountMode = 'explicit';
             npMediaSource.connect(npSourceOut);
             npSourceOut.connect(npAnalyser);
             npAnalyser.connect(npAudioContext.destination);

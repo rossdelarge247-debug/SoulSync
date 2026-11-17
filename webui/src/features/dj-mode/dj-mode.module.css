@@ -624,8 +624,10 @@
 @container djstage (max-width: 1327px) {
   .lane[data-has-strip] .head {
     /* the strip in the head's corner: Play and CUE (4b), Headphones, cues 1–4, Key lock;
-       the loops and beatjump (step 6) go to the line row, before the zoom pill */
-    padding-right: 630px;
+       the loops and beatjump (step 6) go to the line row, before the zoom pill;
+       room for all four cues set with a bar and a beat ("4 · 121.3"), so B's
+       BPM and tempo offset never sit under Play (step 7, 529) */
+    padding-right: 690px;
   }
 }
 
@@ -744,4 +746,17 @@
   width: 25%;
   left: calc(50% + var(--phase, 0) * 100% - 12.5%);
   opacity: 0.7;
+}
+
+/* a saved loop's cue (step 7): its disc ringed green, its length a green line along the band */
+.cueDisc[data-loop] {
+  box-shadow: 0 0 0 2px #4ade80;
+}
+.cueLoop {
+  position: absolute;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(74, 222, 128, 0.6);
+  pointer-events: none;
 }

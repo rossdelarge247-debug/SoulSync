@@ -586,6 +586,7 @@ export function DjMixer({
       undoHandOver: () => session.undoHandOver(),
       ownsAdvance: () => session.ownsAdvance(),
       loopAction: (d, action) => loopAction(session, d, action),
+      loopCue: (d, seconds, length) => session.loopCue(d, seconds, length),
       toggleQuantize: () => {
         const on = !prefs.snapshot().quantize;
         prefs.set({ quantize: on });
