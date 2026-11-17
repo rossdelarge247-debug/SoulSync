@@ -545,4 +545,83 @@ describe('the element and deck A: one level at every switch (M4–M6), measured'
     expect(before - through.lo).toBeLessThan(3);
     expect(through.hi - before).toBeLessThan(1.5);
   }, 60_000);
+
+  for (const order of [
+    'DJ mode routes, then auto-mix holds',
+    'auto-mix holds, then DJ mode routes',
+  ] as const) {
+    it(`two engines on one element (step 7 review M1), ${order}: auto-mix's hand-back never doubles the track`, async () => {
+      const seconds = 1.2;
+      const ctx = new OfflineAudioContext(1, seconds * SR, SR);
+      const osc = ctx.createOscillator();
+      osc.frequency.value = HZ;
+      const elVolume = ctx.createGain();
+      elVolume.gain.value = 0.7;
+      const sourceOut = playerWayIn(ctx);
+      const tap = ctx.createGain();
+      tap.connect(ctx.destination);
+      osc.connect(elVolume).connect(sourceOut).connect(tap);
+      osc.start(0);
+      const dj = () =>
+        Engine.create({
+          context: ctx as unknown as BaseAudioContext,
+          workletUrl: WORKLET_PATH,
+          tap: tap as unknown as AudioNode,
+          element: {
+            source: elVolume as unknown as AudioNode,
+            sourceOut: sourceOut as unknown as GainNode,
+          },
+          watch: false,
+        });
+      const auto = await Engine.create({
+        context: ctx as unknown as BaseAudioContext,
+        workletUrl: WORKLET_PATH,
+        tap: tap as unknown as AudioNode,
+        element: null,
+        sourceOut: sourceOut as unknown as GainNode,
+        watch: false,
+      });
+      // auto-mix's deck plays the track in line with the element; the element held quiet
+      auto.load('A', prepareDeck(sineTrack(seconds + 1), 0));
+      const master = auto.graph.master.gain;
+      master.value = 0.7;
+      auto.play('A', 0.05, 0.05 + auto.lookahead);
+      let djEngine: Engine;
+      if (order.startsWith('DJ')) {
+        djEngine = await dj();
+        auto.quietElement(0.1);
+      } else {
+        auto.quietElement(0.1);
+        djEngine = await dj();
+      }
+      // the hand-back at 0.6 s: the deck out over 60 ms, the element up
+      const J = 0.6;
+      master.setValueAtTime(0.7, J);
+      master.linearRampToValueAtTime(0, J + 0.06);
+      auto.joinElement(J, 0.06);
+      await auto.sync();
+      await djEngine.sync();
+      const x = (await ctx.startRendering()).getChannelData(0).slice();
+      const peakDb = (a: number, b: number) => {
+        let p = 0;
+        for (let i = Math.round(a * SR); i < Math.round(b * SR); i++)
+          p = Math.max(p, Math.abs(x[i]!));
+        return 20 * Math.log10(p);
+      };
+      const steady = peakDb(0.3, 0.55);
+      const through = peakDb(0.58, 0.7);
+      const after = peakDb(0.8, 1.1);
+      console.info(
+        `two engines, ${order} (peak dB): steady ${steady.toFixed(2)} · through the join ${through.toFixed(2)} · after ${after.toFixed(2)}`,
+      );
+      expect(x.every((v) => Number.isFinite(v))).toBe(true);
+      expect(Math.abs(steady - 20 * Math.log10(0.7))).toBeLessThan(0.5);
+      expect(through - steady).toBeLessThan(0.5);
+      expect(Math.abs(after - steady)).toBeLessThan(0.5);
+      // the way in stays shut: the element is heard once, through DJ mode's strip
+      expect(sourceOut.gain.value).toBeLessThan(0.01);
+      auto.dispose();
+      djEngine.dispose();
+    }, 60_000);
+  }
 });

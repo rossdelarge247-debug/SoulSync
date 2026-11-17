@@ -125,6 +125,16 @@ export const ROUTE_S = 0.03;
  * taken it since (review M1: else the element was heard twice).
  */
 const OWNERS = new WeakMap<AudioNode, Engine>();
+/**
+ * The element's level has one owner a way in (the player's `npSourceOut`,
+ * step 7 review M1): the engine with the element on its strip, if any, else
+ * the way in itself. DJ mode's engine and auto-mix's can both be up; a join
+ * from either acts on what the element is heard through, never on a way in
+ * another engine has shut (it was the track twice, +3 dB and combed).
+ */
+const ROUTERS = new WeakMap<GainNode, Engine>();
+/** The engine holding the element quiet for its join, a way in: a strip made meanwhile starts quiet. */
+const HOLDS = new WeakMap<GainNode, Engine>();
 /** the worklet module, loaded once a context */
 const MODULES = new WeakMap<BaseAudioContext, Promise<void>>();
 
@@ -432,10 +442,34 @@ export class Engine implements DeckPort {
   /** the element held quiet for a join, not yet back up */
   private quiet = false;
 
-  /** The gain the element is heard through: the strip's input when routed, else the player's sourceOut. */
+  /** The player's way in this engine knows (its own routing's, or auto-mix's). */
+  private wayIn(): GainNode | null {
+    return this.routed?.sourceOut ?? this.sourceOut;
+  }
+
+  /**
+   * The gain the element is heard through: the strip's input of whichever
+   * engine has it routed (this one or another, M1), else the player's sourceOut.
+   */
   private elementGain(): AudioParam | null {
-    if (this.routed && this.graph.element) return this.graph.element.input.gain;
-    return this.sourceOut?.gain ?? null;
+    const way = this.wayIn();
+    if (!way) return null;
+    const router = ROUTERS.get(way);
+    if (router?.routed && router.graph.element) return router.graph.element.input.gain;
+    return way.gain;
+  }
+
+  private hold(on: boolean): void {
+    const way = this.wayIn();
+    if (!way) return;
+    if (on) HOLDS.set(way, this);
+    else if (HOLDS.get(way) === this) HOLDS.delete(way);
+  }
+
+  /** Another engine holds the element quiet for its join, on this way in. */
+  private static heldByOther(way: GainNode, me: Engine): boolean {
+    const h = HOLDS.get(way);
+    return Boolean(h && h !== me);
   }
 
   /**
@@ -446,6 +480,7 @@ export class Engine implements DeckPort {
     const g = this.elementGain();
     if (!g) return;
     this.quiet = true;
+    this.hold(true);
     try {
       if (seconds > 0) fade(g, g.value, 0, at, seconds);
       else {
@@ -467,6 +502,7 @@ export class Engine implements DeckPort {
     const g = this.elementGain();
     if (!g || !this.quiet) return;
     this.quiet = false;
+    this.hold(false);
     try {
       // the deck's fade is heard the limiter's lookahead later: the rise with it
       const from = at + this.lookahead;
@@ -484,10 +520,13 @@ export class Engine implements DeckPort {
     try {
       el.source.connect(strip.input);
       const t = this.context.currentTime;
-      fade(strip.input.gain, 0, 1, t, ROUTE_S);
+      // another engine (auto-mix) holding the element quiet for its join:
+      // the strip starts quiet too, and that join brings it up (M1)
+      fade(strip.input.gain, 0, Engine.heldByOther(el.sourceOut, this) ? 0 : 1, t, ROUTE_S);
       fade(el.sourceOut.gain, el.sourceOut.gain.value, 0, t, ROUTE_S);
       this.routed = el;
       OWNERS.set(el.source, this);
+      ROUTERS.set(el.sourceOut, this);
     } catch {
       // the player's graph as it was: never silent
       this.unroute(true);
@@ -505,12 +544,16 @@ export class Engine implements DeckPort {
     const strip = this.graph.element;
     this.routed = null;
     if (!el) return;
+    if (ROUTERS.get(el.sourceOut) === this) ROUTERS.delete(el.sourceOut);
+    // auto-mix holding the element quiet for its join: the way in stays
+    // shut, and that join opens it (M1)
+    const back = () => (Engine.heldByOther(el.sourceOut, this) ? 0 : 1);
     const t = this.context.currentTime;
     try {
       if (now) {
         el.sourceOut.gain.cancelScheduledValues(0);
-        el.sourceOut.gain.value = 1;
-      } else fade(el.sourceOut.gain, el.sourceOut.gain.value, 1, t, ROUTE_S);
+        el.sourceOut.gain.value = back();
+      } else fade(el.sourceOut.gain, el.sourceOut.gain.value, back(), t, ROUTE_S);
       if (strip) fade(strip.input.gain, strip.input.gain.value, 0, t, ROUTE_S);
     } catch {
       /* a closed context */
@@ -527,7 +570,7 @@ export class Engine implements DeckPort {
       try {
         // whatever the context did meanwhile (a suspended one hasn't run the ramp)
         el.sourceOut.gain.cancelScheduledValues(0);
-        el.sourceOut.gain.value = 1;
+        el.sourceOut.gain.value = back();
       } catch {
         /* a closed context */
       }
@@ -550,13 +593,17 @@ export class Engine implements DeckPort {
   dispose(): void {
     this.watch?.stop();
     // a join left half done: the element's own level back
-    if (this.quiet && this.sourceOut) {
-      try {
-        this.sourceOut.gain.cancelScheduledValues(0);
-        this.sourceOut.gain.value = 1;
-      } catch {
-        /* a closed context */
-      }
+    if (this.quiet) {
+      const g = this.elementGain();
+      this.hold(false);
+      // what the element is heard through now (another engine's strip, M1)
+      if (g && !this.routed)
+        try {
+          g.cancelScheduledValues(0);
+          g.value = 1;
+        } catch {
+          /* a closed context */
+        }
       this.quiet = false;
     }
     for (const id of IDS) this.node.port.postMessage({ type: 'unload', deck: IDS.indexOf(id) });
