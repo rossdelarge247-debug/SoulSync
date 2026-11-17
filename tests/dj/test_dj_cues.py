@@ -84,7 +84,7 @@ def test_put_then_get_and_clear(client):
     assert client.get(URL + "1").get_json() == {"success": True, "cues": []}
     body = client.put(URL + "1", json={"cues": [{"slot": 3, "bar": 16, "seconds": 33.0},
                                               {"slot": 1, "bar": 0, "seconds": 1.0}]}).get_json()
-    assert body["cues"] == [{"slot": 1, "bar": 0, "seconds": 1.0}, {"slot": 3, "bar": 16, "seconds": 33.0}]
+    assert body["cues"] == [{"slot": 1, "bar": 0, "seconds": 1.0, "loop": None}, {"slot": 3, "bar": 16, "seconds": 33.0, "loop": None}]
     assert client.get(URL + "1").get_json()["cues"] == body["cues"]
     assert client.put(URL + "1", json={"cues": []}).get_json()["cues"] == []
 
@@ -93,9 +93,9 @@ def test_a_cue_follows_the_grid_and_a_track_without_one_keeps_its_seconds(client
     client.put(URL + "1", json={"cues": [{"slot": 2, "bar": 16, "seconds": 33.0}]})
     # a re-analysis moves the grid: the first downbeat now at 1.5 s
     grid_store.save_result(db, "1", _grid(first=1.5), source_sig="s2")
-    assert client.get(URL + "1").get_json()["cues"] == [{"slot": 2, "bar": 16, "seconds": 33.5}]
+    assert client.get(URL + "1").get_json()["cues"] == [{"slot": 2, "bar": 16, "seconds": 33.5, "loop": None}]
     client.put(URL + "2", json={"cues": [{"slot": 1, "bar": None, "seconds": 12.25}]})
-    assert client.get(URL + "2").get_json()["cues"] == [{"slot": 1, "bar": None, "seconds": 12.25}]
+    assert client.get(URL + "2").get_json()["cues"] == [{"slot": 1, "bar": None, "seconds": 12.25, "loop": None}]
 
 
 @pytest.mark.parametrize("bad", [
@@ -133,7 +133,7 @@ def test_a_long_track_id_is_cut_as_the_grid_routes_cut_it(client, db):
     _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
              "VALUES (?, '10', '1', 'Long id', '/app/Transfer/long.flac', 300000)", (long_id,))
     assert client.put(URL + long_id, json={"cues": [{"slot": 1, "bar": None, "seconds": 2.0}]}).status_code == 200
-    assert client.get(URL + long_id).get_json()["cues"] == [{"slot": 1, "bar": None, "seconds": 2.0}]
+    assert client.get(URL + long_id).get_json()["cues"] == [{"slot": 1, "bar": None, "seconds": 2.0, "loop": None}]
 
 
 def test_the_main_cue_is_slot_0_beside_the_hot_cues(client):
@@ -211,3 +211,41 @@ def test_export_writes_the_callers_cues_as_hot_cues(db):
     # without cues the entry is as before
     root = ET.fromstring(traktor.build_nml("Set", entries))
     assert root.findall("COLLECTION/ENTRY/CUE_V2") == []
+
+
+def test_a_hot_cue_holds_a_loop_and_the_main_cue_never_does(client):
+    """Step 7: a saved loop, its length in seconds (Traktor's loop cue)."""
+    body = {"cues": [{"slot": 0, "bar": 2, "seconds": 5.0},
+                     {"slot": 2, "bar": 16, "seconds": 33.0, "loop": 3.871}]}
+    got = client.put(URL + "1", json=body).get_json()["cues"]
+    assert [(c["slot"], c["loop"]) for c in got] == [(0, None), (2, 3.871)]
+    assert client.get(URL + "1").get_json()["cues"][1]["loop"] == 3.871
+
+
+@pytest.mark.parametrize("loop", [-1, 0, 0.001, 121, float("inf"), "2", True])
+def test_a_loop_that_isnt_a_sensible_length_is_refused(client, loop):
+    r = client.put(URL + "1", json={"cues": [{"slot": 1, "bar": 0, "seconds": 1.0, "loop": loop}]})
+    assert r.status_code == 400
+
+
+def test_the_main_cue_cant_hold_a_loop(client):
+    r = client.put(URL + "1", json={"cues": [{"slot": 0, "bar": 0, "seconds": 1.0, "loop": 2.0}]})
+    assert r.status_code == 400
+    assert "main cue" in r.get_json()["error"]
+
+
+
+def test_export_writes_a_saved_loop_as_traktors_loop_cue(db):
+    """Step 7: a hot cue holding a loop is CUE_V2 TYPE 5 with LEN (ms); the
+    main cue is still the Load marker."""
+    cues.put(db, 1, "1", [{"slot": 0, "bar": None, "seconds": 2.0},
+                          {"slot": 1, "bar": None, "seconds": 8.0},
+                          {"slot": 3, "bar": None, "seconds": 31.5, "loop": 3.75}])
+    entries = [{"track": {"id": "1", "title": "Night Ferry"},
+                "location": {"DIR": "/:Music/:", "FILE": "1.flac", "VOLUME": "Music HD"}}]
+    root = ET.fromstring(traktor.build_nml("Set", entries, cues=cues.for_export(db, 1, ["1"])))
+    marks = [(c.get("NAME"), c.get("TYPE"), c.get("HOTCUE"), c.get("START"), c.get("LEN"))
+             for c in root.findall("COLLECTION/ENTRY/CUE_V2")]
+    assert marks == [("Cue", "3", "-1", "2000.000000", "0.000000"),
+                     ("Cue 1", "0", "0", "8000.000000", "0.000000"),
+                     ("Loop 3", "5", "2", "31500.000000", "3750.000000")]

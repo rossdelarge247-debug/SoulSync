@@ -37,7 +37,8 @@ def test_fresh_install_has_the_table(tmp_path):
     path = tmp_path / "fresh.db"
     db = MusicDatabase(str(path))
     assert db.schema_health()["ok"]
-    assert _columns(path) == COLUMNS == ["profile_id", "track_id", "slot", "bar", "seconds", "updated_at"]
+    assert _columns(path) == COLUMNS == ["profile_id", "track_id", "slot", "bar", "seconds", "updated_at",
+                                         "loop_seconds"]
     # one cue a slot, a track, a profile
     assert [r[1] for r in _q(path, "PRAGMA table_info(track_dj_cues)") if r[5]] == ["profile_id", "track_id", "slot"]
     assert _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'track_dj_cues_v1'")
@@ -130,3 +131,23 @@ def test_a_deleted_profiles_cues_go_with_it(tmp_path):
     conn.close()
     assert db.delete_profile(5)
     assert _q(path, "SELECT profile_id FROM track_dj_cues") == [(1,)]
+
+
+def test_a_step_4b_table_gets_its_loop_column_and_keeps_its_cues(tmp_path):
+    """Step 7: a table from before saved loops (no loop_seconds) gets the
+    column on the next start; its cues stay, plain cues (NULL)."""
+    path = tmp_path / "before-loops.db"
+    db = MusicDatabase(str(path))
+    conn = sqlite3.connect(str(path))
+    conn.execute("DROP TABLE track_dj_cues")
+    conn.execute("CREATE TABLE track_dj_cues (profile_id INTEGER NOT NULL, track_id TEXT NOT NULL, "
+                 "slot INTEGER NOT NULL, bar REAL, seconds REAL, updated_at REAL, "
+                 "PRIMARY KEY (profile_id, track_id, slot))")
+    conn.execute("INSERT INTO track_dj_cues VALUES (1, '4', 2, 16.0, 33.0, 1.0)")
+    conn.commit()
+    conn.close()
+    db._initialize_database()  # the next start
+    assert db.schema_health()["ok"]
+    assert _columns(path) == COLUMNS
+    assert _q(path, "SELECT slot, bar, seconds, loop_seconds FROM track_dj_cues") == [(2, 16.0, 33.0, None)]
+

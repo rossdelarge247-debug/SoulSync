@@ -48,8 +48,9 @@ GET  /api/library/dj/mixes/<track_id>
 GET  /api/library/dj/cues/<track_id>
 PUT  /api/library/dj/cues/<track_id>
     DJ mode's cue points (Brief F 3b, 37g; core/dj/cues.py): the caller's
-    own, four at most, ``{cues: [{slot: 1-4, bar, seconds}]}``; a cue's
-    seconds follow the track's grid when it has a bar. PUT replaces them
+    own, four at most, ``{cues: [{slot: 1-4, bar, seconds, loop}]}``; a cue's
+    seconds follow the track's grid when it has a bar; ``loop`` is a saved
+    loop's length in seconds (step 7; null for a plain cue, never on slot 0). PUT replaces them
     (``[]`` clears), body at most 2 KB. 404 outside the caller's library.
 GET  /api/library/dj/levels/<track_id>
     DJ mode's fine waveform (step 4b, 37s; core/dj/levels.py): the track's
