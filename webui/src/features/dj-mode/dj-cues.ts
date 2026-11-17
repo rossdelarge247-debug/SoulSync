@@ -74,6 +74,26 @@ export function cueAt(slot: number, seconds: number, grid: BeatGrid | null, dura
   return { slot, bar, seconds: at };
 }
 
+/**
+ * A loop kept in a hot cue (step 7): the loop's own start and length, not
+ * snapped again (review L4: the loop is where it plays, Quantize already had
+ * its say when it was set); its bar on the grid to the fraction of a beat, so
+ * a re-analysis moves it as a cue.
+ */
+export function loopCueAt(
+  slot: number,
+  start: number,
+  end: number,
+  grid: BeatGrid | null,
+): Cue & { loop: number } {
+  const seconds = round(Math.max(0, start), 4);
+  const loop = round(end - start, 5);
+  if (!grid) return { slot, bar: null, seconds, loop };
+  const bar = round((grid.beatAt(start) - grid.downbeatIndex) / 4, 6);
+  if (!(bar >= MIN_BAR && bar <= MAX_BAR)) return { slot, bar: null, seconds, loop };
+  return { slot, bar, seconds, loop };
+}
+
 function round(x: number, d: number): number {
   const k = 10 ** d;
   return Math.round(x * k) / k;
@@ -244,7 +264,11 @@ export class CueStore {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        cues: [this.mains.get(trackId) ?? null, ...p.set].filter(Boolean),
+        // every cue says its loop, null for none: a cue without the key
+        // keeps the slot's stored loop on the server (a pre-step-7 page's, L3)
+        cues: [this.mains.get(trackId) ?? null, ...p.set]
+          .filter((c): c is Cue => Boolean(c))
+          .map((c) => ({ ...c, loop: c.loop ?? null })),
       }),
     })
       .then((res) => {

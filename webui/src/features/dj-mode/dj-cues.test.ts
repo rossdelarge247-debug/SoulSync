@@ -14,6 +14,7 @@ import {
   CueStore,
   cueWords,
   emptyCues,
+  loopCueAt,
   loopLengthWords,
   MAX_BAR,
   MIN_BAR,
@@ -120,7 +121,8 @@ describe('the store', () => {
     expect(calls).toEqual([
       {
         url: expect.stringMatching(/\/api\/library\/dj\/cues\/2$/),
-        body: { cues: [{ slot: 1, bar: 4, seconds: 9 }] },
+        // its loop said, null for none (review L3)
+        body: { cues: [{ slot: 1, bar: 4, seconds: 9, loop: null }] },
       },
     ]);
     store.save('3', emptyCues());
@@ -153,5 +155,15 @@ describe('a saved loop (step 7, question 521)', () => {
     expect(cueButtonTitle(1, set[0]!)).toBe('Loop 1: jump there and loop (1) · ⌥-click to move it');
     expect(cueButtonTitle(2, set[1]!)).toBe('Cue 2: jump to it (2) · ⌥-click to move it');
     expect(loopLengthWords(15.4)).toBe('15 s');
+  });
+});
+
+describe('a loop kept in a cue (review L4)', () => {
+  it('keeps the loop’s own start and length, off the beat too; its bar to the fraction', () => {
+    // 120 BPM from 1 s: 10.3 s is beat 18.6, between beats
+    const cue = loopCueAt(2, 10.3, 12.175, grid());
+    expect(cue).toEqual({ slot: 2, bar: 4.65, seconds: 10.3, loop: 1.875 });
+    expect(cueSeconds(cue, grid())).toBeCloseTo(10.3, 6);
+    expect(loopCueAt(1, 10.3, 11, null)).toEqual({ slot: 1, bar: null, seconds: 10.3, loop: 0.7 });
   });
 });

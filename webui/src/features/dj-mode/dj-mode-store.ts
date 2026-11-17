@@ -46,6 +46,7 @@ import {
   cueSeconds,
   cueWords,
   emptyCues,
+  loopCueAt,
   loopLengthWords,
   MAIN_SLOT,
   withCue,
@@ -1200,7 +1201,7 @@ export class DjModeStore {
 
   /**
    * ⇧ on an empty cue while its deck loops (step 7): the loop kept there, a
-   * loop cue (its start on the beat with Quantize, its length in seconds).
+   * loop cue (its own start and length, in seconds; its bar on the grid).
    */
   private keepLoop(deck: Deck, slot: number): void {
     const lane = this.s[deck];
@@ -1215,12 +1216,9 @@ export class DjModeStore {
       this.say(`Cue ${slot} is set: ⌥-click it, then Delete, to free it`);
       return;
     }
-    const grid =
-      lane.phase === 'ready' && this.prefs.snapshot().quantize ? (lane.grid?.grid ?? null) : null;
-    const cue: Cue = {
-      ...cueAt(slot, loop.start, grid, lane.duration ?? 0),
-      loop: Math.round((loop.end - loop.start) * 1e5) / 1e5,
-    };
+    // the loop's own start and length, as it plays (review L4)
+    const grid = lane.phase === 'ready' ? (lane.grid?.grid ?? null) : null;
+    const cue: Cue = loopCueAt(slot, loop.start, loop.end, grid);
     const cues = withCue(lane.cues, cue);
     this.setLane(deck, { cues });
     this.saveCues(lane.track.id, cues);

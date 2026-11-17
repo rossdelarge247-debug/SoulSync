@@ -305,7 +305,13 @@ describe('the lane strip, cues and zoom (37g, 37s)', () => {
       Math.abs((cue.seconds - 0.5) / 0.48 - Math.round((cue.seconds - 0.5) / 0.48)),
     ).toBeLessThan(1e-6);
     await flush(700);
-    expect(cuesPut.at(-1)).toEqual({ cues: [store.snapshot().b!.cues[1], cue] });
+    // each cue with its loop said (null: none; review L3)
+    expect(cuesPut.at(-1)).toEqual({
+      cues: [
+        { ...store.snapshot().b!.cues[1], loop: null },
+        { ...cue, loop: null },
+      ],
+    });
     // placed: the pick goes (one place a pick, M1)
     expect(store.snapshot().pick.b).toBeNull();
     fireEvent.click(document.querySelector('[data-dj-strip="b"] [data-dj-cue="4"]')!);
@@ -1038,7 +1044,8 @@ describe('step 7: a loop kept in a hot cue (question 521)', () => {
     fireEvent.click(cue1, { shiftKey: true });
     const kept = store.snapshot().b!.cues[0]!;
     expect(kept.loop).toBeCloseTo(loop.end - loop.start, 4);
-    expect(kept.seconds).toBeCloseTo(loop.start, 2);
+    // the loop's own start, not snapped again (review L4)
+    expect(kept.seconds).toBeCloseTo(loop.start, 4);
     expect(said.at(-1)).toBe('Loop 1 on deck B kept: 4 beats');
     expect(cue1).toHaveAttribute('data-loop');
     expect(cue1.textContent).not.toContain('↻');

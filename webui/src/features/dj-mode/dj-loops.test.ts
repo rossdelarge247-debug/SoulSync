@@ -504,8 +504,8 @@ describe('step 7: B from the headphones lands on A’s bar (512)', () => {
     r.session.previewB(true);
     await r.advance(1.37);
     r.session.playB();
-    // up to 16 of A's bars on (2 beats at an 8% catch-up is about 12 s)
-    await r.advance(34);
+    // up to 8 of A's bars on (2 beats at an 8% catch-up is about 12 s)
+    await r.advance(20);
     expect(r.session.snapshot().phase).toBe('playing');
     const a = gridA();
     // A's next downbeat from now
@@ -520,11 +520,21 @@ describe('step 7: B from the headphones lands on A’s bar (512)', () => {
   it('an odd first downbeat: B’s downbeat on A’s', async () => {
     const g = new BeatGrid({ period: 0.48, firstBeat: 0.5, downbeatIndex: 1 });
     expect(Math.abs(await landing(g, 125))).toBeLessThan(0.02);
+    expect(r.said.at(-1)).toBe('Harbour Lights in, on Night Ferry’s bar');
   });
 
   it('double time (B at twice A’s BPM): B’s downbeat on A’s', async () => {
     const g = new BeatGrid({ period: 0.25, firstBeat: 0.4, downbeatIndex: 3 });
     expect(Math.abs(await landing(g, 240))).toBeLessThan(0.04);
+  });
+
+  it('B’s downbeat two beats round: the wait (more than two bars, B in the headphones only) is said, then B lands on the bar (review L1)', async () => {
+    const g = new BeatGrid({ period: 0.48, firstBeat: 0.5, downbeatIndex: 2 });
+    expect(Math.abs(await landing(g, 125))).toBeLessThan(0.02);
+    expect(r.said).toEqual([
+      'Harbour Lights in on Night Ferry’s bar 68',
+      'Harbour Lights in, on Night Ferry’s bar',
+    ]);
   });
 
   it('a grid without downbeats: its nearest beat, as before', async () => {

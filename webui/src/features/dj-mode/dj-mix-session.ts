@@ -367,8 +367,15 @@ const HAND_TAU = 0.06;
 const HAND_MAX = 4;
 /** Play B from B's preview: its catch-up onto A's beat stays within this of Sync's speed (review L1) */
 const CATCH_UP = 0.08;
-/** … looking this many of A's bars ahead for one B's downbeat can reach (step 7) */
-const BAR_SEARCH = 16;
+/**
+ * … looking this many of A's bars ahead for one B's downbeat can reach
+ * (step 7): B's nearest downbeat is at most two beats round, which the 8%
+ * catch-up makes up in 25 beats, so 8 bars is room enough (review L1: it was
+ * 16, half a minute in the headphones only).
+ */
+const BAR_SEARCH = 8;
+/** a landing further off than this many bars is said ("in on bar N"; review L1) */
+const SAY_WAIT_BARS = 2;
 /** an arrow-key nudge: 4% faster or slower while held */
 export const NUDGE = 0.04;
 /** A window starts this far before where it's needed. */
@@ -1918,6 +1925,8 @@ export class DjMixSession {
     let Tb = T + MIN_LEAD_S;
     // with Sync: the bar B lands on, the beat of B there, and the glide's speed
     let plan: { aBeat: number; b0: number; ratio: SyncRatio; r: number } | null = null;
+    // landed on A's bar (B's downbeat on it), not only its beat: said so
+    let onBar = false;
     if (a.grid && lock) {
       const g = b.grid!;
       const beat = a.grid.periodAt(a.grid.beatAt(posA));
@@ -1937,7 +1946,7 @@ export class DjMixSession {
           if (!ratio) return null;
           const r = (g.timeAt(b0) - pB) / Math.max(0.05, tb - T);
           if (Math.abs(r / ratio.rate - 1) <= CATCH_UP)
-            return { tb, plan: { aBeat, b0, ratio, r } };
+            return { tb, k, bar: first.bar + k, plan: { aBeat, b0, ratio, r } };
         }
         return null;
       };
@@ -1946,10 +1955,15 @@ export class DjMixSession {
       if (beats) {
         Tb = beats.tb;
         plan = beats.plan;
+        onBar = Boolean(bars);
         if (!bars && g.hasDownbeats && a.grid.hasDownbeats)
           this.say(
             `${b.title || 'B'} lands on ${a.title || 'A'}’s beat, not its bar: too far to catch up`,
           );
+        // the earliest bar in reach; a wait of more than two bars (B in the
+        // headphones only till then) is said (review L1)
+        else if (beats.k > SAY_WAIT_BARS)
+          this.say(`${b.title || 'B'} in on ${a.title || 'A'}’s bar ${beats.bar + 1}`);
       } else {
         // nothing within the catch-up: the first bar, clamped (as before)
         const tb = T + (a.grid.barTime(first.bar) - posA) / this.rateA;
@@ -2013,7 +2027,7 @@ export class DjMixSession {
         this.update({ phase: 'playing' });
         this.say(
           rateB !== null
-            ? `${b.title || 'B'} in, on ${a.title || 'A'}’s beat`
+            ? `${b.title || 'B'} in, on ${a.title || 'A'}’s ${onBar ? 'bar' : 'beat'}`
             : `${b.title || 'B'} in: blend by ear`,
         );
       },
