@@ -118,7 +118,13 @@ declare global {
 
 interface PlayerApi extends Omit<PlayerPort, 'moveNext'> {
   moveNext?: (index: number) => number;
-  audioGraph?: () => { context: AudioContext; analyser: AnalyserNode } | null;
+  audioGraph?: () => {
+    context: AudioContext;
+    analyser: AnalyserNode;
+    /** the player's chain's input (its EQ's first band, else the analyser; step 7) */
+    input?: AudioNode;
+    sourceOut?: GainNode | null;
+  } | null;
   persistQueue?: () => void;
 }
 
@@ -176,12 +182,21 @@ function controllerFor(qc: QueryClient): AutomixController {
       if (typeof AudioWorkletNode === 'undefined') return null;
       const g = playerApi()?.audioGraph?.();
       if (!g) return null;
-      return Engine.create({
+      // the decks into the player's chain (its EQ and Normalize, as DJ
+      // mode's are, step 7), the element's own way in for the hand-back's join
+      const engine = await Engine.create({
         context: g.context,
         workletUrl,
-        tap: g.analyser,
+        tap: g.input ?? g.analyser,
+        sourceOut: g.sourceOut ?? null,
         phone: looksLikePhone(typeof navigator === 'object' ? navigator : null),
       });
+      // the player's EQ made later: the decks follow it
+      window.addEventListener('ss:player-graph', () => {
+        const next = playerApi()?.audioGraph?.();
+        if (next?.input) engine.retap(next.input);
+      });
+      return engine;
     },
     prefs: getPrefs,
     support: () => mixSupport(),
