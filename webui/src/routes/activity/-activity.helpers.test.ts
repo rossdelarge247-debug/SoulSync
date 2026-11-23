@@ -337,6 +337,17 @@ describe('row actions', () => {
     expect(pinnedActions(item({ kind: 'automation', link: '/automations' }))).toEqual([
       { type: 'link', label: 'Open', href: '/automations' },
     ]);
+    // the Wanted journey (board 5): Review the quarantine, open Not found on Wanted
+    expect(
+      pinnedActions(
+        item({ link: '/active-downloads?review=quarantine', ref: { quarantine: 9, songs: 4 } }),
+      ),
+    ).toEqual([
+      { type: 'link', label: 'Review', href: '/active-downloads?review=quarantine', primary: true },
+    ]);
+    expect(
+      pinnedActions(item({ link: '/wanted?filter=not-found', ref: { not_found: 15 } })),
+    ).toEqual([{ type: 'link', label: 'Open in Wanted', href: '/wanted?filter=not-found' }]);
   });
 
   it('keeps a filter’s own kind in the pinned list', () => {

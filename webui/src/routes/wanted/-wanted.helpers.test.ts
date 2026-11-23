@@ -106,7 +106,13 @@ describe('search params', () => {
     expect(resolveWantedFilter('new')).toBe('all');
     expect(resolveFollowedFilter('new')).toBe('new');
     expect(resolveWantedSort('artist')).toBe('artist');
-    expect(resolveWantedSort('name-asc')).toBe('newest');
+    // Needs you first is the default since the Wanted journey; old values still read
+    expect(resolveWantedSort('name-asc')).toBe('needs-you');
+    expect(resolveWantedSort('newest')).toBe('newest');
+    for (const old of ['searching', 'not-found', 'found'])
+      expect(resolveWantedFilter(old)).toBe(old);
+    for (const step of ['waiting', 'downloading', 'decision'])
+      expect(resolveWantedFilter(step)).toBe(step);
     expect(resolveFollowedSort('scan-oldest')).toBe('scan-oldest');
     // the Following tab: Nothing new, newest activity first, the Kind row
     expect(resolveFollowedFilter('quiet')).toBe('quiet');
@@ -211,7 +217,7 @@ describe('wishlist tracks into wanted rows', () => {
     expect(items[1].status).toBe('searching');
   });
 
-  it('says what a row is, where it came from and why the last try failed', () => {
+  it('says what a row is and where it came from; the status is the journey’s', () => {
     const [album, track, single] = buildWantedItems(
       tracks(
         row({ name: 'F8', artist: 'Saltmarsh', album: 'Ferry Songs', total: 9 }),
@@ -232,26 +238,28 @@ describe('wishlist tracks into wanted rows', () => {
       'Saltmarsh',
       'Album',
       '2 of 9 tracks wanted',
+      'from Requested by me',
       'FLAC or better',
     ]);
+    // the last try's reason is the status line's now, not the meta line's
     const trackMeta = wantedMeta(track, '');
     expect(trackMeta.map((p) => p.text)).toEqual([
       'Pale Harbour',
       'Tidewater',
       'Track',
-      'last try: user went offline',
+      'from Requested by me',
     ]);
-    expect(trackMeta.at(-1)?.warning).toBe(true);
     expect(trackMeta.find((p) => p.key === 'album')?.wide).toBe(true);
-    // an "Added via …" note is why it's on the list, not a failed try
+    expect(trackMeta.find((p) => p.key === 'source')?.wide).toBe(true);
     expect(wantedMeta(single, '').map((p) => p.text)).toEqual([
       'Pale Harbour',
       'Single',
       'from Followed artists',
     ]);
-    expect(wantedStatus(track)).toEqual({ text: 'Not found yet · 6 tries', tone: 'neutral' });
-    expect(wantedStatus(single)).toEqual({ text: 'Searching · 1 try', tone: 'info' });
-    expect(wantedStatus(album)).toEqual({ text: 'Searching', tone: 'info' });
+    // without a live read: three tries or more is Not found, fewer is Waiting
+    expect(wantedStatus(track)).toEqual({ text: 'Not found', tone: 'danger' });
+    expect(wantedStatus(single)).toEqual({ text: 'Waiting', tone: 'neutral' });
+    expect(wantedStatus(album)).toEqual({ text: 'Waiting', tone: 'neutral' });
   });
 
   it('says a thrown-out download in plain words, the rest as written', () => {
@@ -268,16 +276,6 @@ describe('wishlist tracks into wanted rows', () => {
     );
     expect(lastTryPhrase('No matching track found')).toBe('no match found on your sources');
     expect(lastTryPhrase('User went offline.')).toBe('User went offline.');
-    const [track] = buildWantedItems(
-      tracks(
-        row({
-          retry_count: 4,
-          failure_reason: 'AcoustID verification failed: fingerprint mismatch',
-          last_attempted: sql(NOW),
-        }),
-      ),
-    );
-    expect(wantedMeta(track, '').at(-1)?.text).toBe('last try: the wrong song came back');
   });
 
   it('names a playlist source, not the placeholders', () => {
@@ -320,7 +318,15 @@ describe('filters, sort and counts', () => {
   const rows = wantedRows(items, found);
 
   it('counts each filter', () => {
-    expect(wantedCounts(items, found)).toEqual({ wanted: 2, searching: 1, notFound: 1, found: 1 });
+    expect(wantedCounts(items, found)).toEqual({
+      wanted: 2,
+      waiting: 1,
+      searching: 0,
+      downloading: 0,
+      decision: 0,
+      notFound: 1,
+      found: 1,
+    });
     expect(wantedByArtist(items).get('pale harbour')).toBe(1);
   });
 
@@ -328,7 +334,9 @@ describe('filters, sort and counts', () => {
     expect(filterWantedRows(rows, 'all').length).toBe(3);
     expect(filterWantedRows(rows, 'found').map((r) => r.item.title)).toEqual(['Static Bloom']);
     expect(filterWantedRows(rows, 'not-found').map((r) => r.item.title)).toEqual(['Old']);
-    expect(filterWantedRows(rows, 'searching').map((r) => r.item.title)).toEqual(['New']);
+    // Searching is a search running now; not tried yet is Waiting
+    expect(filterWantedRows(rows, 'searching')).toEqual([]);
+    expect(filterWantedRows(rows, 'waiting').map((r) => r.item.title)).toEqual(['New']);
     expect(filterWantedRows(rows, 'all', 'aardv').map((r) => r.item.title)).toEqual(['New']);
   });
 

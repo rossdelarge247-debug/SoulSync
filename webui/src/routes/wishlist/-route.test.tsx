@@ -243,7 +243,8 @@ describe('the nebula, redrawn in the design system (9a)', () => {
     renderRoute('/wanted?view=nebula');
     const searching = await screen.findByRole('region', { name: 'Searching · 1' });
     expect(searching).toHaveTextContent('Healthy');
-    const notFound = screen.getByRole('region', { name: 'Not found yet · 2' });
+    // the Wanted journey's word: "Not found"
+    const notFound = screen.getByRole('region', { name: 'Not found · 2' });
     expect(notFound).toHaveTextContent('Nomatch');
     expect(notFound).toHaveTextContent('Clipped');
 
@@ -264,7 +265,7 @@ describe('the nebula, redrawn in the design system (9a)', () => {
     await waitFor(() => expect(artistButtons()).toEqual(['Boards of Canada']));
   });
 
-  it('Not found yet keeps the three columns and shows only its artists', async () => {
+  it('Not found keeps the three columns and shows only its artists', async () => {
     stubFetch({
       albums: [
         albumRow('Aphex Twin', 'SAW', 'Xtal', 5),

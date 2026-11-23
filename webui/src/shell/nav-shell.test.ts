@@ -938,6 +938,7 @@ describe('the markup', () => {
       'sample-studio',
       'automations',
       'activity',
+      'downloads',
       'settings',
     ]);
     const admin = [...document.querySelectorAll('#ss-admin-panel [data-nav-row]')].map(

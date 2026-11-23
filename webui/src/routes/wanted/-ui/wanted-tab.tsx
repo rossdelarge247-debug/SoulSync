@@ -14,8 +14,10 @@ import {
   qualityProfilesQueryOptions,
   searchWantedNow,
   wantedFoundQueryOptions,
+  wantedJourneyQueryOptions,
 } from '../-wanted.api';
 import {
+  aboutIn,
   automationAside,
   cycleText,
   filterWantedRows,
@@ -35,6 +37,19 @@ import {
   useNow,
   useRefreshWanted,
 } from '../-wanted.hooks';
+import {
+  itemDetail,
+  itemsFrom,
+  n,
+  quarantineSearch,
+  readJourney,
+  readStoredBrowse,
+  sourceSummaries,
+  storeBrowse,
+  withJourney,
+  type DetailContext,
+  type WantedBrowse,
+} from '../-wanted.journey';
 import {
   PAGE_SIZE,
   resolveWantedFilter,
@@ -60,18 +75,22 @@ import { ConfirmDialog } from './confirm-dialog';
 import { AudiobooksView } from './legacy-views';
 import { NebulaView } from './nebula-view';
 import {
+  BrowseToggle,
+  FieldSelect,
   FilterButtons,
+  FromSelect,
   ListFailure,
   ListFooter,
-  SortSelect,
   SubHead,
   ViewToggle,
   type FilterOption,
 } from './parts';
 import { FoundRowView, WantedRowView, type WantedRowHandlers } from './rows';
+import { SourcePage, SourcesView } from './sources-view';
 import styles from './wanted-page.module.css';
 
 export const WANTED_SORT_OPTIONS: { key: WantedSort; label: string }[] = [
+  { key: 'needs-you', label: 'Needs you first' },
   { key: 'newest', label: 'Newest first' },
   { key: 'oldest', label: 'Oldest first' },
   { key: 'most-tries', label: 'Most tries first' },
@@ -205,11 +224,27 @@ export function WantedTab({
   const { processing } = useLiveWishlist(() => void refresh());
   const nextRun = useCountdownFrom(stats.data?.next_run_in_seconds);
 
-  const found = useMemo(() => toFoundItems(foundQuery.data), [foundQuery.data]);
-  const counts = wantedCounts(data.items, found);
+  const journeyQuery = useQuery(wantedJourneyQueryOptions(profileId));
+  const journey = useMemo(() => readJourney(journeyQuery.data), [journeyQuery.data]);
+  // every wanted thing with its one status; the From filter narrows them
+  const allItems = useMemo(
+    () => withJourney(data.items, journey.tracks),
+    [data.items, journey.tracks],
+  );
+  const sources = useMemo(
+    () => sourceSummaries(allItems, journey.tracks, journey.playlists),
+    [allItems, journey.tracks, journey.playlists],
+  );
+  const from = search.from;
+  const source = from ? (sources.find((entry) => entry.key === from) ?? null) : null;
+  const items = useMemo(() => itemsFrom(allItems, from), [allItems, from]);
+  const allFound = useMemo(() => toFoundItems(foundQuery.data), [foundQuery.data]);
+  // a find doesn't record where it was wanted from, so Got it is only "everywhere"
+  const found = from ? [] : allFound;
+  const counts = wantedCounts(items, found);
   const rows = useMemo(
-    () => sortWantedRows(filterWantedRows(wantedRows(data.items, found), filter, query), sort),
-    [data.items, found, filter, query, sort],
+    () => sortWantedRows(filterWantedRows(wantedRows(items, found), filter, query), sort),
+    [items, found, filter, query, sort],
   );
   const shown = rows.slice(0, pages * PAGE_SIZE);
   const names = useMemo(() => qualityNames(quality.data?.profiles), [quality.data]);
@@ -219,6 +254,22 @@ export function WantedTab({
     automation: findSystemAutomation(automations.data, 'process_wishlist'),
     paused: master.data?.music === false,
   });
+  const detailContext: DetailContext = {
+    retry: journey.retry,
+    now,
+    nextSearch: schedule.kind === 'next' ? aboutIn(nextRun) : '',
+  };
+
+  // Songs or Sources (the View toggle): the profile's last choice in this
+  // browser, unless the link says which; a source's page is under Sources.
+  const [storedBrowse, setStoredBrowse] = useState<WantedBrowse>(() => readStoredBrowse(profileId));
+  useEffect(() => setStoredBrowse(readStoredBrowse(profileId)), [profileId]);
+  const browse: WantedBrowse = search.source ? 'sources' : (search.browse ?? storedBrowse);
+  const setBrowse = (next: WantedBrowse) => {
+    storeBrowse(profileId, next);
+    setStoredBrowse(next);
+    go({ browse: undefined, source: undefined, page: undefined });
+  };
 
   // ── actions ────────────────────────────────────────────────────────────
   const [searching, setSearching] = useState<ReadonlySet<string>>(() => new Set());
@@ -256,6 +307,25 @@ export function WantedTab({
       toast(`Couldn't search for ${label}. ${searchErrorText(error)}`, 'error');
     } finally {
       items.forEach((item) => markSearching(item.key, false));
+    }
+  };
+
+  /** Search now for songs picked one by one (a source's page). */
+  const grabTracks = async (tracks: WantedTrack[]) => {
+    if (tracks.length === 0) return;
+    const label = tracks.length === 1 ? `“${tracks[0].title}”` : plural(tracks.length, 'song');
+    try {
+      const response = await bulkWishlistActionChunked(
+        'grab',
+        tracks.map((track) => track.id),
+      );
+      const failed = (response.results ?? []).find((r) => !r.ok);
+      if (failed)
+        toast(`Couldn't search for ${label}: ${failed.message ?? 'it was refused'}.`, 'warning');
+      else toast(`Searching for ${label} now.`);
+      void refresh();
+    } catch (error) {
+      toast(`Couldn't search for ${label}. ${searchErrorText(error)}`, 'error');
     }
   };
 
@@ -300,6 +370,11 @@ export function WantedTab({
   });
 
   const handlers: WantedRowHandlers = {
+    onReview: (item) => {
+      if (!item.quarantineEntry) return;
+      void navigate({ to: '/active-downloads', search: quarantineSearch(item.quarantineEntry) });
+    },
+    onOpenDownloads: () => void navigate({ to: '/active-downloads', search: { media: 'music' } }),
     onOpenArtist: (artist) => window._navigateToArtistFromWishlist?.(artist),
     onSearchNow: (item) => void grab([item], `“${item.title}”`),
     onRetry: (item) => void retry([item], `“${item.title}”`),
@@ -360,7 +435,7 @@ export function WantedTab({
     });
     lastPicked.current = key;
   };
-  const selectedItems = data.items.filter((item) => selected.has(item.key));
+  const selectedItems = items.filter((item) => selected.has(item.key));
 
   // ── the views ──────────────────────────────────────────────────────────
   const toolbar = (controls: ReactNode) => (
@@ -415,7 +490,7 @@ export function WantedTab({
     );
   }
 
-  if (data.items.length === 0 && found.length === 0) {
+  if (data.items.length === 0 && allFound.length === 0) {
     return (
       <>
         {toolbar(null)}
@@ -439,49 +514,138 @@ export function WantedTab({
     );
   }
 
+  const decisionSongs = allItems.reduce((sum, item) => sum + item.trackStates.decision, 0);
+  const songCount = allItems.reduce((sum, item) => sum + item.tracks.length, 0);
+  const viewRow = (
+    <div className={styles.viewRow}>
+      <BrowseToggle value={browse} onChange={setBrowse} />
+      <span className={styles.viewNote}>
+        {`${plural(songCount, 'song')} from ${plural(sources.length, 'source')}`}
+        {decisionSongs
+          ? ` · ${n(decisionSongs)} ${decisionSongs === 1 ? 'needs' : 'need'} your decision`
+          : ''}
+      </span>
+    </div>
+  );
+
+  if (browse === 'sources') {
+    const open = search.source
+      ? (sources.find((entry) => entry.key === search.source) ?? null)
+      : null;
+    return (
+      <>
+        {toolbar(null)}
+        {viewRow}
+        {search.source ? (
+          <SourcePage
+            sourceKey={search.source}
+            summary={open}
+            items={allItems}
+            journeys={journey.tracks}
+            context={detailContext}
+            canSearch={canSearch}
+            onBack={() => go({ source: undefined, browse: 'sources' })}
+            onSongs={() => {
+              storeBrowse(profileId, 'songs');
+              setStoredBrowse('songs');
+              go({ browse: undefined, source: undefined, from: search.source, page: undefined });
+            }}
+            onReview={(entry) =>
+              void navigate({ to: '/active-downloads', search: quarantineSearch(entry) })
+            }
+            onOpenDownloads={handlers.onOpenDownloads}
+            onSearchByHand={handlers.onSearchByHand}
+            onSearchNow={(track) => void grabTracks([track])}
+          />
+        ) : (
+          <SourcesView
+            sources={sources}
+            loading={journeyQuery.isPending}
+            onOpen={(key) => go({ browse: 'sources', source: key, page: undefined })}
+          />
+        )}
+      </>
+    );
+  }
+
   const filterOptions: FilterOption<WantedFilter>[] = [
-    { key: 'all', label: 'All' },
-    { key: 'searching', label: 'Searching', count: counts.searching },
-    { key: 'not-found', label: 'Not found yet', count: counts.notFound },
+    { key: 'all', label: 'All', count: counts.wanted + (foundQuery.isSuccess ? counts.found : 0) },
+    { key: 'waiting', label: 'Waiting', count: counts.waiting, dot: 'neutral' },
+    { key: 'searching', label: 'Searching', count: counts.searching, dot: 'info' },
+    { key: 'downloading', label: 'Downloading', count: counts.downloading, dot: 'accent' },
+    { key: 'decision', label: 'Needs your decision', count: counts.decision, dot: 'warning' },
+    { key: 'not-found', label: 'Not found', count: counts.notFound, dot: 'danger' },
     {
       key: 'found',
-      label: 'Found this week',
-      count: foundQuery.isSuccess ? counts.found : undefined,
+      label: 'Got it, last 30 days',
+      count: foundQuery.isSuccess && !from ? counts.found : undefined,
+      dot: 'success',
     },
   ];
 
+  const fromName = source?.label ?? '';
   const emptyFilterText =
     query && filter === 'all'
       ? `Nothing on Wanted matches “${query}”.`
-      : filter === 'searching'
-        ? 'Nothing on Wanted is in its first searches.'
-        : filter === 'not-found'
-          ? 'Nothing has gone unfound for three tries or more.'
-          : filter === 'found'
-            ? 'Nothing was found in the last 7 days.'
-            : 'Nothing to show.';
+      : filter === 'found' && from
+        ? 'Got it lists what arrived from everywhere: SYNCHRO.S doesn’t keep where a find was wanted from yet.'
+        : from && filter === 'all'
+          ? `Nothing from ${fromName || 'there'} is on Wanted now.`
+          : filter === 'waiting'
+            ? 'Nothing is waiting for a search.'
+            : filter === 'searching'
+              ? 'Nothing is being searched for right now.'
+              : filter === 'downloading'
+                ? 'Nothing is downloading right now.'
+                : filter === 'decision'
+                  ? 'Nothing is waiting for your decision.'
+                  : filter === 'not-found'
+                    ? 'Nothing has gone unfound for three tries or more.'
+                    : filter === 'found'
+                      ? 'Nothing arrived in the last 30 days.'
+                      : 'Nothing to show.';
 
   return (
     <>
-      {toolbar(
-        <div className={styles.controls}>
-          <FilterButtons
-            options={filterOptions}
-            value={filter}
-            onChange={(next) => go({ filter: next === 'all' ? undefined : next, page: undefined })}
+      {toolbar(null)}
+      {viewRow}
+      <FilterButtons
+        label="Status"
+        options={filterOptions}
+        value={filter}
+        onChange={(next) => go({ filter: next === 'all' ? undefined : next, page: undefined })}
+      />
+      <div className={styles.fields}>
+        <FromSelect
+          sources={sources}
+          value={from}
+          onChange={(next) => go({ from: next, page: undefined })}
+        />
+        <label className={`${styles.field} ${styles.fieldGrow}`}>
+          <span className={styles.fieldLabel}>Search</span>
+          <TextInput
+            type="search"
+            placeholder="Song, artist or album"
+            value={query}
+            autoFocus={findOpen && !query}
+            onChange={(event) =>
+              go({ q: event.target.value || undefined, page: undefined }, { replace: true })
+            }
+            onBlur={onCloseFind}
           />
-          {nebula ? null : (
-            <SortSelect
-              options={WANTED_SORT_OPTIONS}
-              value={sort}
-              onChange={(next) =>
-                go({ sort: next === 'newest' ? undefined : next, page: undefined })
-              }
-            />
-          )}
-          <ViewToggle view={view} onView={onView} />
-        </div>,
-      )}
+        </label>
+        {nebula ? null : (
+          <FieldSelect
+            label="Sort"
+            options={WANTED_SORT_OPTIONS}
+            value={sort}
+            onChange={(next) =>
+              go({ sort: next === 'needs-you' ? undefined : next, page: undefined })
+            }
+          />
+        )}
+        <ViewToggle view={view} onView={onView} />
+      </div>
 
       <ScheduleLine
         processing={processing}
@@ -497,6 +661,31 @@ export function WantedTab({
         }
       />
 
+      {from ? (
+        <p className={styles.line} data-testid="from-line">
+          <span>
+            <span className={styles.fromName}>{fromName || from.replace(/^playlist:/, '')}</span>
+            {source ? ` · ${source.headline}` : ' · nothing on Wanted from here now'}
+          </span>
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => go({ from: undefined, page: undefined })}
+          >
+            Show everything
+          </button>
+        </p>
+      ) : null}
+
+      {filter === 'decision' && counts.decision > 0 ? (
+        <p className={styles.line}>
+          <span>
+            Each was downloaded but held back: it might be the wrong song, version or quality.
+            Review opens its attempts in Quarantine, to keep one and delete the rest.
+          </span>
+        </p>
+      ) : null}
+
       {filter === 'not-found' && counts.notFound > 0 ? (
         <p className={styles.line}>
           <span>
@@ -508,7 +697,7 @@ export function WantedTab({
             className={styles.linkButton}
             onClick={() =>
               void retry(
-                data.items.filter((item) => item.status === 'not-found'),
+                items.filter((item) => item.journey === 'not-found'),
                 `All ${counts.notFound}`,
               )
             }
@@ -516,30 +705,6 @@ export function WantedTab({
             Try them all on the next search
           </button>
         </p>
-      ) : null}
-
-      {findOpen || query ? (
-        <div className={styles.find} role="search">
-          <TextInput
-            aria-label="Find in this list"
-            placeholder="Find a title, artist or album"
-            value={query}
-            autoFocus={findOpen && !query}
-            onChange={(event) =>
-              go({ q: event.target.value || undefined, page: undefined }, { replace: true })
-            }
-          />
-          <Button
-            size="lg"
-            variant="ghost"
-            onClick={() => {
-              go({ q: undefined, page: undefined }, { replace: true });
-              onCloseFind();
-            }}
-          >
-            Close
-          </Button>
-        </div>
       ) : null}
 
       {selecting ? (
@@ -582,7 +747,7 @@ export function WantedTab({
       {nebula ? (
         <NebulaView
           profileId={profileId}
-          items={data.items}
+          items={items}
           found={found}
           query={query}
           filter={filter}
@@ -625,6 +790,7 @@ export function WantedTab({
                     key={row.item.key}
                     item={row.item}
                     now={now}
+                    detail={itemDetail(row.item, journey.tracks, detailContext)}
                     qualityName={
                       (row.item.qualityProfileId
                         ? names.byId.get(row.item.qualityProfileId)

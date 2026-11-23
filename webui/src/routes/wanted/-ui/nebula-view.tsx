@@ -8,7 +8,7 @@ import { StatusTag } from '@/components/primitives';
 import type { FoundItem, WantedFilter, WantedItem, WantedTrack } from '../-wanted.types';
 
 import { libraryArtistQueryOptions } from '../-wanted.api';
-import { foundWhen, plural, serverTime, wantedStatus } from '../-wanted.helpers';
+import { foundWhen, plural, serverTime, triesStatus } from '../-wanted.helpers';
 import { useRefreshWanted } from '../-wanted.hooks';
 import {
   COLUMN_PREVIEW,
@@ -204,7 +204,7 @@ function FoundTag({ item, now }: { item: FoundItem; now: number }) {
   const when = ms ? foundWhen(ms, now) : null;
   return (
     <StatusTag tone="success">
-      {when ? `Found ${when.day} ${when.time}` : 'Found this week'}
+      {when ? `Got it ${when.day} ${when.time}` : 'Got it this week'}
     </StatusTag>
   );
 }
@@ -300,7 +300,7 @@ function ArtistPanel({
 
       <ul className={styles.items} aria-label={`${artist.name} on Wanted`}>
         {worstFirst(artist.items).map((item) => {
-          const status = wantedStatus(item);
+          const status = triesStatus(item);
           return (
             <PanelRow
               key={item.key}

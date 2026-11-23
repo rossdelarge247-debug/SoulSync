@@ -45,7 +45,12 @@ and ignores the range:
 * download: an album or track batch whose failed tracks are not on Wanted,
   so nothing will try them again, until the same release is downloaded again;
 * safety: a preview that expired unconfirmed, until the same tool is
-  previewed again or confirmed, or the item is dismissed.
+  previewed again or confirmed, or the item is dismissed;
+* download (admins): downloads held in quarantine, one item for them all,
+  counted in songs ("721 songs are waiting for your decision"; the files in
+  its detail), until the folder is empty;
+* download: songs on the viewer's Wanted list searched for three times or
+  more without a result ("15 songs couldn’t be found"), until none are.
 """
 
 from __future__ import annotations
@@ -90,7 +95,8 @@ STALE_RUNNING_SECONDS = 6 * 3600
 
 # Tie-break order for items with the same timestamp; part of the cursor.
 _RANK = {"lh_download": 1, "lh_import": 2, "auto_import": 3, "sync_history": 4,
-         "mirror": 5, "automation": 6, "automation_live": 7, "safety": 8, "radio": 9, "library_job": 10}
+         "mirror": 5, "automation": 6, "automation_live": 7, "safety": 8, "radio": 9, "library_job": 10,
+         "quarantine": 11, "not_found": 12}
 
 _SOURCES = {
     "download": ("lh_download", "sync_history"),
@@ -1279,6 +1285,90 @@ def _needs_you_download_rows(ctx: _Ctx) -> List[Dict[str, Any]]:
         oparams + [ctx.viewer.profile_id]).fetchall()]
 
 
+def _quarantine_dir() -> Optional[str]:
+    """Where move_to_quarantine puts files (api/quarantine.py's folder)."""
+    try:
+        from core.imports.paths import docker_resolve_path
+        from core.settings import config_manager
+        return os.path.join(
+            docker_resolve_path(config_manager.get("soulseek.download_path", "./downloads")),
+            "ss_quarantine")
+    except Exception as exc:  # noqa: BLE001 - a missing folder is "nothing held"
+        logger.debug("activity: quarantine folder unavailable: %s", exc)
+        return None
+
+
+def _quarantine_held(ctx: _Ctx) -> Tuple[int, int]:
+    """How many files quarantine holds and when the newest went in (unix
+    seconds), for admins; (0, 0) otherwise. A listdir, no sidecar reads."""
+    if not ctx.viewer.is_admin:
+        return 0, 0
+    folder = _quarantine_dir()
+    if not folder or not os.path.isdir(folder):
+        return 0, 0
+    try:
+        names = [n for n in os.listdir(folder) if n.endswith(".quarantined")
+                 and os.path.isfile(os.path.join(folder, n))]
+    except OSError:
+        return 0, 0
+    if not names:
+        return 0, 0
+    newest = 0
+    for name in names:
+        try:  # "<YYYYmmdd_HHMMSS>_<original>…", local time (move_to_quarantine)
+            newest = max(newest, int(datetime.strptime(name[:15], "%Y%m%d_%H%M%S").timestamp()))
+        except ValueError:
+            continue
+    return len(names), newest or int(ctx.now)
+
+
+def _quarantine_item(ctx: _Ctx, files: int, newest: int) -> Dict[str, Any]:
+    """One item for the whole quarantine, in songs. The songs need each
+    sidecar's target, read through the shared index (a sidecar is read once,
+    then only when it changes); if that fails the files stand in."""
+    songs = files
+    try:
+        from core.imports.quarantine_index import count_songs, shared_index
+        songs = count_songs(shared_index().records(_quarantine_dir() or "")) or files
+    except Exception as exc:  # noqa: BLE001 - the file count is still true
+        logger.debug("activity: quarantine songs unavailable: %s", exc)
+    when = "today" if newest >= ctx.now - 86400 else None
+    detail = (f"{files:,} download{'' if files == 1 else 's'} {'was' if files == 1 else 'were'} "
+              "held back because they might be the wrong song, version or quality."
+              + (" Newest today." if when else ""))
+    return _item(
+        "quarantine", 0, id="quarantine:review", time=newest, kind="download", status="warning",
+        title=(f"{songs:,} song{'' if songs == 1 else 's'} "
+               f"{'is' if songs == 1 else 'are'} waiting for your decision"),
+        detail=detail, link="/active-downloads?review=quarantine",
+        ref={"quarantine": files, "songs": songs})
+
+
+def _not_found_row(ctx: _Ctx) -> Optional[Dict[str, Any]]:
+    """The viewer's Wanted songs searched for three times or more without a
+    result (WL_FAILING_ATTEMPTS on the Wanted page), and the latest try."""
+    try:
+        row = ctx.conn.execute(
+            f"SELECT COUNT(*) AS n, MAX({_ts('last_attempted')}) AS t FROM wishlist_tracks "
+            "WHERE profile_id = ? AND COALESCE(retry_count, 0) >= 3",
+            [ctx.viewer.profile_id]).fetchone()
+    except Exception as exc:  # noqa: BLE001 - an older database without the table
+        logger.debug("activity: not-found count unavailable: %s", exc)
+        return None
+    if not row or not row["n"]:
+        return None
+    return {"n": int(row["n"]), "t": int(row["t"] or ctx.now)}
+
+
+def _not_found_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
+    n = row["n"]
+    return _item(
+        "not_found", 0, id="wanted:not-found", time=row["t"], kind="download", status="warning",
+        title=f"{n:,} song{'' if n == 1 else 's'} couldn’t be found",
+        detail="They’re tried again less often. Searching by hand often works.",
+        link="/wanted?filter=not-found", ref={"not_found": n})
+
+
 def needs_you_count(ctx: _Ctx) -> int:
     """How many things need the viewer, without building them: COUNTs where
     the rule is plain SQL, a bounded read where it needs a look at the row."""
@@ -1297,6 +1387,10 @@ def needs_you_count(ctx: _Ctx) -> int:
     n += conn.execute(
         f"SELECT COUNT(*) FROM action_plan_events WHERE {where} AND event = 'expired' AND resolved_at IS NULL",
         params).fetchone()[0]
+    if _quarantine_held(ctx)[0]:
+        n += 1
+    if _not_found_row(ctx):
+        n += 1
     return n
 
 
@@ -1328,6 +1422,13 @@ def needs_you_items(ctx: _Ctx) -> Tuple[List[Dict[str, Any]], int]:
         f"WHERE {where} AND event = 'expired' AND resolved_at IS NULL ORDER BY occurred_at DESC LIMIT ?",
         params + [NEEDS_YOU_LIMIT]).fetchall()
     items += [_safety_item(ctx, dict(r)) for r in rows]
+
+    held, newest = _quarantine_held(ctx)
+    if held:
+        items.append(_quarantine_item(ctx, held, newest))
+    not_found = _not_found_row(ctx)
+    if not_found:
+        items.append(_not_found_item(ctx, not_found))
 
     for item in items:
         item["needs_you"] = True

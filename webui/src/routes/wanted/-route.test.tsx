@@ -298,7 +298,16 @@ interface Setup {
   /** never answer the track lists (the loading state) */
   hangTracks?: boolean;
   posts?: { path: string; body: unknown }[];
+  /** GET /api/wishlist/journey's answer; the standard ladder and nothing live by default. */
+  journey?: Record<string, unknown>;
 }
+
+const STANDARD_RETRY = {
+  name: 'standard',
+  label: 'Standard',
+  ladder: { '2': 14_400, '3': 86_400 },
+  max_cooldown: 604_800,
+};
 
 function mockApi(setup: Setup = {}) {
   const posts = setup.posts ?? [];
@@ -333,8 +342,19 @@ function mockApi(setup: Setup = {}) {
       }),
     ),
     http.get('*/api/wishlist/cycle', () => HttpResponse.json({ cycle: 'albums' })),
+    http.get('*/api/wishlist/journey', () =>
+      HttpResponse.json({
+        success: true,
+        tracks: {},
+        quarantine_total: 0,
+        quarantine_songs: 0,
+        playlists: [],
+        retry: STANDARD_RETRY,
+        ...setup.journey,
+      }),
+    ),
     http.get('*/api/wishlist/found', () =>
-      HttpResponse.json({ success: true, days: 7, items: setup.found ?? FOUND }),
+      HttpResponse.json({ success: true, days: 30, items: setup.found ?? FOUND }),
     ),
     http.get('*/api/wishlist/retry-profile', () =>
       HttpResponse.json({
@@ -530,38 +550,96 @@ afterEach(() => {
 });
 
 describe('Wanted tab', () => {
-  it('shows each wanted thing once, the finds of this week, and the counts', async () => {
+  it('shows each wanted thing once with its one status and line, Needs you first', async () => {
     mockApi();
     renderRoute('/wanted');
 
     await screen.findByText('Harbour Light');
+    await screen.findByText(/No match after 14 searches/);
     const rows = within(list('Wanted')).getAllByRole('listitem');
-    // newest first: the find (an hour ago), then by when each was added
+    // Needs you first: not found (newest added first), then waiting, then what arrived
     expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual([
-      'Static Bloom',
-      'Harbour Light',
       'Lantern',
       'Night Ferry (Live)',
+      'Harbour Light',
+      'Static Bloom',
     ]);
     // the album's two tracks are one row
-    expect(within(rows[2]).getByText(/Album/)).toBeInTheDocument();
-    expect(within(rows[2]).getByText('Not found yet · 14 tries')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Searching · 1 try')).toBeInTheDocument();
-    expect(rows[3]).toHaveTextContent('last try: user went offline');
-    expect(within(rows[0]).getByText(/Found today/)).toBeInTheDocument();
+    expect(within(rows[0]).getByText(/Album/)).toBeInTheDocument();
+    expect(within(rows[0]).getByText('Not found')).toBeInTheDocument();
+    // the last try an hour ago; past the ladder it waits the 7 days most
+    expect(rows[0]).toHaveTextContent('No match after 14 searches · tries again in about 7 days');
+    expect(within(rows[0]).getByRole('button', { name: 'Show tracks' })).toBeInTheDocument();
+    expect(within(rows[1]).getByRole('button', { name: 'Search by hand' })).toBeInTheDocument();
+    expect(within(rows[2]).getByText('Waiting')).toBeInTheDocument();
+    expect(rows[2]).toHaveTextContent('Tried once · tries again on the next search');
+    expect(rows[2]).toHaveTextContent('from Requested by me');
+    expect(within(rows[3]).getByText('Got it')).toBeInTheDocument();
+    expect(rows[3]).toHaveTextContent(/In your library · today \d\d:\d\d, FLAC 24\/96/);
 
     expect(tab(/Wanted/)).toHaveAttribute('aria-selected', 'true');
     expect(tab(/Wanted/)).toHaveTextContent('3');
     // artists, labels, podcasts and audiobook follows: counted once all have answered
     await waitFor(() => expect(tab(/Following/)).toHaveTextContent('3'));
-    expect(screen.getByRole('button', { name: /Searching/ })).toHaveTextContent('1');
-    expect(screen.getByRole('button', { name: /Not found yet/ })).toHaveTextContent('2');
-    expect(screen.getByRole('button', { name: /Found this week/ })).toHaveTextContent('1');
+    const chips = screen.getByRole('group', { name: 'Status' });
+    expect(within(chips).getByRole('button', { name: /^All/ })).toHaveTextContent('4');
+    expect(within(chips).getByRole('button', { name: /^Waiting/ })).toHaveTextContent('1');
+    expect(within(chips).getByRole('button', { name: /^Searching/ })).toHaveTextContent('0');
+    expect(within(chips).getByRole('button', { name: /^Not found/ })).toHaveTextContent('2');
+    expect(within(chips).getByRole('button', { name: /^Got it, last 30 days/ })).toHaveTextContent(
+      '1',
+    );
+    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveValue('needs-you');
     expect(
       screen.getByText(
         /Next scheduled search in about 2 hours, for albums \(Auto-Process Wishlist, every 6 hours\)\./,
       ),
     ).toBeInTheDocument();
+  });
+
+  it('shows a download on its way, and a quarantined one with Review that opens its attempts', async () => {
+    mockApi({
+      journey: {
+        tracks: {
+          hl: { download: { status: 'downloading', phase: 'downloading', progress: 62 } },
+          nf: {
+            quarantine: {
+              entry_id: '20261120_101010_Night Ferry',
+              count: 3,
+              trigger: 'acoustid_unverified',
+              matched_by: 'id',
+            },
+          },
+        },
+      },
+    });
+    const { router } = renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    await waitFor(() =>
+      expect(within(list('Wanted')).getByText('Needs your decision')).toBeTruthy(),
+    );
+    const rows = within(list('Wanted')).getAllByRole('listitem');
+    // Needs your decision before not found, Downloading after
+    expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual([
+      'Night Ferry (Live)',
+      'Lantern',
+      'Harbour Light',
+      'Static Bloom',
+    ]);
+    expect(rows[0]).toHaveTextContent('3 tries held back · couldn’t confirm it’s the right song');
+    expect(within(rows[2]).getByText('Downloading')).toBeInTheDocument();
+    expect(rows[2]).toHaveTextContent('62% downloaded');
+    const chips = screen.getByRole('group', { name: 'Status' });
+    expect(within(chips).getByRole('button', { name: /^Needs your decision/ })).toHaveTextContent(
+      '1',
+    );
+    expect(within(chips).getByRole('button', { name: /^Downloading/ })).toHaveTextContent('1');
+
+    fireEvent.click(within(rows[0]).getByRole('button', { name: 'Review' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/active-downloads'));
+    const params = new URLSearchParams(router.state.location.searchStr);
+    expect(params.get('review')).toBe('quarantine');
+    expect(params.get('entry')).toBe('20261120_101010_Night Ferry');
   });
 
   it('carries the guided tour’s anchor on its tabs', async () => {
@@ -576,11 +654,11 @@ describe('Wanted tab', () => {
     const { router, history } = renderRoute('/wanted?tab=wanted');
     await screen.findByText('Harbour Light');
 
-    fireEvent.click(screen.getByRole('button', { name: /Not found yet/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Not found/ }));
     await waitFor(() => expect(search(router).get('filter')).toBe('not-found'));
     expect(within(list('Wanted')).queryByText('Harbour Light')).not.toBeInTheDocument();
     expect(within(list('Wanted')).getByText('Lantern')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Not found yet/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /^Not found/ })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -606,10 +684,7 @@ describe('Wanted tab', () => {
     renderRoute('/wanted?tab=wanted&filter=found');
     await screen.findByText('Static Bloom');
     expect(within(list('Wanted')).getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: /Found this week/ })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(screen.getByRole('button', { name: /^Got it/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('pages 50 at a time and keeps the page in the URL', async () => {
@@ -642,10 +717,17 @@ describe('Wanted tab', () => {
   });
 
   it('Search now on a row searches for all of its tracks', async () => {
-    const posts = mockApi();
+    // Lantern not tried yet, so its one action is Search now
+    const posts = mockApi({
+      albums: ALBUMS.map((t) =>
+        t.spotify_track_id.startsWith('ln') ? { ...t, retry_count: 0, last_attempted: null } : t,
+      ),
+    });
     renderRoute('/wanted');
     await screen.findByText('Lantern');
-    const lantern = within(list('Wanted')).getAllByRole('listitem')[2];
+    const lantern = within(list('Wanted'))
+      .getAllByRole('listitem')
+      .find((r) => r.querySelector('p')?.textContent === 'Lantern')!;
     fireEvent.click(within(lantern).getByRole('button', { name: 'Search now' }));
     await waitFor(() =>
       expect(posts).toContainEqual({
@@ -831,7 +913,8 @@ describe('Wanted tab', () => {
 
     menu = await openMenu('More for Wanted');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Find in this list' }));
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Find in this list' }), {
+    // the Search field is always there now (board 1); the menu item focuses it
+    fireEvent.change(await screen.findByRole('searchbox', { name: 'Search' }), {
       target: { value: 'night' },
     });
     await waitFor(() => expect(search(router).get('q')).toBe('night'));
@@ -858,6 +941,105 @@ describe('Wanted tab', () => {
     fireEvent.click(within(dialog).getByText('Patient'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use Patient' }));
     await waitFor(() => expect(sent).toEqual({ profile: 'patient' }));
+  });
+});
+
+describe('Wanted journey: Sources (boards 2 and 3)', () => {
+  const fromPlaylist = (t: ReturnType<typeof track>, name: string, id: string) => ({
+    ...t,
+    source_type: 'playlist',
+    source_info: { playlist_name: name, playlist_id: id },
+  });
+  const albums = [fromPlaylist(ALBUMS[0], 'Running', 'auto_mirror_3'), ALBUMS[1], ALBUMS[2]];
+  const singles = [fromPlaylist(SINGLES[0], 'Running', 'auto_mirror_3')];
+  const journey = {
+    playlists: [
+      {
+        name: 'Running',
+        mirror: {
+          id: 3,
+          source: 'spotify',
+          total: 240,
+          in_library: 212,
+          library_checked: 240,
+          library_known: true,
+        },
+      },
+    ],
+  };
+
+  afterEach(() => window.localStorage.clear());
+
+  it('lists each source with its bar and headline, and remembers the view', async () => {
+    mockApi({ albums, singles, journey });
+    const { router } = renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    const view = screen.getByRole('group', { name: 'View' });
+    expect(within(view).getByRole('button', { name: 'Songs' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText('4 songs from 2 sources')).toBeInTheDocument();
+
+    fireEvent.click(within(view).getByRole('button', { name: 'Sources' }));
+    const playlists = await screen.findByRole('region', { name: 'Playlists' });
+    expect(within(playlists).getByText('1 playlist · 2 songs still wanted')).toBeInTheDocument();
+    expect(within(playlists).getByText('Running')).toBeInTheDocument();
+    expect(within(playlists).getByText('Spotify · mirrored')).toBeInTheDocument();
+    expect(
+      within(playlists).getByText('212 of 240 in your library · 28 to go'),
+    ).toBeInTheDocument();
+    expect(
+      within(playlists).getByRole('img', {
+        name: '212 in your library, 1 waiting, 1 not found',
+      }),
+    ).toBeInTheDocument();
+    const requests = screen.getByRole('region', { name: 'Your requests' });
+    expect(within(requests).getByText('Requested by me')).toBeInTheDocument();
+    expect(within(requests).getByText('2 still wanted')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Wanted' })).toBeNull();
+    // remembered for this profile in this browser
+    const stored = Object.keys(window.localStorage).filter((k) =>
+      k.startsWith('soulsync-wanted-browse:'),
+    );
+    expect(stored).toHaveLength(1);
+    expect(window.localStorage.getItem(stored[0])).toBe('sources');
+
+    fireEvent.click(within(playlists).getByRole('button', { name: 'Show songs' }));
+    await waitFor(() => expect(search(router).get('source')).toBe('playlist:running'));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Running' })).toBeInTheDocument();
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(crumbs).toHaveTextContent('Wanted › Sources › Running');
+    expect(screen.getByText('212 of 240 songs in your library')).toBeInTheDocument();
+    const still = screen.getByRole('region', { name: 'Still to get' });
+    expect(within(still).getByText('The 2 still to get')).toBeInTheDocument();
+    expect(
+      within(still)
+        .getAllByRole('heading', { level: 4 })
+        .map((h) => h.textContent),
+    ).toEqual(['Not found · 1', 'Waiting · 1']);
+    expect(within(still).getByRole('button', { name: 'Search by hand' })).toBeInTheDocument();
+
+    // Show in the list: Songs, narrowed to Running
+    fireEvent.click(screen.getByRole('button', { name: 'Show in the list' }));
+    await waitFor(() => expect(search(router).get('from')).toBe('playlist:running'));
+    expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+    expect(within(list('Wanted')).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByTestId('from-line')).toHaveTextContent(
+      'Running · 212 of 240 in your library · 28 to go',
+    );
+    expect(screen.getByRole('combobox', { name: 'From' })).toHaveValue('playlist:running');
+  });
+
+  it('says what it can’t count for a playlist that isn’t mirrored', async () => {
+    mockApi({ albums, singles, journey: { playlists: [{ name: 'Running', mirror: null }] } });
+    renderRoute('/wanted?browse=sources&source=playlist%3Arunning');
+    expect(await screen.findByText('2 songs still wanted')).toBeInTheDocument();
+    expect(screen.getByText(/It isn’t mirrored, so SYNCHRO.S can’t count/)).toBeInTheDocument();
+    renderRoute('/wanted?browse=sources');
+    expect(
+      await screen.findByText('2 still wanted · mirror it to count what you have'),
+    ).toBeInTheDocument();
   });
 });
 
@@ -898,7 +1080,7 @@ describe('Wanted as a nebula (9a)', () => {
     mockArtistIndex();
     renderRoute('/wanted');
     await screen.findByText('Harbour Light');
-    const view = screen.getByRole('group', { name: 'View' });
+    const view = screen.getByRole('group', { name: 'Layout' });
     const asList = within(view).getByRole('button', { name: 'Show as a list' });
     const asNebula = within(view).getByRole('button', { name: 'Show as a nebula' });
     expect(asList).toHaveAttribute('aria-pressed', 'true');
@@ -941,9 +1123,9 @@ describe('Wanted as a nebula (9a)', () => {
       .getAllByRole('heading', { level: 3 })
       .map((h) => h.textContent);
     // the counts are things in each state, as the Show filters count them
-    expect(heads).toEqual(['Searching · 1', 'Not found yet · 2', 'Found this week · 1']);
-    // Pale Harbour: Harbour Light searching, Night Ferry not found → Not found yet
-    const notFound = screen.getByRole('region', { name: 'Not found yet · 2' });
+    expect(heads).toEqual(['Searching · 1', 'Not found · 2', 'Got it · 1']);
+    // Pale Harbour: Harbour Light searching, Night Ferry not found → Not found
+    const notFound = screen.getByRole('region', { name: 'Not found · 2' });
     expect(
       within(notFound).getByRole('button', { name: 'Pale Harbour, 2 things on Wanted' }),
     ).toHaveAttribute('aria-pressed', 'false');
@@ -964,8 +1146,8 @@ describe('Wanted as a nebula (9a)', () => {
     renderRoute('/wanted?filter=found');
     await screen.findByRole('group', { name: 'Wanted by artist' });
     expect(
-      within(screen.getByRole('region', { name: 'Not found yet · 2' })).getByText(
-        'Not shown while Show is on Found this week.',
+      within(screen.getByRole('region', { name: 'Not found · 2' })).getByText(
+        'Not shown while Show is on Got it.',
       ),
     ).toBeInTheDocument();
   });
@@ -990,7 +1172,7 @@ describe('Wanted as a nebula (9a)', () => {
         /^22 tries with Night Ferry \(Live\): user went offline\. Last try 1 hour ago\.$/,
       ),
     ).toBeInTheDocument();
-    expect(within(panel).getByText('Not found yet · 22 tries')).toBeInTheDocument();
+    expect(within(panel).getByText('Not found · 22 tries')).toBeInTheDocument();
     expect(within(panel).getByText('Searching · 1 try')).toBeInTheDocument();
 
     fireEvent.click(within(panel).getByRole('button', { name: 'Search now for both' }));

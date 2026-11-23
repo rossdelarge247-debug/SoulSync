@@ -6,8 +6,10 @@ import { kindLabel, lastTryPhrase, plural, relativeAgo, serverTime } from './-wa
  * Wanted as a nebula (board 9a, HANDOFF 32). Upstream's idea, kept: Wanted
  * seen by artist (upstream's groupWishlistArtists), each artist filed under
  * its worst thing (upstream's groupTrouble), busiest first. The groups are
- * the page's own three words, the same as the Show filters and the list's
- * tags: Searching, Not found yet, Found this week.
+ * the page's own words for the searches, the same as the Show filters and
+ * the list's tags: Searching, Not found, Got it. (Downloading and Needs your
+ * decision are the journey's live steps; the nebula files those artists by
+ * their tries.)
  */
 
 export type NebulaGroup = 'searching' | 'not-found' | 'found';
@@ -19,11 +21,11 @@ const WORST_FIRST: NebulaGroup[] = ['not-found', 'searching', 'found'];
 export const NEBULA_GROUPS: {
   group: NebulaGroup;
   label: string;
-  tone: 'info' | 'neutral' | 'success';
+  tone: 'info' | 'danger' | 'success';
 }[] = [
   { group: 'searching', label: 'Searching', tone: 'info' },
-  { group: 'not-found', label: 'Not found yet', tone: 'neutral' },
-  { group: 'found', label: 'Found this week', tone: 'success' },
+  { group: 'not-found', label: 'Not found', tone: 'danger' },
+  { group: 'found', label: 'Got it', tone: 'success' },
 ];
 
 export interface NebulaArtist {
@@ -42,7 +44,7 @@ export interface NebulaArtist {
 export interface NebulaColumn {
   group: NebulaGroup;
   label: string;
-  tone: 'info' | 'neutral' | 'success';
+  tone: 'info' | 'danger' | 'success';
   /** Things in this state (the Show filter's count), not artists. */
   count: number;
   artists: NebulaArtist[];

@@ -166,6 +166,27 @@ export async function fetchQuarantine(page?: {
   }
 }
 
+/**
+ * One song's attempts: the entry and every other quarantined attempt at the
+ * same intended track (GET /api/quarantine/list?entry=), newest first. What
+ * Wanted's Review links open. An entry that's gone answers [].
+ */
+export async function fetchQuarantineGroup(
+  entryId: string,
+): Promise<{ entries: AdlQuarantineEntry[] } | { error: string }> {
+  try {
+    const data = await readJson<{
+      success?: boolean;
+      error?: string;
+      entries?: AdlQuarantineEntry[];
+    }>(apiClient.get('quarantine/list', { timeout: 60000, searchParams: { entry: entryId } }));
+    if (data?.success && Array.isArray(data.entries)) return { entries: data.entries };
+    return { error: data?.error || 'the server said no' };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 // ── Deleted-files manager (the music recycle bin) ─────────────────────────
 
 export async function fetchDeletedFiles(): Promise<AdlDeletedList | null> {

@@ -7,6 +7,7 @@ import type { ParsedWishlistTrack } from '../wishlist/-wishlist.types';
 import { primaryArtistId } from '../watchlist/-watchlist.helpers';
 import { describeTrouble } from '../wishlist/-wishlist.helpers';
 import { WL_FAILING_ATTEMPTS } from '../wishlist/-wishlist.types';
+import { itemJourney, journeyRank, sourceLabelFor } from './-wanted.journey';
 import {
   type FollowedArtistSummary,
   type FoundItem,
@@ -255,6 +256,7 @@ export function buildWantedItems(tracks: WantedTrack[]): WantedItem[] {
       sourceInfo: first.sourceInfo,
       qualityProfileId: group.find((t) => t.qualityProfileId)?.qualityProfileId ?? null,
       status: tries >= WL_FAILING_ATTEMPTS ? 'not-found' : 'searching',
+      ...itemJourney(group, undefined),
     };
   });
 }
@@ -289,18 +291,60 @@ export function kindLabel(kind: WantedKind): string {
   return KIND_LABEL[kind];
 }
 
-/** The status tag: always a word, with the try count once there is one. */
-export function wantedStatus(item: WantedItem): {
-  text: string;
-  tone: 'info' | 'neutral';
-} {
+export type WantedStatusTone = 'info' | 'neutral' | 'warning' | 'danger' | 'accent';
+
+/**
+ * The nebula's tag: where the scheduled searches have got to, with the try
+ * count (the nebula files artists by their tries, not by the live journey).
+ */
+export function triesStatus(item: WantedItem): { text: string; tone: 'info' | 'danger' } {
   if (item.status === 'not-found') {
-    return { text: `Not found yet · ${plural(item.tries, 'try', 'tries')}`, tone: 'neutral' };
+    return { text: `Not found · ${plural(item.tries, 'try', 'tries')}`, tone: 'danger' };
   }
   return {
     text: item.tries > 0 ? `Searching · ${plural(item.tries, 'try', 'tries')}` : 'Searching',
     tone: 'info',
   };
+}
+
+/** The status words (the Wanted journey, Q1: approved). */
+export const JOURNEY_LABELS = {
+  waiting: 'Waiting',
+  searching: 'Searching',
+  downloading: 'Downloading',
+  decision: 'Needs your decision',
+  'not-found': 'Not found',
+} as const;
+
+/**
+ * The status tag: the row's one status, in the board's colours (Waiting
+ * neutral, Searching info, Downloading the accent, Needs your decision
+ * warning, Not found danger). A live step pulses. A release of several
+ * songs says how many are at that step.
+ */
+export function wantedStatus(item: WantedItem): {
+  text: string;
+  tone: WantedStatusTone;
+  live?: boolean;
+} {
+  const label = JOURNEY_LABELS[item.journey];
+  // a release of several says how many are at that step, unless all are
+  const of =
+    item.tracks.length > 1 && item.journeyCount < item.tracks.length
+      ? ` · ${item.journeyCount} of ${item.tracks.length}`
+      : '';
+  switch (item.journey) {
+    case 'downloading':
+      return { text: `${label}${of}`, tone: 'accent', live: true };
+    case 'searching':
+      return { text: `${label}${of}`, tone: 'info', live: true };
+    case 'decision':
+      return { text: `${label}${of}`, tone: 'warning' };
+    case 'not-found':
+      return { text: `${label}${of}`, tone: 'danger' };
+    default:
+      return { text: `${label}${of}`, tone: 'neutral' };
+  }
 }
 
 const UNNAMED_PLAYLISTS = new Set(['', 'unknown playlist', 'wishlist']);
@@ -378,17 +422,10 @@ export function lastTryPhrase(reason: string): string {
   }
 }
 
-/** "last try: user went offline" (lower-cases a capitalised first word). */
-function lastTryText(reason: string): string {
-  const plain = lastTryPhrase(reason);
-  const text = /^[A-Z][a-z]/.test(plain) ? plain[0].toLowerCase() + plain.slice(1) : plain;
-  return text.replace(/[.\s]+$/, '');
-}
-
 /**
  * The meta line under a wanted row's title: artist · album (for a track) ·
- * kind · track count · the quality it's held to · where it came from · why
- * the last try failed.
+ * kind · track count · where it came from · the quality it's held to. Why
+ * the last try failed is the status line's job now (the Wanted journey).
  */
 export function wantedMeta(item: WantedItem, qualityName: string): MetaPart[] {
   const parts: MetaPart[] = [{ key: 'artist', text: item.artist, artist: true }];
@@ -405,22 +442,21 @@ export function wantedMeta(item: WantedItem, qualityName: string): MetaPart[] {
           : plural(wanted, 'track'),
     });
   }
+  parts.push({
+    key: 'source',
+    text: `from ${sourceLabelFor(item.sourceType, item.sourceInfo)}`,
+    wide: true,
+  });
   if (qualityName) parts.push({ key: 'quality', text: qualityName, wide: true });
-  const source = sourceLabel(item.sourceType, item.sourceInfo);
-  if (source) parts.push({ key: 'source', text: source, wide: true });
-  if (item.lastError) {
-    parts.push({ key: 'error', text: `last try: ${lastTryText(item.lastError)}`, warning: true });
-  }
   return parts;
 }
 
-/** The found row's meta: artist · album · quality. */
+/** The found row's meta: artist · album (the quality is on its status line). */
 export function foundMeta(item: FoundItem): MetaPart[] {
   const parts: MetaPart[] = [];
   if (item.artist) parts.push({ key: 'artist', text: item.artist, artist: true });
   if (item.album && lower(item.album) !== lower(item.title))
     parts.push({ key: 'album', text: item.album, wide: true });
-  if (item.quality) parts.push({ key: 'quality', text: item.quality, wide: true });
   return parts;
 }
 
@@ -459,10 +495,9 @@ export function filterWantedRows(rows: WantedRow[], filter: WantedFilter, query 
   const needle = query.trim().toLowerCase();
   return rows.filter((row) => {
     if (filter === 'found' && row.type !== 'found') return false;
-    if (filter === 'searching' && (row.type !== 'wanted' || row.item.status !== 'searching'))
-      return false;
-    if (filter === 'not-found' && (row.type !== 'wanted' || row.item.status !== 'not-found'))
-      return false;
+    if (filter !== 'all' && filter !== 'found') {
+      if (row.type !== 'wanted' || row.item.journey !== filter) return false;
+    }
     return needle ? rowMatches(row, needle) : true;
   });
 }
@@ -483,6 +518,12 @@ export function sortWantedRows(rows: WantedRow[], sort: WantedSort): WantedRow[]
         const triesB = b.type === 'wanted' ? b.item.tries : -1;
         return triesB - triesA || rowDate(b) - rowDate(a) || byTitle(a, b);
       });
+    case 'needs-you':
+      return out.sort((a, b) => {
+        const rankA = journeyRank(a.type === 'wanted' ? a.item.journey : 'found');
+        const rankB = journeyRank(b.type === 'wanted' ? b.item.journey : 'found');
+        return rankA - rankB || rowDate(b) - rowDate(a) || byTitle(a, b);
+      });
     case 'artist':
       return out.sort(
         (a, b) =>
@@ -494,14 +535,31 @@ export function sortWantedRows(rows: WantedRow[], sort: WantedSort): WantedRow[]
   }
 }
 
-export function wantedCounts(items: WantedItem[], found: FoundItem[]) {
-  let searching = 0;
-  let notFound = 0;
+export interface WantedCounts {
+  wanted: number;
+  waiting: number;
+  searching: number;
+  downloading: number;
+  decision: number;
+  notFound: number;
+  found: number;
+}
+
+export function wantedCounts(items: WantedItem[], found: FoundItem[]): WantedCounts {
+  const counts: WantedCounts = {
+    wanted: items.length,
+    waiting: 0,
+    searching: 0,
+    downloading: 0,
+    decision: 0,
+    notFound: 0,
+    found: found.length,
+  };
   for (const item of items) {
-    if (item.status === 'not-found') notFound += 1;
-    else searching += 1;
+    if (item.journey === 'not-found') counts.notFound += 1;
+    else counts[item.journey] += 1;
   }
-  return { wanted: items.length, searching, notFound, found: found.length };
+  return counts;
 }
 
 /** How many wanted things each artist has, by lower-cased name. */

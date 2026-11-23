@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { FoundItem, WantedItem, WantedTrack } from './-wanted.types';
 
+import { itemJourney } from './-wanted.journey';
 import {
   VIEW_STORAGE_KEY,
   circleSize,
@@ -65,6 +66,7 @@ function item(
     sourceInfo: null,
     qualityProfileId: 1,
     status: tries >= 3 ? 'not-found' : 'searching',
+    ...itemJourney(tracks, undefined),
   };
 }
 
@@ -128,10 +130,10 @@ describe('nebulaColumns', () => {
     );
     expect(columns.map((c) => [c.label, c.count, c.artists.map((a) => a.name)])).toEqual([
       ['Searching', 2, ['Pale Harbour']],
-      ['Not found yet', 1, ['Saltmarsh']],
-      ['Found this week', 1, ['Birch & Wire']],
+      ['Not found', 1, ['Saltmarsh']],
+      ['Got it', 1, ['Birch & Wire']],
     ]);
-    expect(columns.map((c) => c.tone)).toEqual(['info', 'neutral', 'success']);
+    expect(columns.map((c) => c.tone)).toEqual(['info', 'danger', 'success']);
   });
 });
 

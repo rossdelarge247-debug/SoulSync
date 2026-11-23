@@ -84,6 +84,10 @@ function SelectBox({
 }
 
 export interface WantedRowHandlers {
+  /** Open the row's attempts in Downloads → Review → Quarantine. */
+  onReview: (item: WantedItem) => void;
+  /** Open Downloads, where the row's download is. */
+  onOpenDownloads: () => void;
   onOpenArtist: (artist: string) => void;
   onSearchNow: (item: WantedItem) => void;
   onRetry: (item: WantedItem) => void;
@@ -94,9 +98,24 @@ export interface WantedRowHandlers {
 }
 
 /** One wanted thing (Wanted v3, 2a; phones 2c). */
+/** A status tag in the journey's colours: Downloading takes the accent,
+ *  which StatusTag has no tone for. */
+function JourneyTag({ text, tone, live }: ReturnType<typeof wantedStatus>) {
+  return (
+    <StatusTag
+      tone={tone === 'accent' ? 'info' : tone}
+      live={live}
+      className={tone === 'accent' ? styles.tagAccent : undefined}
+    >
+      {text}
+    </StatusTag>
+  );
+}
+
 export function WantedRowView({
   item,
   now,
+  detail,
   qualityName,
   canSearch,
   searching,
@@ -108,6 +127,8 @@ export function WantedRowView({
 }: {
   item: WantedItem;
   now: number;
+  /** The line under the status tag: where it has got to, and what's next. */
+  detail: string;
   qualityName: string;
   /** False for a profile that asks an admin first: no Search now. */
   canSearch: boolean;
@@ -123,8 +144,21 @@ export function WantedRowView({
   const several = item.trackIds.length > 1;
   const single = item.tracks[0];
 
+  const reviewable = item.journey === 'decision' && Boolean(item.quarantineEntry);
+  const downloading = item.journey === 'downloading' || item.journey === 'searching';
+
   const entries = (withSearch: boolean): MenuEntry[] => {
     const list: MenuEntry[] = [];
+    if (withSearch && reviewable) {
+      list.push({
+        key: 'review',
+        label: 'Review in quarantine',
+        onSelect: () => handlers.onReview(item),
+      });
+    }
+    if (withSearch && downloading) {
+      list.push({ key: 'downloads', label: 'Details', onSelect: handlers.onOpenDownloads });
+    }
     if (withSearch && canSearch) {
       list.push({
         key: 'search',
@@ -170,6 +204,8 @@ export function WantedRowView({
     <li className={styles.item}>
       <div
         className={styles.row}
+        data-layout="journey"
+        data-status={item.journey}
         data-selecting={selecting ? 'true' : undefined}
         data-selected={selected ? 'true' : undefined}
       >
@@ -188,15 +224,50 @@ export function WantedRowView({
         </div>
         <span className={styles.added}>{addedLabel(item.addedAt, now)}</span>
         <span className={styles.status}>
-          <StatusTag tone={status.tone}>{status.text}</StatusTag>
+          <JourneyTag {...status} />
+          {detail ? <span className={styles.statusDetail}>{detail}</span> : null}
         </span>
         {selecting ? null : (
           <>
             <div className={styles.actions}>
-              {canSearch ? (
+              {reviewable ? (
                 <Button
                   size="lg"
-                  className={styles.rowAction}
+                  variant="primary"
+                  className={styles.rowActionShown}
+                  onClick={() => handlers.onReview(item)}
+                >
+                  Review
+                </Button>
+              ) : downloading ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  onClick={handlers.onOpenDownloads}
+                >
+                  Details
+                </Button>
+              ) : item.journey === 'not-found' && !several && canSearch ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  onClick={() => handlers.onSearchByHand(single)}
+                >
+                  Search by hand
+                </Button>
+              ) : several && item.journey === 'not-found' ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  aria-expanded={expanded}
+                  onClick={() => handlers.onToggleTracks(item)}
+                >
+                  {expanded ? 'Hide tracks' : 'Show tracks'}
+                </Button>
+              ) : canSearch ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
                   disabled={searching}
                   focusableWhenDisabled
                   onClick={() => handlers.onSearchNow(item)}
@@ -262,9 +333,16 @@ export function FoundRowView({
   const entries: MenuEntry[] = item.artist
     ? [{ key: 'artist', label: 'Open artist', onSelect: () => onOpenArtist(item.artist) }]
     : [];
+  // "In your library · today 14:02, FLAC 16/44": phones leave the time out
+  const quality = item.quality ? `, ${item.quality}` : '';
   return (
     <li className={styles.item}>
-      <div className={styles.row} data-selecting={selecting ? 'true' : undefined}>
+      <div
+        className={styles.row}
+        data-layout="journey"
+        data-status="found"
+        data-selecting={selecting ? 'true' : undefined}
+      >
         {selecting ? <span className={styles.check} /> : null}
         <RowArt src={item.image} />
         <div className={styles.main}>
@@ -275,17 +353,13 @@ export function FoundRowView({
         </div>
         <span className={styles.added} />
         <span className={styles.status}>
-          <StatusTag tone="success">
-            {when ? (
-              // one flex item, so the day and the time wrap as one line of text
-              <span>
-                Found {when.day}
-                <span className={styles.statusTime}>{` ${when.time}`}</span>
-              </span>
-            ) : (
-              'Found this week'
-            )}
-          </StatusTag>
+          <StatusTag tone="success">Got it</StatusTag>
+          <span className={styles.statusDetail}>
+            In your library
+            {when ? ` · ${when.day}` : ''}
+            {when ? <span className={styles.statusTime}>{` ${when.time}`}</span> : null}
+            {quality}
+          </span>
         </span>
         {selecting || entries.length === 0 ? null : (
           <>

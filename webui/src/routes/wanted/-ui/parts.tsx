@@ -19,6 +19,8 @@ export interface FilterOption<T extends string> {
   key: T;
   label: string;
   count?: number;
+  /** A status colour's dot before the label (the Wanted journey's chips). */
+  dot?: 'neutral' | 'info' | 'accent' | 'warning' | 'danger' | 'success';
 }
 
 /** OptionButtons, pressed for the one in use (the boards' "Show" group). */
@@ -42,11 +44,133 @@ export function FilterButtons<T extends string>({
           selected={option.key === value}
           onClick={() => onChange(option.key)}
         >
+          {option.dot ? (
+            <span className={styles.chipDot} data-tone={option.dot} aria-hidden="true" />
+          ) : null}
           {option.label}
           {option.count !== undefined ? <CountBadge count={option.count} /> : null}
         </OptionButton>
       ))}
     </div>
+  );
+}
+
+/**
+ * View: Songs | Sources (the Wanted journey, boards 1 and 2): two 44px
+ * segments, the one in use in the selected style with aria-pressed.
+ */
+export function BrowseToggle({
+  value,
+  onChange,
+}: {
+  value: 'songs' | 'sources';
+  onChange: (next: 'songs' | 'sources') => void;
+}) {
+  return (
+    <div className={styles.browse} role="group" aria-label="View">
+      <span className={styles.fieldLabel} aria-hidden="true">
+        View
+      </span>
+      <div className={styles.segments}>
+        {(['songs', 'sources'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={styles.segment}
+            aria-pressed={value === key}
+            onClick={() => onChange(key)}
+          >
+            {key === 'songs' ? 'Songs' : 'Sources'}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A select with its label above it, in the 12px uppercase field label. */
+export function FieldSelect<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { key: T; label: string }[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  const id = useId();
+  return (
+    <span className={styles.field}>
+      <label className={styles.fieldLabel} htmlFor={id}>
+        {label}
+      </label>
+      <Select
+        id={id}
+        size="lg"
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+      >
+        {options.map((option) => (
+          <option key={option.key} value={option.key}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
+    </span>
+  );
+}
+
+/**
+ * The From filter: where wanted things came from, each with how many songs
+ * are still wanted from there. Everywhere first, then the sources as the
+ * Sources view groups them, so a long list of playlists stays one control.
+ */
+export function FromSelect({
+  sources,
+  value,
+  onChange,
+}: {
+  sources: { key: string; label: string; group: string; wanted: number }[];
+  value: string | undefined;
+  onChange: (next: string | undefined) => void;
+}) {
+  const id = useId();
+  const groups = [
+    { group: 'playlists', label: 'Playlists' },
+    { group: 'following', label: 'Following' },
+    { group: 'requests', label: 'Your requests' },
+  ];
+  // a link to a source that's no longer on Wanted keeps its place in the menu
+  const missing = value && !sources.some((source) => source.key === value);
+  return (
+    <span className={styles.field}>
+      <label className={styles.fieldLabel} htmlFor={id}>
+        From
+      </label>
+      <Select
+        id={id}
+        size="lg"
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value || undefined)}
+      >
+        <option value="">{`Everywhere (${sources.length} ${sources.length === 1 ? 'source' : 'sources'})`}</option>
+        {missing ? <option value={value}>{value.replace(/^playlist:/, '')}</option> : null}
+        {groups.map(({ group, label }) => {
+          const list = sources.filter((source) => source.group === group);
+          return list.length ? (
+            <optgroup key={group} label={label}>
+              {list.map((source) => (
+                <option key={source.key} value={source.key}>
+                  {`${source.label} (${source.wanted.toLocaleString('en-GB')})`}
+                </option>
+              ))}
+            </optgroup>
+          ) : null;
+        })}
+      </Select>
+    </span>
   );
 }
 
@@ -94,7 +218,7 @@ export function ViewToggle({
   onView: (view: 'list' | 'nebula') => void;
 }) {
   return (
-    <div className={styles.viewToggle} role="group" aria-label="View">
+    <div className={styles.viewToggle} role="group" aria-label="Layout">
       <button
         type="button"
         className={styles.viewButton}
