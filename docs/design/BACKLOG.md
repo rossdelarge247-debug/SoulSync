@@ -25,6 +25,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | DJ mode: a simple two-deck view in the player | Approved; building (step 7, polish) | [below](#dj-mode-a-simple-two-deck-view-in-the-player) |
 | Analyse on demand, with progress | Built | [below](#analyse-on-demand-with-progress) |
 | A playlist into a set for mixing (Order for mixing) | Paused: superseded by DJ mode exploration (was Ready for Design) | [below](#a-playlist-into-a-set-for-mixing-order-for-mixing) |
+| Wanted journey: every song's status and every source's progress | Approved; step 1 Building (`feat/wanted-journey`), step 2 not started | [below](#wanted-journey-every-songs-status-and-every-sources-progress) |
 
 **Mixing is simplified (Ross, 2 November):** the new way to mix is **DJ mode** (below; HANDOFF "Brief F: DJ mode"), a two-lane view in the player's panel, opt-in, with no sets. The Mix tab, Sets, Between tracks / Auto mix, Play as a mix and the player's "Ready to mix" line go behind one setting, off by default (Dev, built on `feat/player-calm`: HANDOFF "Dev, the player calmed: mixing features hidden, Tracks cleaned up of 2 November"); Tracks loses its chip under each track and its Energy column. Nothing is deleted, and BPM, key and the beat grid stay for Export to Traktor. The entries for the Mix tab, auto-mix, DJ now, sets and Order for mixing are marked "Paused: superseded by DJ mode exploration".
 
@@ -1139,4 +1140,31 @@ One flow from a playlist's "…": **Make a set for mixing**.
 1. Is "Order for mixing" a step in the import, or a tool on any set (both)?
 2. The names of the energy shapes, and whether a person can draw their own curve.
 3. How a person takes some suggested moves and not others without losing track.
+
+---
+
+## Wanted journey: every song's status and every source's progress
+
+**Approved** (Ross, 23 November; canvas "Wanted journey", https://claude.ai/artifact/M6Gr7WDePt2RmWymMsVcfA). Step 1 is built on `feat/wanted-journey` (HANDOFF "Dev, Wanted journey (step 1)").
+
+### The problem
+
+Thousands of songs are wanted from Spotify playlists, followed artists and requests, and Wanted only said Searching or Not found yet. Where a song had got to (downloading now, held in quarantine, never tried) lived on other pages, and the quarantine (2,271 files) had no way in from the navigation. Nothing said how complete a playlist was.
+
+### What Ross wants
+
+Enhance Wanted, don't reinvent it.
+
+- **Step 1 (built):** one status per song (Waiting, Searching, Downloading, Needs your decision, Not found, Got it, last 30 days); a From filter and a Sources view with each source's progress; "Needs your decision" opens the song's attempts in Quarantine; Activity's Needs you counts the quarantine in songs; Downloads gets a sidebar row.
+- **Step 2 (not started, hidden until it works):** an album's "x of y owned" and Complete this album; "Do this first" (priority); "Keep the best one" across a song's attempts.
+
+### What the app gives today (Dev checked)
+
+- **Statuses:** the joins and their limits are in CONTRACTS ("Where each wanted song has got to"). Live tasks are in memory only; a quarantined attempt from before the full sidecar context is joined by artist and title.
+- **Library ownership per playlist:** only for mirrored playlists the sync matcher has checked track by track (`library_checked >= total`); the join fallback undercounts badly and isn't shown (`webui/src/routes/sync/-sync.library.ts`).
+- **Got it per source:** not possible yet. A wishlist row is deleted when its song arrives and `wishlist_removals` doesn't keep where it came from, so Got it is "everywhere" only. Recording it needs a migration (HANDOFF question 533).
+- **For step 2:**
+  - **Album completeness:** the release index (`core/library/release_index.py`) has owned tracks and the expected total per library album; the Album Completeness repair job (`core/repair_jobs/album_completeness.py`) matches track by track against a metadata source's list and can queue the missing tracks (`core/automation/handlers/complete_incomplete_albums.py`).
+  - **Priority:** today there's "Download next" for one task or batch (`core/downloads/prioritize.py`), and Wanted runs oldest first. A per-source or per-album priority needs a stored priority on `wishlist_tracks` (a migration), selection ordered by it, and promotion of live batches.
+  - **Best attempt:** a song's attempts share `quarantine_group_key`. Each has the probed quality, size and date, the check that held it, and in its context the AcoustID score (`_acoustid_best_score`) and the candidate's bitrate and duration.
 

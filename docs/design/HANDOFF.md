@@ -221,7 +221,73 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 528. **The joins are a 60 ms crossfade** (Hand over's and Undo's, and auto-mix's hand-back): the element rises from silence as the deck falls, delayed by the limiter's lookahead so the two are heard sample for sample together (the sum within 0.5 dB of steady; it was up to +6 dB with the element at full at once). Longer?
 529. **At 1280 the head gives the strip more room** (690 px, was 630): with four cues set on a beat mid-bar ("4 · 1.3") the strip ran under B's "124.00 (−1.59%)" (seen with a saved loop in slot 4). B's eyebrow ("B · In the headphones · Play B brings it in") now wraps to two lines at 1280. Fine, or should the strip's cues shorten at 1280 (the slot only, the bar in the title) and the head keep its width?
 
+**From the Wanted journey, step 1** (Log, "Dev, Wanted journey (step 1)")
+530. **The phone row's action.** Board 6 puts Review on the row. Built: on a phone each row keeps its "⋮" menu, with Review in quarantine (or Details) as its first entry, and the chips keep the desktop order (All first, not Needs you). Should a phone row show Review as a button, and should the chips lead with Needs your decision there?
+531. **Waiting's line.** Board 1's "In the queue · 3,412 ahead" isn't built: the scheduled search keeps no queue position (oldest first, albums and singles on alternate runs, each song's wait between tries). Built instead: "Not tried yet · next search in about 2 hours", "Tried 2 times · next try in about 3 hours", from the schedule and the retry timing in use. Is that enough?
+532. **Actions per status.** Waiting's one action is Search now (board 4 says Details), as it was. A release whose songs are all Not found gets Show tracks. Got it has no Play: a find doesn't carry the library track to play. Right, or should Got it get Play (Dev: the found read would need the library track id)?
+533. **Got it per source needs a migration.** A wanted row is deleted when its song arrives, and the removal record doesn't keep where it came from, so Got it can't be split by source: under a From it says so, and the Sources bars show only library ownership. Record the source on each removal from now on (a new column, with an upgrade test)?
+534. **What the chips count.** The status chips count rows, as before (an album is one row; its tag says "Not found · 2 of 3" when its songs differ). Sources and a source's page count songs. Should the chips count songs too?
+535. **A mirrored playlist that's still being checked** (board 2's "Classical calm"): its bar has no green, since ownership isn't known until every track is checked, and the headline says "96 checked so far · 41 still wanted". Readable, or should the bar show the checked part?
+536. **Where the Downloads row sits.** Board 5 drew Downloads between Activity and Automations. Built after Activity, keeping Automations, Activity in their order: Automations, Activity, Downloads. Right?
+537. **Who sees the quarantine item.** Admins only: the quarantine is the install's, not a profile's. Should a profile allowed on Downloads see it too?
+538. **The nebula.** Kept behind the list/nebula icons beside Sort (the icons' group is now named "Layout", since "View" is Songs | Sources). It still files artists by their tries, with the new words (Searching, Not found, Got it). Should it learn the journey's statuses, or go?
+539. **Downloading's colour.** StatusTag has no accent tone, so Wanted gives Downloading the accent through its own class (the chip's dot too). Add an accent tone to StatusTag?
+
 ## Log
+
+### 2026-11-23: Dev, Wanted journey (step 1)
+
+Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted journey" canvas (https://claude.ai/artifact/M6Gr7WDePt2RmWymMsVcfA: boards 1 Main, 2 From, 3 Source, 4 States, 5 NeedsYou, 6 Phone) and Ross's decisions of 23 November. CONTRACTS, Wanted page ("Where each wanted song has got to") and the Activity feed's Needs you table; SCREENS, "Wanted journey (step 1)"; BACKLOG, "Wanted journey". For Design: 530–539.
+
+**What's built**
+
+- **One status per song (boards 1, 4):** Waiting (not tried yet, or between tries: fewer than three), Searching (a search for it is running now), Downloading (queued, downloading, or being checked and tagged), Needs your decision (a download of it is held in quarantine), Not found (three tries or more; it's still tried, less often), Got it (arrived in the last 30 days).
+  - What's live wins, then quarantine, then the tries. A release of several songs takes the first of Needs your decision, Not found, Downloading, Searching, Waiting that any of its songs is at ("Not found · 2 of 3").
+  - The joins (`core/wishlist/journey.py`, `GET /api/wishlist/journey`): the live task by the wishlist row id or the source track id; quarantine by the ids in each sidecar's `track_info`, then the ISRC, then artist and title for old sidecars without ids. The sidecars go through a cached index (`core/imports/quarantine_index.py`): a listdir per read; a sidecar is read once, and again only when it changes. The first read after a start reads them all; on 2,271 files that's once.
+- **Songs (board 1):**
+  - View: Songs | Sources, remembered per profile in this browser (`localStorage`, `soulsync-wanted-browse:<profile>`, as the artist page's view is; the URL's `browse=` wins).
+  - Status chips with counts and the status colours' dots. "Got it, last 30 days" uses `GET /api/wishlist/found?days=30`, the read's maximum.
+  - From, Search and Sort as labelled fields. Search is always there; the "…" menu's Find in this list focuses it. Sort defaults to Needs you first.
+  - Each row: its tag, a line under it ("3 tries held back · couldn’t confirm it’s the right song", "62% downloaded", "No match after 4 searches · tries again in about 7 days" from the retry timing in use, "Not tried yet · next search in about 2 hours", "In your library · today 14:02, FLAC 16/44"), "from <source>" in the meta line, and one action, always shown: Review (primary), Details (opens Downloads), Search by hand, Show tracks, or Search now. The "…" menu stays.
+  - A From filter adds a line: "Running · 212 of 240 in your library · 28 to go · Show everything".
+- **From names:** each playlist by name; Followed artists; Followed labels; Requested by me (`manual`, `album`, `set`, `api`, `unknown`); Download discography; Upgrades (`enhance`); Re-downloads (`redownload`, `repair`); "Playlists without a name" for playlist rows with no usable name.
+- **Sources (board 2):**
+  - Playlists, Following and Your requests, each a card with "N playlists · N songs still wanted".
+  - Each source: its name and meta ("Spotify · mirrored", "mirrored, still checking", "Not mirrored", "2 artists · new releases"), a stacked bar (in your library, downloading or searching, waiting, needs your decision, not found) with its words as its label, a headline, and Show songs.
+  - "212 of 240 in your library · 28 to go" only for a mirrored playlist the sync has checked track by track (the Mirrored playlists page's rule). Otherwise "N still wanted", "· mirror it to count what you have" for a playlist that isn't mirrored, and "96 checked so far · N still wanted" while one is being checked.
+- **A source's page (board 3):** Wanted › Sources › name, the meta, Open Mirrored playlists (when mirrored) and Show in the list (Songs with that From). The progress card has the headline, bar and four tiles. "The N still to get" is grouped Needs you first (Needs your decision, Not found, Downloading or searching, Waiting), 25 per group then "Show 50 more of N", each song with its line and one action.
+- **Into Quarantine (boards 4, 5):**
+  - `/active-downloads?review=quarantine` opens Downloads on Review → Quarantine.
+  - `&entry=<id>` narrows it to that song's attempts (`GET /api/quarantine/list?entry=`, the entry and its group), its group open, under "3 attempts at “Harbour Light” by Pale Harbour. Keep the right one or delete them. Show everything in quarantine". An approve or delete there refreshes both lists.
+- **Activity's Needs you (board 5):**
+  - "721 songs are waiting for your decision", detail "2,271 downloads were held back because they might be the wrong song, version or quality. Newest today.", with Review (primary). Songs are counted as intended targets (`quarantine_group_key`). Admins only.
+  - "15 songs couldn’t be found", with Open in Wanted (`/wanted?filter=not-found`).
+  - The nav badge counts each once. The quarantine half is a listdir, so the badge's poll reads no sidecars.
+- **Downloads in the sidebar (board 5):** a Downloads row under Automate, after Activity (`data-page="active-downloads"`, so profile access hides it as before); `/active-downloads` lights it instead of Activity.
+- **Phone (board 6):** the chips scroll sideways, the fields stack, and each row is title, meta, tag and line with the "⋮" menu (Review in quarantine first when it needs you). Sources and a source's page stack to one column.
+
+**Kept working:** `?filter=searching|not-found|found` and `?sort=newest|oldest|most-tries|artist` still mean their filter and sort (Searching is now "running now"; tries 1–2 are Waiting). `/wishlist?failing=1` still lands on Not found. The nebula stays behind the list/nebula icons; its words are now Searching, Not found and Got it, and its icons' group is named "Layout".
+
+**Deliberately not built (step 2, hidden until it works):** an album's "x of y owned" and Complete this album, Do this first, Keep the best one, and Got it per source (533). Also not built: board 1's "In the queue · N ahead" (531) and Got it's Play (532).
+
+**Differs from the boards, and why**
+
+- Downloading's tag and dot use the accent through Wanted's own class: StatusTag has no accent tone (539).
+- The canvas's sample numbers are illustrations: the chips count rows, and Sources and a source's page count songs (534).
+- The Downloads row is after Activity, not between Activity and Automations (536).
+- On a phone, Review is in the row's "⋮" menu, not a button (530).
+
+**The visual baselines will change:** every route's sidebar has the new Downloads row, and `/wishlist` now lands on the new Wanted. They're regenerated in CI (`visual-baselines.yml`, from the default branch's Playwright image); none were regenerated here (no Docker).
+
+**Tests:**
+- pytest `tests/wishlist/test_journey.py`: the queue and quarantine joins, the index reading a sidecar once, a group and songs counted, playlist figures only when known, a name matched to one mirror only, the route, and `?entry=`.
+- pytest `tests/activity/test_activity_needs_you_wanted.py`: the quarantine item in songs, singular and plural, admins only, the badge reading no sidecars, and not found per profile.
+- vitest `-wanted.journey.test.ts`: statuses, lines, retry timing, Needs you first, source names, summaries, the remembered view.
+- `-route.test.tsx`: Wanted (rows, chips, Review's deep link, Sources, a source's page, Show in the list, an unmirrored playlist) and Downloads (`?review=quarantine&entry=`, and without `entry`).
+- `nav-routes.test.ts`, `nav-shell.test.ts` (the row order), and `-activity.helpers.test.ts` (Review, Open in Wanted).
+- Runs: the full vitest, 12,962 passed (745 files). pytest over `tests/activity`, `tests/imports`, `tests/wishlist` and `tests/test_wanted_page_reads.py`: 1,823 passed. One failure (`test_activity_api.py::test_the_feed_answers_with_the_contract`) and one error (`test_ffmpeg_errors.py`) fail the same way on `integration` without this branch. ruff, tsc and `npm run check` are clean (no new warnings).
+
+Screenshots (1440×900, 1280×800, 390×844; each also full length): Songs, Needs your decision, From Running, Sources, Running's page, an unmirrored playlist's page, Activity's Needs you, and Downloads on one song's attempts. They're in the session scratchpad, not the repo.
 
 ### 2026-11-17: Dev, DJ polish (step 7)
 
