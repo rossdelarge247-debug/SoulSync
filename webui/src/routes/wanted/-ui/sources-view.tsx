@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { EmptyState, StatusTag } from '@/components/primitives';
@@ -175,6 +175,7 @@ function SongAction({
   live,
   props,
   heldOpen,
+  noteId,
   onHeld,
 }: {
   track: WantedTrack;
@@ -183,6 +184,8 @@ function SongAction({
   props: SourcePageProps;
   /** A member's held song: its note is open. */
   heldOpen: boolean;
+  /** The note's id, for aria-controls. */
+  noteId: string;
   onHeld: () => void;
 }) {
   if (status === 'decision' && live?.quarantineEntry) {
@@ -196,7 +199,7 @@ function SongAction({
   // a member's read has no entry: Details opens the song's own note
   if (status === 'decision') {
     return (
-      <Button size="lg" aria-expanded={heldOpen} onClick={onHeld}>
+      <Button size="lg" aria-expanded={heldOpen} aria-controls={noteId} onClick={onHeld}>
         Details
       </Button>
     );
@@ -231,6 +234,8 @@ export function SourcePage(props: SourcePageProps) {
   const { sourceKey, summary, items, journeys, context, onBack, onSongs } = props;
   const [shown, setShown] = useState<Record<string, number>>({});
   const [heldOpen, setHeldOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const notePrefix = useId();
+  const heldNoteId = (id: string) => `${notePrefix}-held-${id.replace(/[^\w-]/g, '_')}`;
   const toggleHeld = (id: string) =>
     setHeldOpen((prev) => {
       const next = new Set(prev);
@@ -383,11 +388,12 @@ export function SourcePage(props: SourcePageProps) {
                           live={live}
                           props={props}
                           heldOpen={heldOpen.has(track.id)}
+                          noteId={heldNoteId(track.id)}
                           onHeld={() => toggleHeld(track.id)}
                         />
                       </div>
                       {heldOpen.has(track.id) ? (
-                        <p className={styles.stillHeld} role="note">
+                        <p className={styles.stillHeld} role="note" id={heldNoteId(track.id)}>
                           <strong>Held for an admin to check.</strong> A download of this came in
                           and was held back: it might be the wrong song, version or quality. An
                           admin keeps the right one or deletes it; until then it stays on Wanted.

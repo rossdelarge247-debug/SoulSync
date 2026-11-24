@@ -1,3 +1,5 @@
+import { useId, useState } from 'react';
+
 import { Button } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { StatusTag } from '@/components/primitives';
@@ -155,6 +157,10 @@ export function WantedRowView({
   // row's own note (held for an admin), not Downloads
   const held = step === 'decision' && !reviewable;
   const downloading = step === 'downloading' || step === 'searching';
+  // a held song's note: its own state, so a release's Details opens the note
+  // and not its track list (the menu's "Show the N tracks" does that)
+  const [noteOpen, setNoteOpen] = useState(false);
+  const noteId = `${useId()}-held`;
 
   const entries = (withSearch: boolean): MenuEntry[] => {
     const list: MenuEntry[] = [];
@@ -171,8 +177,8 @@ export function WantedRowView({
     if (withSearch && held) {
       list.push({
         key: 'held',
-        label: expanded ? 'Hide details' : 'Details',
-        onSelect: () => handlers.onToggleTracks(item),
+        label: noteOpen ? 'Hide details' : 'Details',
+        onSelect: () => setNoteOpen((open) => !open),
       });
     }
     if (withSearch && canSearch) {
@@ -183,7 +189,7 @@ export function WantedRowView({
         onSelect: () => handlers.onSearchNow(item),
       });
     }
-    if (several && !held) {
+    if (several) {
       list.push({
         key: 'tracks',
         label: expanded ? 'Hide the tracks' : `Show the ${item.trackIds.length} tracks`,
@@ -259,8 +265,9 @@ export function WantedRowView({
                 <Button
                   size="lg"
                   className={styles.rowActionShown}
-                  aria-expanded={expanded}
-                  onClick={() => handlers.onToggleTracks(item)}
+                  aria-expanded={noteOpen}
+                  aria-controls={noteId}
+                  onClick={() => setNoteOpen((open) => !open)}
                 >
                   Details
                 </Button>
@@ -312,8 +319,8 @@ export function WantedRowView({
           </>
         )}
       </div>
-      {expanded && held ? (
-        <p className={styles.heldNote} role="note">
+      {noteOpen && held ? (
+        <p className={styles.heldNote} role="note" id={noteId}>
           <strong>Held for an admin to check.</strong>{' '}
           {item.quarantineCount > 1
             ? `${item.quarantineCount} downloads of this came in and were held back: they might be the wrong song, version or quality. An admin keeps the right one or deletes them; until then it stays on Wanted.`

@@ -297,6 +297,16 @@ export function WantedTab({
     setStoredBrowse(next);
     go({ browse: next, source: undefined, page: undefined });
   };
+  // Every history entry carries the view: a landing without `browse` gets the
+  // resolved one written in, replacing the entry (no new one), so Back after
+  // a switch comes back to what was shown, not to the stored choice. Once
+  // written it's there, so this runs once per landing. Audiobooks and a
+  // source's page say what they are already.
+  useEffect(() => {
+    if (search.browse || search.source || search.media) return;
+    go({ browse }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the landing's URL is the trigger
+  }, [search.browse, search.source, search.media]);
 
   // ── actions ────────────────────────────────────────────────────────────
   const [searching, setSearching] = useState<ReadonlySet<string>>(() => new Set());

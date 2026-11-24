@@ -677,11 +677,58 @@ describe('Wanted tab', () => {
     expect(within(row).getByRole('note')).toHaveTextContent(
       'Held for an admin to check. 2 downloads of this came in and were held back',
     );
+    // the button names the note it opens
+    expect(details).toHaveAttribute('aria-controls', within(row).getByRole('note').id);
     expect(router.state.location.pathname).toBe('/wanted');
     fireEvent.click(screen.getByRole('button', { name: /^Needs your decision/ }));
     expect(
       await screen.findByText(/held for an admin to check: Details says more/),
     ).toBeInTheDocument();
+  });
+
+  it('a member’s held release: Details opens the note only, the menu the tracks', async () => {
+    const held = { quarantine: { count: 1, trigger: 'integrity', matched_by: 'id' } };
+    mockApi({ journey: { tracks: { ln1: held, ln2: held } } });
+    renderRoute('/wanted?filter=decision');
+    await waitFor(() => expect(within(list('Wanted')).getByText('Lantern')).toBeTruthy());
+    const lantern = within(list('Wanted')).getAllByRole('listitem')[0];
+    fireEvent.click(within(lantern).getByRole('button', { name: 'Details' }));
+    expect(within(lantern).getByRole('note')).toHaveTextContent('Held for an admin to check.');
+    expect(screen.queryByRole('list', { name: 'Tracks of Lantern on Wanted' })).toBeNull();
+    const menu = await openMenu('More actions for Lantern');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Show the 2 tracks' }));
+    expect(
+      await screen.findByRole('list', { name: 'Tracks of Lantern on Wanted' }),
+    ).toBeInTheDocument();
+  });
+
+  it('Back and Forward step between Songs and Sources', async () => {
+    mockApi();
+    const { router, history } = renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    // the landing carries the view, replacing its own entry
+    await waitFor(() => expect(search(router).get('browse')).toBe('songs'));
+    const view = () => screen.getByRole('group', { name: 'View' });
+    fireEvent.click(within(view()).getByRole('button', { name: 'Sources' }));
+    expect(await screen.findByRole('region', { name: 'Your requests' })).toBeInTheDocument();
+
+    act(() => history.back());
+    expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+    expect(within(view()).getByRole('button', { name: 'Songs' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(search(router).get('browse')).toBe('songs');
+
+    act(() => history.forward());
+    expect(await screen.findByRole('region', { name: 'Your requests' })).toBeInTheDocument();
+    expect(within(view()).getByRole('button', { name: 'Sources' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // and one more Back still lands on Songs: no extra entry was added
+    act(() => history.back());
+    expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
   });
 
   it('a release listed under Not found acts as Not found, not as its decision', async () => {

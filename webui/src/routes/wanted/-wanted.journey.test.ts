@@ -411,6 +411,32 @@ describe('where songs came from', () => {
     expect(calm.headline).toBe('6 checked so far · 1 still wanted');
   });
 
+  it('never counts more owned than were checked, and the parts make the playlist', () => {
+    const playlists = [
+      {
+        name: 'Calm',
+        mirror: {
+          id: 4,
+          total: 10,
+          in_library: 9,
+          library_checked: 6,
+          library_known: false,
+          owned_checked: 9,
+        },
+      },
+    ];
+    const items = withJourney(
+      buildWantedItems([
+        track('c1', { sourceType: 'playlist', sourceInfo: { playlist_name: 'Calm' }, album: 'Z' }),
+      ]),
+      new Map(),
+    );
+    const [calm] = sourceSummaries(items, new Map(), playlists);
+    expect(calm.bar.owned).toBe(6);
+    const { owned, active, waiting, decision, notFound, notInLibrary, unchecked } = calm.bar;
+    expect(owned + active + waiting + decision + notFound + notInLibrary + unchecked).toBe(10);
+  });
+
   it('remembers Songs or Sources per profile', () => {
     window.localStorage.clear();
     expect(readStoredBrowse(1)).toBe('songs');

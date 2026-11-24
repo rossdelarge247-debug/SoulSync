@@ -463,13 +463,16 @@ export function playlistLibrary(playlists: PlaylistEntry[], name: string): Playl
   const mirror = playlistEntry(playlists, name)?.mirror;
   const total = Math.max(0, Number(mirror?.total) || 0);
   if (!mirror || total === 0) return { kind: 'not-mirrored' };
-  if (!mirror.library_known)
+  if (!mirror.library_known) {
+    const checked = Math.min(total, Math.max(0, Number(mirror.library_checked) || 0));
     return {
       kind: 'checking',
-      checked: Math.min(total, Math.max(0, Number(mirror.library_checked) || 0)),
+      checked,
       total,
-      ownedChecked: Math.max(0, Number(mirror.owned_checked) || 0),
+      // never more than were checked, whatever the read says
+      ownedChecked: Math.min(checked, Math.max(0, Number(mirror.owned_checked) || 0)),
     };
+  }
   return { kind: 'known', owned: Math.min(total, Number(mirror.in_library) || 0), total };
 }
 

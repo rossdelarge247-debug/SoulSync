@@ -398,7 +398,8 @@ describe('old Watchlist links', () => {
       isPageAllowed: (pageId) => pageId !== 'watchlist',
     });
     const { router } = renderRoute('/watchlist');
-    await waitFor(() => expect(params(router)).toEqual({ tab: 'wanted' }));
+    // the Wanted tab writes the view it shows into the URL (in place)
+    await waitFor(() => expect(params(router)).toEqual({ tab: 'wanted', browse: 'songs' }));
   });
 });
 
