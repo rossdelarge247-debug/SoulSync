@@ -235,6 +235,40 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-11-24: Dev, Wanted on a slow downloads folder
+
+Built on `fix/wanted-slow-quarantine` from `integration` (e528e210). Ross's media PC (Docker Desktop on Windows, `downloads/` a bind mount) holds about 4,500 quarantined files, and listing and statting them there takes about 5 s. Wanted's journey read, Activity's badge and Needs you, Downloads' review count and list, and the approve/delete sibling lookups each listed and statted the folder on every request. Gunicorn runs one worker with 8 threads (`gunicorn.conf.py`: `gthread`, `workers = 1`, `threads = 8`, unchanged), and a few polls at once held them all, so Wanted's list timed out at 10 s ("Couldn't load your list").
+
+- **One shared quarantine snapshot** (`core/imports/quarantine_index.py`):
+  - **Off the request path.** Refreshed in the background, one refresh at a time: a single `scandir`, one stat per file, a sidecar read again only when its size or mtime changed. Readers never wait on the folder. Before the first refresh lands there's no snapshot, and readers say so instead of waiting.
+  - **When it refreshes.** Every 60 s at most when nothing changes. A newly quarantined file marks it stale, and a stale snapshot is refreshed within 15 s.
+  - **Explicit actions show at once.** Approve, delete, recover and clear take their entries out of the snapshot as they happen, and a refresh that listed the folder before can't bring them back.
+- **What reads it:**
+  - **Wanted's journey read** answers `quarantine_ready: false` until the snapshot is in: statuses without quarantine and a quiet "checking for downloads held back…", never an error. The Wanted list is its own query and never waits on it.
+  - **Activity:** the badge and Needs you. The quarantine item appears once the snapshot is ready.
+  - **Downloads:** the review count (`quarantine_ready` too) and the review list. The list lists names only, takes known entries from the snapshot and reads only new sidecars.
+  - **The sibling lookups** behind approve and delete.
+  - **The search's check** for quarantined uploads (the database's blocks still apply at once).
+- **The journey's playlist figures** are reused for a minute per profile (the mirrored playlists' counts were a heavy query on every poll).
+- **Wanted polls the journey every 30 s** (was 10 s), every 5 s while the quarantine is still being read, and never in a hidden tab.
+- **Measured on a simulated slow mount** (4,500 files with sidecars, 1 ms per stat, 0.1 ms per listed name), same script on both:
+
+  | | `integration` | this branch |
+  | --- | --- | --- |
+  | First journey read (cold) | 16.2 s | 0.08 s |
+  | First Activity read | 21.8 s | 0.01 s |
+  | Burst of 24 journey, Activity and list reads on 8 threads | slowest 120 s, median 68 s | slowest 0.43 s, median 0.29 s |
+
+  The snapshot's own background read takes about 12 s there.
+- **Tests:**
+  - pytest `tests/imports/test_quarantine_slow_fs.py`: the cold start, the burst (and no request touching the folder), approve and delete, clear, and one refresh however many ask.
+  - The journey, Activity and quarantine tests warm the snapshot. The summary's wiring test accepts the snapshot's count.
+  - vitest: the warming-up state, the list surviving a failed journey read, and the poll timing.
+- **Runs:**
+  - The full vitest: 12,979 passed (745 files, two workers).
+  - pytest (`-n 2`, numba warmed first) over `tests/activity`, `tests/imports`, `tests/wishlist`, `tests/library`, `tests/downloads`, `tests/test_wanted_page_reads.py`, `tests/test_admin_gating.py` and `tests/test_helper_tours.py`: 4,334 passed. One fails here and on `integration`: `test_activity_api.py::test_the_feed_answers_with_the_contract`.
+  - ruff, tsc and `npm run check` are clean.
+
 ### 2026-11-23: Dev, Wanted journey (step 1)
 
 Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted journey" canvas (https://claude.ai/artifact/M6Gr7WDePt2RmWymMsVcfA: boards 1 Main, 2 From, 3 Source, 4 States, 5 NeedsYou, 6 Phone) and Ross's decisions of 23 November. CONTRACTS, Wanted page ("Where each wanted song has got to") and the Activity feed's Needs you table; SCREENS, "Wanted journey (step 1)"; BACKLOG, "Wanted journey". For Design: 530–539.
