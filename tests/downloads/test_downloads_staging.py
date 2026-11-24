@@ -252,7 +252,7 @@ def test_explicit_album_context_uses_real_data(tmp_path):
     """track_info with _is_explicit_album_download=True copies real album/artist context."""
     src_file = tmp_path / 'staging' / 'Hello.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     explicit_album = {'id': 'alb-real', 'name': 'Real Album', 'release_date': '2024-05-05',
                       'total_tracks': 12, 'total_discs': 2, 'album_type': 'album',
@@ -288,7 +288,7 @@ def test_staging_context_falls_back_to_matched_file_track_number(tmp_path):
     """Album-bundle staging can recover numbering from the selected audio file."""
     src_file = tmp_path / 'staging' / '03 - Backseat Freestyle.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -323,7 +323,7 @@ def test_private_album_bundle_staging_overrides_default_track_info_number(tmp_pa
     """Private release staging trusts the selected file number over weak task defaults."""
     src_file = tmp_path / 'staging' / '04-kendrick_lamar-the_art_of_peer_pressure.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     def get_batch_field(_batch_id, field):
         if field == 'album_bundle_source':
@@ -367,7 +367,7 @@ def test_private_album_bundle_staging_keeps_task_number_when_file_has_no_number(
     """Private release staging must not turn every unnumbered release file into track 1."""
     src_file = tmp_path / 'staging' / 'Katy Perry - Firework.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     def get_batch_field(_batch_id, field):
         if field == 'album_bundle_source':
@@ -433,7 +433,7 @@ def test_staging_title_match_accepts_feature_suffix_from_release_file(tmp_path):
     """Album releases can include featured artists in filenames."""
     src_file = tmp_path / 'staging' / '05-kendrick_lamar-money_trees_(feat._jay_rock).flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -466,7 +466,7 @@ def test_staging_title_match_accepts_bonus_track_against_release_file(tmp_path):
     """Expected bonus labels should not block matching the actual release file."""
     src_file = tmp_path / 'staging' / '13-kendrick_lamar-the_recipe_(feat._dr._dre).flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -499,7 +499,7 @@ def test_staging_title_match_keeps_wrong_versions_separate(tmp_path):
     """Do not strip remix/extended wording when matching staged release files."""
     src_file = tmp_path / 'staging' / '17-kendrick_lamar-swimming_pools_(drank)_(black_hippy_remix).flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -527,7 +527,7 @@ def test_staging_title_match_keeps_wrong_versions_separate(tmp_path):
 def test_staging_title_match_accepts_equivalent_version_formatting(tmp_path):
     src_file = tmp_path / 'staging' / '12. Duvet (Acoustic Version).flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -562,7 +562,7 @@ def test_staging_title_match_handles_untagged_release_filename(tmp_path):
     """
     src_file = tmp_path / 'staging' / 'Kendrick Lamar - GNX - 03 - Reincarnated.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -598,7 +598,7 @@ def test_staging_title_match_keeps_dash_titles_intact(tmp_path):
     """
     src_file = tmp_path / 'staging' / 'Live.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -622,7 +622,7 @@ def test_fallback_context_synthesizes_from_track(tmp_path):
     """Without explicit context, synthesizes spotify_artist/album from the track."""
     src_file = tmp_path / 'staging' / 'Hello.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),
@@ -646,7 +646,7 @@ def test_album_same_as_title_not_treated_as_album(tmp_path):
     """When track album == title, is_album_download stays False."""
     src_file = tmp_path / 'staging' / 'Hello.flac'
     src_file.parent.mkdir()
-    src_file.touch()
+    src_file.write_bytes(b'audio')
 
     deps = _build_deps(
         transfer_path=str(tmp_path / 'transfer'),

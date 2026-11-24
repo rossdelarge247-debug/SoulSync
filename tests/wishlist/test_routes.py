@@ -130,6 +130,17 @@ class _FakeMusicDatabase:
         self.duplicate_cleanup_profiles.append(profile_id)
         return self.duplicate_removals
 
+    # what the shared read (core/wishlist/read_cache.py) and the stats
+    # aggregate read: the fake service's rows (already in download shape)
+    service = None
+
+    def get_wishlist_tracks(self, profile_id=1):
+        return list(self.service.tracks) if self.service else []
+
+    def count_wishlist_by_category(self, profile_id=1):
+        from core.wishlist.reporting import count_wishlist_tracks_by_category
+        return count_wishlist_tracks_by_category(self.get_wishlist_tracks(profile_id=profile_id))
+
     def add_to_wishlist_ignore(self, track_id, track_name="", artist_name="",
                                reason="", profile_id=1):
         self.ignore_writes.append({
@@ -167,6 +178,9 @@ class _FakeWishlistService:
     def get_wishlist_tracks_for_download(self, profile_id=1):
         return list(self.tracks)
 
+    def format_track_for_download(self, row):
+        return dict(row)
+
     def clear_wishlist(self, profile_id=1):
         return self.clear_result
 
@@ -203,6 +217,7 @@ def _build_runtime(
     routes_module.get_wishlist_service = lambda: service
     db = _FakeMusicDatabase(cycle_value=cycle_value, duplicate_removals=duplicate_removals)
     service.database = db
+    db.service = service
     logger = _FakeLogger()
     activity_calls = []
     runtime = WishlistRouteRuntime(

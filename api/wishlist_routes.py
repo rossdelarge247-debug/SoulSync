@@ -342,11 +342,21 @@ def get_wishlist_tracks():
         limit (optional): Maximum number of tracks to return (for performance)
     """
     try:
+        from flask import Response
+        from core.wishlist.read_cache import shared_cache
+        from core.wishlist.routes import wishlist_tracks_read
+
         category = request.args.get('category', None)  # None = all tracks
         limit = request.args.get('limit', type=int, default=None)  # None = no limit
         runtime = _build_wishlist_route_runtime()
-        payload, status_code = _wishlist_get_wishlist_tracks(runtime, category=category, limit=limit)
-        return jsonify(payload), status_code
+        # one shared read per profile until the wishlist changes, and the
+        # response serialised once per category (core/wishlist/read_cache.py)
+        build, reusable, payload, status_code = wishlist_tracks_read(
+            runtime, category=category, limit=limit)
+        if build is None or reusable is None or status_code != 200:
+            return jsonify(payload), status_code
+        body = shared_cache().body(build, category, lambda: jsonify(payload).get_data())
+        return Response(body, status=status_code, mimetype='application/json')
     except Exception as e:
         logger.error(f"Error getting wishlist tracks: {e}")
         return jsonify({"error": str(e)}), 500
@@ -412,9 +422,12 @@ def get_wishlist_journey():
         )
         from database.music_database import MusicDatabase
 
+        from core.wishlist.read_cache import shared_cache
+
         profile_id = get_current_profile_id()
         db = MusicDatabase()
-        rows = db.get_wishlist_tracks(profile_id=profile_id)
+        # the shared read of the profile's rows (core/wishlist/read_cache.py)
+        rows = shared_cache().rows(db, profile_id)
         quarantine_dir = os.path.join(
             docker_resolve_path(config_manager.get('soulseek.download_path', './downloads')),
             'ss_quarantine',

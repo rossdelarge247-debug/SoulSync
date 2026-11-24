@@ -130,6 +130,26 @@ def move_to_quarantine(file_path: str, context: dict, reason: str, automation_en
             # it until someone clears the folder.
             logger.warning("Failed to record quarantine source block: %s", exc)
 
+    # a staged file that failed for this song: remember it against the song
+    # (its path, size and mtime), so the next cycle doesn't copy the same wrong
+    # file out of staging and quarantine it again (core.downloads.staging)
+    if context.get("staging_source") and _blocked_file:
+        try:
+            from core.downloads.staging import staging_block_row, staging_target_key
+            from database.music_database import MusicDatabase
+            target = staging_target_key(
+                context.get("track_info"),
+                str(original_search.get("artist") or ""), str(original_search.get("title") or ""))
+            if target:
+                username, filename = staging_block_row(target, _blocked_file)
+                MusicDatabase().add_quarantine_source_block(
+                    username, filename, trigger=trigger,
+                    expected_artist=metadata.get("expected_artist", ""),
+                    expected_track=metadata.get("expected_track", ""),
+                )
+        except Exception as exc:  # noqa: BLE001 - never stops a quarantine
+            logger.warning("Failed to record the staged file's block: %s", exc)
+
     logger.warning("File quarantined: %s - Reason: %s", quarantine_path, reason)
 
     if automation_engine:

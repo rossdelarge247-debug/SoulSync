@@ -1,6 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { bulkWishlistActionChunked, BULK_WISHLIST_MAX_IDS } from './-wishlist.api';
+import {
+  bulkWishlistActionChunked,
+  BULK_WISHLIST_MAX_IDS,
+  WISHLIST_TRACKS_TIMEOUT_MS,
+  wishlistTracksQueryOptions,
+} from './-wishlist.api';
 
 function jsonResponse(payload: unknown) {
   return new Response(JSON.stringify(payload), {
@@ -78,5 +84,67 @@ describe('bulkWishlistActionChunked', () => {
     await expect(bulkWishlistActionChunked('grab', ids)).rejects.toThrow(
       `stopped after ${BULK_WISHLIST_MAX_IDS} of ${ids.length} tracks`,
     );
+  });
+});
+
+describe('wishlistTracksQueryOptions', () => {
+  // a fetch that answers when the test says so, and gives up when aborted
+  function slowFetch() {
+    let answer: () => void = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve, reject) => {
+            const signal = (input as Request).signal;
+            signal?.addEventListener('abort', () => reject(signal.reason));
+            answer = () =>
+              resolve(
+                jsonResponse({ tracks: [], category: 'albums', total: 0, artist_images: {} }),
+              );
+          }),
+      ),
+    );
+    return () => answer();
+  }
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps waiting for a slow list well past ten seconds', async () => {
+    const answer = slowFetch();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const read = client.fetchQuery(wishlistTracksQueryOptions(1, 'albums'));
+    let settled = false;
+    void read.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(settled).toBe(false);
+    expect(client.getQueryState(wishlistTracksQueryOptions(1, 'albums').queryKey)?.status).toBe(
+      'pending',
+    );
+
+    answer();
+    await expect(read).resolves.toMatchObject({ category: 'albums', total: 0 });
+  });
+
+  it('gives up after a minute', async () => {
+    slowFetch();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const read = client.fetchQuery(wishlistTracksQueryOptions(1, 'singles'));
+    const failed = expect(read).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(WISHLIST_TRACKS_TIMEOUT_MS + 1_000);
+    await failed;
+    expect(WISHLIST_TRACKS_TIMEOUT_MS).toBe(60_000);
   });
 });

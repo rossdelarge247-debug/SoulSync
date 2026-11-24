@@ -58,12 +58,14 @@ def filter_wishlist_tracks_by_category(
     """
     filtered_tracks: list[dict[str, Any]] = []
     seen_keys: set[tuple[Any, Any]] = set()
+    total_in_category = 0
 
     for track in tracks:
         track_category = classifier(track)
-        spotify_track_id = track.get('track_id') or track.get('spotify_track_id') or track.get('id')
         if category != track_category:
             continue
+        total_in_category += 1
+        spotify_track_id = track.get('track_id') or track.get('spotify_track_id') or track.get('id')
 
         if spotify_track_id:
             dedupe_key = (spotify_track_id, track.get('profile_id'))
@@ -73,7 +75,6 @@ def filter_wishlist_tracks_by_category(
 
         filtered_tracks.append(track)
 
-    total_in_category = sum(1 for track in tracks if classifier(track) == category)
     return filtered_tracks, total_in_category
 
 

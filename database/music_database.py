@@ -949,6 +949,41 @@ class MusicDatabase:
                 )
             """)
 
+            # Wishlist change counter: bumped by triggers on every insert,
+            # update and delete of wishlist_tracks, whichever code path writes,
+            # so the wishlist reads (core/wishlist/read_cache.py) can reuse what
+            # they built until the wishlist changes. `added` counts inserts
+            # only: the duplicate sweep runs when something was added.
+            with self._migration_step(cursor, 'wishlist_change_counter'):
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS wishlist_change_counter (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        version INTEGER NOT NULL DEFAULT 0,
+                        added INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                cursor.execute("INSERT OR IGNORE INTO wishlist_change_counter (id, version, added)"
+                               " VALUES (1, 0, 0)")
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS wishlist_tracks_counter_insert
+                    AFTER INSERT ON wishlist_tracks BEGIN
+                        UPDATE wishlist_change_counter SET version = version + 1, added = added + 1
+                        WHERE id = 1;
+                    END
+                """)
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS wishlist_tracks_counter_update
+                    AFTER UPDATE ON wishlist_tracks BEGIN
+                        UPDATE wishlist_change_counter SET version = version + 1 WHERE id = 1;
+                    END
+                """)
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS wishlist_tracks_counter_delete
+                    AFTER DELETE ON wishlist_tracks BEGIN
+                        UPDATE wishlist_change_counter SET version = version + 1 WHERE id = 1;
+                    END
+                """)
+
             # Wishlist removal audit (#1289). A wishlist row is deleted, not
             # tombstoned, so when a user asks "where did this track go?" there
             # was nothing to look at: the only trace was a log line carrying an
@@ -2534,7 +2569,7 @@ class MusicDatabase:
 
     def _replace_table(self, cursor, table: str, new_table: str) -> None:
         """The end of a rebuild: drop ``table``, rename ``new_table`` to it and
-        put back the indexes ``table`` had.
+        put back the indexes and triggers ``table`` had.
 
         DROP TABLE takes a table's indexes with it, and the rebuilds only
         recreated one or two by hand. The rest came back on the next start, if
@@ -2546,6 +2581,10 @@ class MusicDatabase:
         cursor.execute("SELECT name, sql FROM sqlite_master "
                        "WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", (table,))
         indexes = cursor.fetchall()
+        # its triggers go with it too (e.g. wishlist_tracks' change counter)
+        cursor.execute("SELECT name, sql FROM sqlite_master "
+                       "WHERE type = 'trigger' AND tbl_name = ? AND sql IS NOT NULL", (table,))
+        triggers = cursor.fetchall()
         cursor.execute(f"DROP TABLE {table}")
         cursor.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
         for name, sql in indexes:
@@ -2555,6 +2594,12 @@ class MusicDatabase:
                 cursor.execute(sql)
             except sqlite3.Error as e:
                 logger.info("Rebuild of %s leaves out index %s, which the new table can't have: %s",
+                            table, name, e)
+        for name, sql in triggers:
+            try:
+                cursor.execute(sql)
+            except sqlite3.Error as e:
+                logger.info("Rebuild of %s leaves out trigger %s, which the new table can't have: %s",
                             table, name, e)
 
     def _sync_migration_ledger(self, cursor):
@@ -18216,6 +18261,82 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Error clearing wishlist: {e}")
             return False
+
+    def get_wishlist_change_counter(self) -> tuple:
+        """(version, added) of wishlist_tracks: bumped by triggers on every
+        write; (-1, -1) when it can't be read (callers then don't reuse)."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT version, added FROM wishlist_change_counter WHERE id = 1").fetchone()
+                return (int(row[0]), int(row[1])) if row else (-1, -1)
+        except Exception as e:
+            logger.debug("wishlist change counter unavailable: %s", e)
+            return (-1, -1)
+
+    # a row the SQL aggregate can classify: JSON that parses (get_wishlist_tracks
+    # skips a row whose spotify_data or source_info doesn't) and the plain shape
+    # classify_wishlist_track reads (no nested track, album an object or absent)
+    # (the json_* reads only once json_valid holds: they raise on bad JSON)
+    _WISHLIST_PLAIN_ROW = """
+        (CASE WHEN json_valid(spotify_data)
+              AND (source_info IS NULL OR source_info = '' OR json_valid(source_info))
+         THEN json_type(spotify_data) = 'object'
+              AND (json_type(spotify_data, '$.album') IS NULL
+                   OR json_type(spotify_data, '$.album') = 'object')
+              AND json_type(spotify_data, '$.track_data') IS NULL
+              AND json_type(spotify_data, '$.spotify_data') IS NULL
+              AND json_type(spotify_data, '$.metadata') IS NULL
+              AND json_type(spotify_data, '$.track') IS NULL
+         ELSE 0 END)
+    """
+
+    def count_wishlist_by_category(self, profile_id: int = 1) -> Dict[str, int]:
+        """Singles and albums on a profile's Wanted list, in one SQL pass: the
+        same counts the stats route made by parsing every row
+        (count_wishlist_tracks_by_category over get_wishlist_tracks_for_download).
+        The rule is classify_wishlist_track's: album_type single/ep -> singles,
+        album/compilation -> albums, else fewer than 6 tracks -> singles, else
+        albums. Rows of any other shape are parsed and classified in Python,
+        as before, and rows that don't parse are left out, as before."""
+        with self._get_connection() as conn:
+            row = conn.execute(f"""
+                SELECT
+                  SUM(CASE WHEN kind IN ('single', 'ep')
+                        OR (kind NOT IN ('album', 'compilation') AND tracks > 0 AND tracks < 6)
+                      THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN kind IN ('single', 'ep')
+                        OR (kind NOT IN ('album', 'compilation') AND tracks > 0 AND tracks < 6)
+                      THEN 0 ELSE 1 END)
+                FROM (
+                  SELECT
+                    lower(COALESCE(json_extract(spotify_data, '$.album.album_type'), '')) AS kind,
+                    CASE WHEN json_type(spotify_data, '$.album.total_tracks')
+                             IN ('integer', 'real', 'text', 'true', 'false')
+                    THEN CAST(json_extract(spotify_data, '$.album.total_tracks') AS INTEGER)
+                    ELSE 0 END AS tracks
+                  FROM wishlist_tracks WHERE profile_id = ? AND {self._WISHLIST_PLAIN_ROW}
+                )
+            """, (profile_id,)).fetchone()
+            singles, albums = int(row[0] or 0), int(row[1] or 0)
+            odd = conn.execute(f"""
+                SELECT spotify_data, source_info FROM wishlist_tracks
+                WHERE profile_id = ? AND NOT ({self._WISHLIST_PLAIN_ROW})
+            """, (profile_id,)).fetchall()
+        if odd:
+            from core.wishlist.classification import classify_wishlist_track
+            for raw, source_info in odd:
+                try:
+                    data = json.loads(raw)
+                    if source_info:
+                        json.loads(source_info)
+                except (TypeError, ValueError):
+                    continue
+                if classify_wishlist_track({"spotify_data": data}) == "singles":
+                    singles += 1
+                else:
+                    albums += 1
+        return {"singles": singles, "albums": albums, "total": singles + albums}
 
     def remove_wishlist_duplicates(self, profile_id: int = 1) -> int:
         """Remove duplicate tracks from wishlist.

@@ -181,6 +181,138 @@ def _staging_title_variants(title: Any, normalize: Callable[[str], str]) -> list
     return variants
 
 
+# Mix/version descriptors a title can carry in brackets or after a dash. Two
+# different songs often share one ("Tribes (Original Mix)" by Monty and "True
+# (Original Mix)" by Monte), and the shared words lift the whole-title score
+# over the gate, so the titles are also compared without them.
+_VERSION_WORDS = (
+    r"original|extended|radio|club|dub|vocal|instrumental|acoustic|live|remix|mix|edit|"
+    r"version|remaster(?:ed)?|mono|stereo|demo|rework|bootleg|vip|cut|reprise|"
+    r"explicit|clean|single"
+)
+_BRACKETED = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]")
+_DASH_VERSION = re.compile(
+    rf"\s+[-\u2013\u2014]\s+[^-\u2013\u2014]*\b(?:{_VERSION_WORDS})\b[^-\u2013\u2014]*$",
+    re.IGNORECASE,
+)
+
+
+def _core_title(title: Any, normalize: Callable[[str], str]) -> str:
+    """The title without its bracketed parts and a trailing " - … Mix/Edit/…"
+    descriptor, normalised: "Tribes (Original Mix)" -> "tribes". '' when
+    nothing is left (a title that is only a descriptor)."""
+    raw = str(title or "").strip()
+    raw = _BRACKETED.sub("", raw)
+    raw = _DASH_VERSION.sub("", raw)
+    raw = re.sub(r"\s+(?:feat\.?|ft\.?|featuring)\s+.*$", "", raw, flags=re.IGNORECASE)
+    return normalize(raw.strip()) if raw.strip() else ""
+
+
+def _core_titles_differ(expected: Any, candidate_variants: list, normalize: Callable[[str], str],
+                        threshold: float = 0.80) -> bool:
+    """True when both titles have a core and no reading of the candidate's
+    core is close to the expected one: different songs that share a suffix."""
+    from difflib import SequenceMatcher
+    core = _core_title(expected, normalize)
+    if not core:
+        return False
+    readings = []
+    for value in candidate_variants:
+        raw = str(value or "")
+        readings.append(raw)
+        # a release-style stem ("Artist - Album - 03 - Title"): each tail too
+        parts = [p for p in re.split(r"\s+-\s+", raw) if p.strip()]
+        readings.extend(" - ".join(parts[i:]) for i in range(1, len(parts)))
+    cores = [c for c in (_core_title(v, normalize) for v in readings) if c]
+    if not cores:
+        return False
+    return max(SequenceMatcher(None, core, c).ratio() for c in cores) < threshold
+
+
+def staging_target_key(track_info: Any, artist: str = "", title: str = "") -> str:
+    """Which wanted song a staged file was tried for: its source id when the
+    task has one, else its artist and title (lower-cased). '' when neither."""
+    info = track_info if isinstance(track_info, dict) else {}
+    for key in ("spotify_track_id", "track_id", "id"):
+        value = info.get(key)
+        if isinstance(value, (str, int)) and str(value).strip():
+            return f"id:{str(value).strip()}"
+    if not artist:
+        artists = info.get("artists")
+        first = artists[0] if isinstance(artists, list) and artists else ""
+        artist = first.get("name", "") if isinstance(first, dict) else str(first or "")
+    title = title or str(info.get("name") or "")
+    a = " ".join(str(artist or "").split()).lower()
+    t = " ".join(str(title or "").split()).lower()
+    return f"nm:{a}|{t}" if a and t else ""
+
+
+#: the block row's "username" for a staged file tried for one song
+STAGING_BLOCK_PREFIX = "staging:"
+
+
+def staging_block_row(target: str, path: str) -> tuple:
+    """The (username, filename) of quarantine_source_blocks that remembers this
+    staged file (path, size, mtime) failed verification for this target. A
+    changed file (another size or mtime) isn't blocked."""
+    try:
+        st = os.stat(path)
+        signature = f"{st.st_size}|{st.st_mtime_ns}"
+    except OSError:
+        signature = "?|?"
+    return f"{STAGING_BLOCK_PREFIX}{target}", f"{path}|{signature}"
+
+
+def _blocked_staging_files(target: str) -> set:
+    """The "path|size|mtime" of staged files that were quarantined when tried
+    for this target (quarantine_source_blocks, written by move_to_quarantine)."""
+    if not target:
+        return set()
+    try:
+        from database.music_database import MusicDatabase
+        wanted = f"{STAGING_BLOCK_PREFIX}{target}"
+        return {f for u, f in MusicDatabase().get_quarantine_source_blocks() if u == wanted}
+    except Exception as exc:  # noqa: BLE001 - without the table, nothing is blocked
+        logger.debug("[Staging] block lookup failed: %s", exc)
+        return set()
+
+
+#: the header of a macOS AppleDouble file ("._name"): the resource fork a Mac
+#: leaves beside each file it copies to SMB or FAT. A few KB, never audio
+APPLEDOUBLE_MAGIC = b"\x00\x05\x16\x07"
+
+
+def staged_file_skip_reason(name: str, size: int | None) -> str | None:
+    """Why a staged file can't be audio, from its name and size alone (what
+    the staging scan has without opening anything), or None."""
+    if os.path.basename(name).startswith("._"):
+        return "a macOS resource file (._), not audio"
+    if size is not None and size <= 0:
+        return "empty (0 bytes)"
+    return None
+
+
+def unusable_staged_file(path: str) -> str | None:
+    """Why a staged file can never be a match, or None: missing or
+    unreadable, empty, or a macOS resource file rather than audio. Opens the
+    file (its first bytes), so only for candidates about to be taken."""
+    try:
+        size = os.stat(path).st_size
+    except OSError:
+        return "missing or unreadable"
+    reason = staged_file_skip_reason(path, size)
+    if reason:
+        return reason
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+    except OSError:
+        return "unreadable"
+    if head == APPLEDOUBLE_MAGIC:
+        return "a macOS resource file, not audio"
+    return None
+
+
 @dataclass
 class StagingDeps:
     """Bundle of cross-cutting deps the staging-match helper needs."""
@@ -248,6 +380,14 @@ def try_staging_match(task_id, batch_id, track, deps: StagingDeps):
             for value in title_variants
         ]
 
+    # staged files already quarantined when tried for this very song: never
+    # tried for it again (until the file changes), or each cycle copies the same
+    # wrong file and quarantines it once more
+    with tasks_lock:
+        _task_info = (download_tasks.get(task_id) or {}).get('track_info') or {}
+    target = staging_target_key(_task_info, track_artist, track_title)
+    blocked = _blocked_staging_files(target)
+
     best_match = None
     best_score = 0.0
     # Track per-candidate scoring so the rejection log can show the
@@ -265,6 +405,14 @@ def try_staging_match(task_id, batch_id, track, deps: StagingDeps):
                 os.path.basename(sf.get('full_path', '?')),
             )
             continue
+
+        if blocked and any(b.startswith(f"{sf.get('full_path', '')}|") for b in blocked):
+            if staging_block_row(target, sf.get('full_path', ''))[1] in blocked:
+                logger.info(
+                    "[Staging] Skip candidate %s for %s — quarantined when tried for this song before",
+                    os.path.basename(sf.get('full_path', '?')), _track_label,
+                )
+                continue
 
         # Title similarity (primary)
         candidate_version = (
@@ -313,11 +461,22 @@ def try_staging_match(task_id, batch_id, track, deps: StagingDeps):
                     for expected in score_title_variants
                     for candidate in g_variants
                 )
-                if g_title_sim < 0.80:
+                if g_title_sim < 0.80 or _core_titles_differ(track_title, [g_title], normalize):
                     continue
                 g_combined = (g_title_sim * 0.55) + (g_artist_sim * 0.45)
                 if guessed is None or g_combined > guessed[2]:
                     guessed = (g_title_sim, g_artist_sim, g_combined)
+
+        # different songs that share a mix suffix: "Tribes (Original Mix)" is
+        # not "True (Original Mix)", however close the whole strings are
+        if title_sim >= 0.80 and _core_titles_differ(
+                track_title, [sf['title']], normalize):
+            logger.debug(
+                "[Staging] Skip candidate %s — core title differs (%s vs %s)",
+                os.path.basename(sf.get('full_path', '?')),
+                _core_title(track_title, normalize), _core_title(sf['title'], normalize),
+            )
+            title_sim = 0.0
 
         if title_sim < 0.80 and guessed is None:
             logger.debug(
@@ -326,6 +485,16 @@ def try_staging_match(task_id, batch_id, track, deps: StagingDeps):
                 title_sim, norm_title, '|'.join(sf_title_variants[:3]),
             )
             candidate_scores.append((sf, title_sim, None, 0.0))
+            continue
+
+        # a file that can't be audio (Ross's looping one was 0 bytes from 2012,
+        # copied off a Mac over SMB) is never a match, whatever its tags say
+        unusable = unusable_staged_file(str(sf.get('full_path') or ''))
+        if unusable:
+            logger.info(
+                "[Staging] Skip candidate %s for %s — %s",
+                os.path.basename(sf.get('full_path', '?')), _track_label, unusable,
+            )
             continue
 
         # Artist similarity (secondary). the per-track artist counts too, so a
@@ -383,7 +552,7 @@ def try_staging_match(task_id, batch_id, track, deps: StagingDeps):
         else:
             logger.info(
                 "[Staging] No match for %s in batch %s — %d staging files "
-                "but none had usable title variants",
+                "but none was a usable candidate (see the skips above)",
                 _track_label, batch_id or task_id, len(staging_files),
             )
         return False
