@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button, OptionButton, Select } from '@/components/form';
 import { Notice, Skeleton, SkeletonList } from '@/components/primitives';
@@ -9,16 +9,29 @@ import { PAGE_SIZE } from '../-wanted.types';
 import styles from './wanted-page.module.css';
 
 /** The 13px count on a tab or filter; shimmers while it isn't known yet. */
-export function CountBadge({ count, loading = false }: { count?: number; loading?: boolean }) {
+export function CountBadge({
+  count,
+  label,
+  loading = false,
+}: {
+  count?: number;
+  /** Said instead of the number ("500+" when a read was capped). */
+  label?: string;
+  loading?: boolean;
+}) {
   if (loading) return <Skeleton className={styles.badgeLoading} />;
   if (count === undefined) return null;
-  return <span className={styles.badge}>{count}</span>;
+  return <span className={styles.badge}>{label ?? count}</span>;
 }
 
 export interface FilterOption<T extends string> {
   key: T;
   label: string;
   count?: number;
+  /** Said instead of the count ("500+"). */
+  countLabel?: string;
+  /** The chip's title (what All includes, say). */
+  title?: string;
   /** A status colour's dot before the label (the Wanted journey's chips). */
   dot?: 'neutral' | 'info' | 'accent' | 'warning' | 'danger' | 'success';
 }
@@ -35,12 +48,26 @@ export function FilterButtons<T extends string>({
   onChange: (next: T) => void;
   label?: string;
 }) {
+  const group = useRef<HTMLDivElement>(null);
+  // on a phone the chips scroll sideways: keep the one in use in view
+  // (the row's own scroll only: scrollIntoView would move the page's
+  // scrolling ancestors too, and push the layout sideways)
+  useEffect(() => {
+    const row = group.current;
+    const pressed = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!row || !pressed || row.scrollWidth <= row.clientWidth) return;
+    const box = row.getBoundingClientRect();
+    const chip = pressed.getBoundingClientRect();
+    if (chip.left < box.left) row.scrollLeft -= box.left - chip.left + 16;
+    else if (chip.right > box.right) row.scrollLeft += chip.right - box.right + 16;
+  }, [value]);
   return (
-    <div className={styles.filters} role="group" aria-label={label}>
+    <div className={styles.filters} role="group" aria-label={label} ref={group}>
       {options.map((option) => (
         <OptionButton
           key={option.key}
           data-slot="filter"
+          title={option.title}
           selected={option.key === value}
           onClick={() => onChange(option.key)}
         >
@@ -48,7 +75,9 @@ export function FilterButtons<T extends string>({
             <span className={styles.chipDot} data-tone={option.dot} aria-hidden="true" />
           ) : null}
           {option.label}
-          {option.count !== undefined ? <CountBadge count={option.count} /> : null}
+          {option.count !== undefined ? (
+            <CountBadge count={option.count} label={option.countLabel} />
+          ) : null}
         </OptionButton>
       ))}
     </div>

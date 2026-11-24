@@ -2,16 +2,15 @@ import { parseServerTime } from '@/features/automations/format';
 
 import type { Automation } from '../automations/-automations.types';
 import type { WatchlistArtist } from '../watchlist/-watchlist.types';
-import type { ParsedWishlistTrack } from '../wishlist/-wishlist.types';
 
 import { primaryArtistId } from '../watchlist/-watchlist.helpers';
-import { describeTrouble } from '../wishlist/-wishlist.helpers';
 import { WL_FAILING_ATTEMPTS } from '../wishlist/-wishlist.types';
 import { itemJourney, journeyRank, sourceLabelFor } from './-wanted.journey';
 import {
   type FollowedArtistSummary,
   type FoundItem,
   type FoundResponse,
+  type JourneyStatus,
   type QualityProfileRow,
   type WantedFilter,
   type WantedItem,
@@ -322,18 +321,24 @@ export const JOURNEY_LABELS = {
  * warning, Not found danger). A live step pulses. A release of several
  * songs says how many are at that step.
  */
-export function wantedStatus(item: WantedItem): {
+export function wantedStatus(
+  item: WantedItem,
+  /** The status filter in use: a release shows the step it's listed under. */
+  focus?: JourneyStatus,
+): {
   text: string;
   tone: WantedStatusTone;
   live?: boolean;
 } {
-  const label = JOURNEY_LABELS[item.journey];
+  const step = focus && item.trackStates[focus] > 0 ? focus : item.journey;
+  const label = JOURNEY_LABELS[step];
+  const count = item.trackStates[step] ?? item.journeyCount;
   // a release of several says how many are at that step, unless all are
   const of =
-    item.tracks.length > 1 && item.journeyCount < item.tracks.length
-      ? ` · ${item.journeyCount} of ${item.tracks.length}`
+    item.tracks.length > 1 && count < item.tracks.length
+      ? ` · ${count} of ${item.tracks.length}`
       : '';
-  switch (item.journey) {
+  switch (step) {
     case 'downloading':
       return { text: `${label}${of}`, tone: 'accent', live: true };
     case 'searching':
@@ -344,6 +349,21 @@ export function wantedStatus(item: WantedItem): {
       return { text: `${label}${of}`, tone: 'danger' };
     default:
       return { text: `${label}${of}`, tone: 'neutral' };
+  }
+}
+
+/** The song status a Show filter lists ('all' and 'found' list none). */
+export function filterStep(filter: WantedFilter): JourneyStatus | null {
+  switch (filter) {
+    case 'waiting':
+    case 'downloading':
+    case 'decision':
+    case 'not-found':
+      return filter;
+    case 'searching-now':
+      return 'searching';
+    default:
+      return null;
   }
 }
 
@@ -382,45 +402,8 @@ export interface MetaPart {
   wide?: boolean;
 }
 
-/**
- * A failed try in a person's words, when the reason is one SoulSync wrote
- * after a download came in and was thrown out (the nebula's describeTrouble):
- * "only ~30s of 3:54 played, so it was thrown out", "the wrong song came back
- * ("Xtal" by Aphex Twin)". Anything else (a peer going offline, a timeout)
- * reads as it was written.
- */
-export function lastTryPhrase(reason: string): string {
-  const trouble = describeTrouble({
-    failing: true,
-    failReason: reason,
-    retry: 0,
-    lastTried: '',
-  } as ParsedWishlistTrack);
-  switch (trouble.headline) {
-    case 'Downloaded, then thrown out': {
-      const partial = /^Only ~(\d+)s of ([\d:]+) actually played/.exec(trouble.detail);
-      return partial
-        ? `only ~${partial[1]}s of ${partial[2]} played, so it was thrown out`
-        : 'the file failed the integrity check';
-    }
-    case 'The wrong song came back': {
-      const heard = /says it was (".+") by (.+), not this track/.exec(trouble.detail);
-      return heard
-        ? `the wrong song came back (${heard[1]} by ${heard[2]})`
-        : 'the wrong song came back';
-    }
-    case 'Downloaded, then failed to save':
-      return /folder could not be created/.test(trouble.detail)
-        ? "downloaded, but its folder couldn't be created"
-        : 'downloaded, but saving it failed';
-    case 'Downloaded, then quarantined':
-      return 'downloaded, then quarantined';
-    case 'No match found':
-      return 'no match found on your sources';
-    default:
-      return reason;
-  }
-}
+/** Moved to the journey, where the status line uses it; the nebula reads it here. */
+export { lastTryPhrase } from './-wanted.journey';
 
 /**
  * The meta line under a wanted row's title: artist · album (for a track) ·
@@ -493,11 +476,11 @@ function rowMatches(row: WantedRow, needle: string): boolean {
 
 export function filterWantedRows(rows: WantedRow[], filter: WantedFilter, query = ''): WantedRow[] {
   const needle = query.trim().toLowerCase();
+  const step = filterStep(filter);
   return rows.filter((row) => {
     if (filter === 'found' && row.type !== 'found') return false;
-    if (filter !== 'all' && filter !== 'found') {
-      if (row.type !== 'wanted' || row.item.journey !== filter) return false;
-    }
+    // a row is listed under every step one of its songs is at
+    if (step && (row.type !== 'wanted' || row.item.trackStates[step] === 0)) return false;
     return needle ? rowMatches(row, needle) : true;
   });
 }
@@ -535,7 +518,14 @@ export function sortWantedRows(rows: WantedRow[], sort: WantedSort): WantedRow[]
   }
 }
 
+/**
+ * The chips' numbers, in songs: a release counts each of its songs at its own
+ * step, so an album with one song searching and two not found adds 1 to
+ * Searching and 2 to Not found. `all` is the six chips together, Got it
+ * included; `wanted` leaves Got it out (the Wanted tab's number).
+ */
 export interface WantedCounts {
+  all: number;
   wanted: number;
   waiting: number;
   searching: number;
@@ -547,7 +537,8 @@ export interface WantedCounts {
 
 export function wantedCounts(items: WantedItem[], found: FoundItem[]): WantedCounts {
   const counts: WantedCounts = {
-    wanted: items.length,
+    all: 0,
+    wanted: 0,
     waiting: 0,
     searching: 0,
     downloading: 0,
@@ -556,10 +547,20 @@ export function wantedCounts(items: WantedItem[], found: FoundItem[]): WantedCou
     found: found.length,
   };
   for (const item of items) {
-    if (item.journey === 'not-found') counts.notFound += 1;
-    else counts[item.journey] += 1;
+    counts.waiting += item.trackStates.waiting;
+    counts.searching += item.trackStates.searching;
+    counts.downloading += item.trackStates.downloading;
+    counts.decision += item.trackStates.decision;
+    counts.notFound += item.trackStates['not-found'];
+    counts.wanted += item.tracks.length;
   }
+  counts.all = counts.wanted + counts.found;
   return counts;
+}
+
+/** Songs on Wanted (the Wanted tab's number). */
+export function songCount(items: WantedItem[]): number {
+  return items.reduce((sum, item) => sum + item.tracks.length, 0);
 }
 
 /** How many wanted things each artist has, by lower-cased name. */

@@ -25,6 +25,8 @@ const LEGEND: { key: keyof SourceSummary['bar']; label: string }[] = [
   { key: 'waiting', label: 'Waiting' },
   { key: 'decision', label: 'Needs your decision' },
   { key: 'notFound', label: 'Not found' },
+  // a mirrored playlist's songs not in your library or on Wanted, or not checked yet
+  { key: 'rest', label: 'Not checked yet' },
 ];
 
 /** A stacked bar of where a source's songs are; its words are its label. */
@@ -184,7 +186,8 @@ function SongAction({
       </Button>
     );
   }
-  if (status === 'downloading' || status === 'searching') {
+  // a member's read has no entry: Details, and an admin decides
+  if (status === 'downloading' || status === 'searching' || status === 'decision') {
     return (
       <Button size="lg" onClick={props.onOpenDownloads}>
         Details

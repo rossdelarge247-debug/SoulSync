@@ -10,15 +10,16 @@ export const WANTED_TABS = ['wanted', 'followed'] as const;
 export type WantedTab = (typeof WANTED_TABS)[number];
 
 /**
- * The Wanted tab's Show filters: one per step of a wanted thing's journey
+ * The Wanted tab's Show filters: one per step of a wanted song's journey
  * (Waiting → Searching → Downloading → Needs your decision → Not found →
- * Got it). The values from before the journey (searching, not-found, found)
- * keep their place, so an old ?filter= link still lands on a filter.
+ * Got it). Searching is `searching-now` (a search running now). An old
+ * `?filter=searching` meant "fewer than three tries", which is Waiting now,
+ * so it resolves to Waiting; `not-found` and `found` keep their meaning.
  */
 export const WANTED_FILTERS = [
   'all',
   'waiting',
-  'searching',
+  'searching-now',
   'downloading',
   'decision',
   'not-found',
@@ -134,6 +135,7 @@ export function resolveTab(search: Pick<WantedSearch, 'tab'>): WantedTab {
 }
 
 export function resolveWantedFilter(value: string | undefined): WantedFilter {
+  if (value === 'searching') return 'waiting';
   return (WANTED_FILTERS as readonly string[]).includes(value ?? '')
     ? (value as WantedFilter)
     : 'all';
@@ -212,7 +214,8 @@ export interface TrackJourney {
   downloadPhase: 'searching' | 'downloading' | null;
   /** 0–100 while downloading, when the task says. */
   progress: number | null;
-  /** The newest quarantined attempt at it, and how many there are. */
+  /** The newest quarantined attempt at it (admins only: a member's read
+   *  carries the count, not the entry), and how many there are. */
   quarantineEntry: string | null;
   quarantineCount: number;
   quarantineReason: string;
@@ -311,9 +314,6 @@ export interface JourneyResponse {
       };
     }
   >;
-  /** Files held in quarantine, and the songs they're attempts at. */
-  quarantine_total?: number;
-  quarantine_songs?: number;
   retry?: { name?: string; label?: string; ladder?: Record<string, number>; max_cooldown?: number };
   playlists?: {
     name?: string;

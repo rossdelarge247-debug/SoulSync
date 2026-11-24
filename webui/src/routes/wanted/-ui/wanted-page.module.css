@@ -1202,6 +1202,12 @@ span.art:has(.artIcon) {
   background: var(--ss-danger);
 }
 
+/* fainter than Waiting's grey: not on Wanted, or not checked yet */
+.barPart[data-part='rest'],
+.legendDot[data-part='rest'] {
+  background: var(--ss-control-border);
+}
+
 .crumbs {
   margin: 0 0 6px;
   color: var(--ss-text-meta);
@@ -1398,8 +1404,17 @@ span.art:has(.artIcon) {
     display: none;
   }
 
+  /* the status chips scroll sideways on their own (board 6) */
   .filters {
     flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .filters::-webkit-scrollbar {
+    display: none;
   }
 
   .filters [data-slot='filter'] {

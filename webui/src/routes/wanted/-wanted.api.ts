@@ -29,6 +29,9 @@ import { WISHLIST_QUERY_KEY } from '../wishlist/-wishlist.api';
 /** Got it covers the last 30 days (Ross, Wanted journey Q3): the read's maximum. */
 export const FOUND_DAYS = 30;
 
+/** The most the found read lists (core/wishlist/found.py MAX_ITEMS): at it, the count says "500+". */
+export const FOUND_LIMIT = 500;
+
 export function wantedFoundQueryOptions(profileId: number) {
   return queryOptions({
     queryKey: [...WISHLIST_QUERY_KEY, 'found', profileId, FOUND_DAYS] as const,

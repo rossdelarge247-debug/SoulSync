@@ -77,8 +77,36 @@ def test_songs_not_found_are_one_item_for_their_profile(build, rows, qdir):
     rows.wishlist("t4", retry_count=4, profile_id=2)
     item = next(i for i in build()["needs_you"] if i["id"] == "wanted:not-found")
     assert item["title"] == "2 songs couldn’t be found"
-    assert item["link"] == "/wanted?filter=not-found"
+    # browse=songs: a stored Sources choice doesn't hide the list it opens
+    assert item["link"] == "/wanted?filter=not-found&browse=songs"
     assert item["ref"] == {"not_found": 2}
     other = build(feed.Viewer(profile_id=2, is_admin=False))["needs_you"]
     assert [i["title"] for i in other if i["id"] == "wanted:not-found"] == [
         "1 song couldn’t be found"]
+
+
+def test_not_found_leaves_out_what_the_page_shows_as_moving_or_held(build, rows, qdir,
+                                                                    monkeypatch):
+    """The same songs Wanted's Not found chip counts: a song at three tries
+    that's downloading now is Downloading, one with an attempt in quarantine
+    is Needs your decision."""
+    rows.wishlist("lost", retry_count=4)
+    rows.wishlist("moving", retry_count=4)
+    rows.wishlist("held", retry_count=5)
+    monkeypatch.setattr(feed, "_live_tasks", lambda: {
+        "sid:moving": {"status": "downloading", "task_id": "t", "batch_id": ""}})
+    (qdir / "20261020_120000_h.flac.quarantined").write_bytes(b"x")
+    (qdir / "20261020_120000_h.json").write_text(json.dumps(
+        {"expected_artist": "A", "expected_track": "B",
+         "context": {"track_info": {"spotify_track_id": "held"}}}))
+    page = build()
+    item = next(i for i in page["needs_you"] if i["id"] == "wanted:not-found")
+    assert item["title"] == "1 song couldn’t be found"
+    assert item["ref"] == {"not_found": 1}
+
+
+def test_no_item_when_every_song_at_three_tries_is_moving(build, rows, qdir, monkeypatch):
+    rows.wishlist("moving", retry_count=4)
+    monkeypatch.setattr(feed, "_live_tasks", lambda: {
+        "sid:moving": {"status": "searching", "task_id": "t", "batch_id": ""}})
+    assert all(i["id"] != "wanted:not-found" for i in build()["needs_you"])

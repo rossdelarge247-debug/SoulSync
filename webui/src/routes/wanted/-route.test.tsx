@@ -1,5 +1,5 @@
 import { createMemoryHistory } from '@tanstack/react-router';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
@@ -544,6 +544,9 @@ afterEach(() => {
   vi.mocked(openWishlistInspector).mockReset();
   try {
     window.localStorage.removeItem('soulsync_wanted_view');
+    // Songs | Sources, remembered per profile: never leak into the next test
+    for (const key of Object.keys(window.localStorage))
+      if (key.startsWith('soulsync-wanted-browse:')) window.localStorage.removeItem(key);
   } catch {
     /* jsdom always has it */
   }
@@ -571,21 +574,29 @@ describe('Wanted tab', () => {
     expect(rows[0]).toHaveTextContent('No match after 14 searches · tries again in about 7 days');
     expect(within(rows[0]).getByRole('button', { name: 'Show tracks' })).toBeInTheDocument();
     expect(within(rows[1]).getByRole('button', { name: 'Search by hand' })).toBeInTheDocument();
+    // the last try's reason is back, on the status line
+    expect(rows[1]).toHaveTextContent(
+      'No match after 22 searches · last try: user went offline · tries again in about 7 days',
+    );
     expect(within(rows[2]).getByText('Waiting')).toBeInTheDocument();
     expect(rows[2]).toHaveTextContent('Tried once · tries again on the next search');
     expect(rows[2]).toHaveTextContent('from Requested by me');
     expect(within(rows[3]).getByText('Got it')).toBeInTheDocument();
     expect(rows[3]).toHaveTextContent(/In your library · today \d\d:\d\d, FLAC 24\/96/);
 
+    // every number is songs: Lantern's two songs count two
     expect(tab(/Wanted/)).toHaveAttribute('aria-selected', 'true');
-    expect(tab(/Wanted/)).toHaveTextContent('3');
+    expect(tab(/Wanted/)).toHaveTextContent('4');
     // artists, labels, podcasts and audiobook follows: counted once all have answered
     await waitFor(() => expect(tab(/Following/)).toHaveTextContent('3'));
     const chips = screen.getByRole('group', { name: 'Status' });
-    expect(within(chips).getByRole('button', { name: /^All/ })).toHaveTextContent('4');
+    // All is the six chips together, Got it included (its title says so)
+    const all = within(chips).getByRole('button', { name: /^All/ });
+    expect(all).toHaveTextContent('5');
+    expect(all).toHaveAttribute('title', expect.stringContaining('Got it'));
     expect(within(chips).getByRole('button', { name: /^Waiting/ })).toHaveTextContent('1');
     expect(within(chips).getByRole('button', { name: /^Searching/ })).toHaveTextContent('0');
-    expect(within(chips).getByRole('button', { name: /^Not found/ })).toHaveTextContent('2');
+    expect(within(chips).getByRole('button', { name: /^Not found/ })).toHaveTextContent('3');
     expect(within(chips).getByRole('button', { name: /^Got it, last 30 days/ })).toHaveTextContent(
       '1',
     );
@@ -640,6 +651,111 @@ describe('Wanted tab', () => {
     const params = new URLSearchParams(router.state.location.searchStr);
     expect(params.get('review')).toBe('quarantine');
     expect(params.get('entry')).toBe('20261120_101010_Night Ferry');
+  });
+
+  it('a member sees Needs your decision with Details, not Review', async () => {
+    // a member's journey read has the count but no entry (api/wishlist_routes.py)
+    mockApi({
+      journey: {
+        tracks: { nf: { quarantine: { count: 2, trigger: 'integrity', matched_by: 'id' } } },
+      },
+    });
+    renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    await waitFor(() =>
+      expect(within(list('Wanted')).getByText('Needs your decision')).toBeTruthy(),
+    );
+    const row = within(list('Wanted')).getAllByRole('listitem')[0];
+    expect(row).toHaveTextContent('Night Ferry (Live)');
+    expect(row).toHaveTextContent('2 tries held back · the file was damaged');
+    expect(within(row).queryByRole('button', { name: 'Review' })).toBeNull();
+    expect(within(row).getByRole('button', { name: 'Details' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Needs your decision/ }));
+    expect(
+      await screen.findByText(/An admin keeps one or deletes them in Downloads/),
+    ).toBeInTheDocument();
+  });
+
+  it('lists a release under each step its songs are at, counting songs', async () => {
+    mockApi({
+      journey: { tracks: { ln1: { download: { status: 'searching', phase: 'searching' } } } },
+    });
+    const { router } = renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    const chips = screen.getByRole('group', { name: 'Status' });
+    await waitFor(() =>
+      expect(within(chips).getByRole('button', { name: /^Searching/ })).toHaveTextContent('1'),
+    );
+    expect(within(chips).getByRole('button', { name: /^Not found/ })).toHaveTextContent('2');
+    fireEvent.click(within(chips).getByRole('button', { name: /^Searching/ }));
+    await waitFor(() => expect(search(router).get('filter')).toBe('searching-now'));
+    const lantern = within(list('Wanted')).getAllByRole('listitem');
+    expect(lantern).toHaveLength(1);
+    expect(within(lantern[0]).getByText('Searching · 1 of 2')).toBeInTheDocument();
+    fireEvent.click(within(chips).getByRole('button', { name: /^Not found/ }));
+    await waitFor(() =>
+      expect(
+        within(list('Wanted'))
+          .getAllByRole('listitem')
+          .map((r) => r.querySelector('p')?.textContent),
+      ).toEqual(['Lantern', 'Night Ferry (Live)']),
+    );
+    expect(within(list('Wanted')).getByText('Not found · 1 of 2')).toBeInTheDocument();
+  });
+
+  it('says 500+ when Got it is at the read’s limit', async () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({ ...FOUND[0], id: `f${i}` }));
+    mockApi({ found: many });
+    renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    const chips = screen.getByRole('group', { name: 'Status' });
+    await waitFor(() =>
+      expect(
+        within(chips).getByRole('button', { name: /^Got it, last 30 days/ }),
+      ).toHaveTextContent('500+'),
+    );
+    expect(within(chips).getByRole('button', { name: /^All/ })).toHaveTextContent('504+');
+  });
+
+  it('an old link that carries a filter, sort, search or From opens on Songs', async () => {
+    for (const path of [
+      '/wanted?filter=not-found',
+      '/wanted?sort=oldest',
+      '/wanted?q=night',
+      '/wanted?from=mine',
+      // an old ?filter=searching bookmark: the 1–2 try songs, Waiting now
+      '/wanted?filter=searching',
+    ]) {
+      // the test shell's profile is 2; its last choice was Sources
+      window.localStorage.setItem('soulsync-wanted-browse:2', 'sources');
+      mockApi();
+      renderRoute(path);
+      expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Your requests' })).toBeNull();
+      if (path.endsWith('searching')) {
+        expect(screen.getByRole('button', { name: /^Waiting/ })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+      }
+      cleanup();
+    }
+    // without one, the stored choice stands
+    mockApi();
+    renderRoute('/wanted');
+    expect(await screen.findByRole('region', { name: 'Your requests' })).toBeInTheDocument();
+    window.localStorage.clear();
+  });
+
+  it('an old /wishlist?failing=1 link lands on Songs, Not found', async () => {
+    window.localStorage.setItem('soulsync-wanted-browse:2', 'sources');
+    mockApi();
+    const { router } = renderRoute('/wishlist?failing=1');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/wanted'));
+    expect(search(router).get('browse')).toBe('songs');
+    expect(search(router).get('filter')).toBe('not-found');
+    expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+    window.localStorage.clear();
   });
 
   it('carries the guided tour’s anchor on its tabs', async () => {
@@ -991,7 +1107,7 @@ describe('Wanted journey: Sources (boards 2 and 3)', () => {
     ).toBeInTheDocument();
     expect(
       within(playlists).getByRole('img', {
-        name: '212 in your library, 1 waiting, 1 not found',
+        name: '212 in your library, 1 waiting, 1 not found, 26 not checked yet',
       }),
     ).toBeInTheDocument();
     const requests = screen.getByRole('region', { name: 'Your requests' });

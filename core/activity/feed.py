@@ -49,8 +49,9 @@ and ignores the range:
 * download (admins): downloads held in quarantine, one item for them all,
   counted in songs ("721 songs are waiting for your decision"; the files in
   its detail), until the folder is empty;
-* download: songs on the viewer's Wanted list searched for three times or
-  more without a result ("15 songs couldn’t be found"), until none are.
+* download: songs on the viewer's Wanted list the Wanted page calls Not found
+  (three tries or more, nothing on its way, nothing held in quarantine): "15
+  songs couldn’t be found", until none are.
 """
 
 from __future__ import annotations
@@ -1344,20 +1345,46 @@ def _quarantine_item(ctx: _Ctx, files: int, newest: int) -> Dict[str, Any]:
         ref={"quarantine": files, "songs": songs})
 
 
-def _not_found_row(ctx: _Ctx) -> Optional[Dict[str, Any]]:
-    """The viewer's Wanted songs searched for three times or more without a
-    result (WL_FAILING_ATTEMPTS on the Wanted page), and the latest try."""
+def _live_tasks() -> Dict[str, Dict[str, Any]]:
+    """The live download tasks by song id (core.wishlist.journey)."""
     try:
-        row = ctx.conn.execute(
-            f"SELECT COUNT(*) AS n, MAX({_ts('last_attempted')}) AS t FROM wishlist_tracks "
-            "WHERE profile_id = ? AND COALESCE(retry_count, 0) >= 3",
-            [ctx.viewer.profile_id]).fetchone()
+        from core.runtime_state import download_tasks, tasks_lock
+        from core.wishlist.journey import snapshot_active_tasks
+        return snapshot_active_tasks(download_tasks, tasks_lock)
+    except Exception as exc:  # noqa: BLE001 - no queue reads as nothing live
+        logger.debug("activity: live tasks unavailable: %s", exc)
+        return {}
+
+
+def _not_found_row(ctx: _Ctx) -> Optional[Dict[str, Any]]:
+    """The viewer's Wanted songs the Wanted page calls Not found: tried three
+    times or more (WL_FAILING_ATTEMPTS), with no download on its way and no
+    attempt held in quarantine (those are Downloading or Searching, and Needs
+    your decision). Quarantine's sidecars are only read (through the shared
+    index) when there are songs at three tries or more."""
+    try:
+        rows = [dict(r) for r in ctx.conn.execute(
+            f"SELECT id, spotify_track_id, spotify_data, {_ts('last_attempted')} AS _t "
+            "FROM wishlist_tracks WHERE profile_id = ? AND COALESCE(retry_count, 0) >= 3",
+            [ctx.viewer.profile_id]).fetchall()]
     except Exception as exc:  # noqa: BLE001 - an older database without the table
-        logger.debug("activity: not-found count unavailable: %s", exc)
+        logger.debug("activity: not-found rows unavailable: %s", exc)
         return None
-    if not row or not row["n"]:
+    if not rows:
         return None
-    return {"n": int(row["n"]), "t": int(row["t"] or ctx.now)}
+    try:
+        from core.imports.quarantine_index import shared_index
+        from core.wishlist.journey import wishlist_journey
+        moving = wishlist_journey(
+            rows, tasks=_live_tasks(),
+            quarantine=shared_index().records(_quarantine_dir() or ""))
+    except Exception as exc:  # noqa: BLE001 - without the join, the tries alone
+        logger.debug("activity: not-found join unavailable: %s", exc)
+        moving = {}
+    left = [r for r in rows if str(r.get("spotify_track_id") or "") not in moving]
+    if not left:
+        return None
+    return {"n": len(left), "t": max(int(r["_t"] or 0) for r in left) or int(ctx.now)}
 
 
 def _not_found_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1366,7 +1393,7 @@ def _not_found_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         "not_found", 0, id="wanted:not-found", time=row["t"], kind="download", status="warning",
         title=f"{n:,} song{'' if n == 1 else 's'} couldn’t be found",
         detail="They’re tried again less often. Searching by hand often works.",
-        link="/wanted?filter=not-found", ref={"not_found": n})
+        link="/wanted?filter=not-found&browse=songs", ref={"not_found": n})
 
 
 def needs_you_count(ctx: _Ctx) -> int:

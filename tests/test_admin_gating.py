@@ -207,3 +207,15 @@ def test_audiobook_recycle_plan_routes_follow_the_audiobooks_page(client, path):
 def test_audiobook_recycle_preview_is_not_overgated_for_its_page(client):
     _profile(client, allowed_pages=['dashboard', 'audiobooks'])
     assert client.post('/api/audiobooks/library/recycle/purge-preview', json={}).status_code == 400
+
+
+def test_wanted_journey_is_open_to_members_without_the_quarantine_totals(client, nonadmin):
+    """GET /api/wishlist/journey is a profile's own list (members read it), but
+    quarantine is the install's: a member gets no quarantine totals and no
+    entry ids (tests/wishlist/test_journey.py covers the per-song half)."""
+    r = client.get('/api/wishlist/journey')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['success'] is True
+    assert 'quarantine_total' not in body and 'quarantine_songs' not in body
+    assert all('entry_id' not in (t.get('quarantine') or {}) for t in body['tracks'].values())

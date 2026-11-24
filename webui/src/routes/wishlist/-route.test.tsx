@@ -146,16 +146,29 @@ describe('old Wishlist links', () => {
   it('/wishlist opens the Wanted tab', async () => {
     stubFetch();
     const { router } = renderRoute('/wishlist');
-    await waitFor(() => expect(where(router)).toBe('/wanted?tab=wanted'));
+    // browse=songs: the old list, whatever the Wanted tab's View was left on
+    await waitFor(() => expect(where(router)).toBe('/wanted?tab=wanted&browse=songs'));
     expect(await screen.findByText('Xtal')).toBeInTheDocument();
   });
 
-  it('keeps the filter text and turns the Failing chip into Not found yet', async () => {
+  it('keeps the filter text and turns the Failing chip into Not found', async () => {
     stubFetch();
     const { router } = renderRoute('/wishlist?q=canada&failing=true');
     await waitFor(() => expect(router.state.location.pathname).toBe('/wanted'));
     const params = new URLSearchParams(router.state.location.searchStr);
-    expect(Object.fromEntries(params)).toEqual({ tab: 'wanted', q: 'canada', filter: 'not-found' });
+    expect(Object.fromEntries(params)).toEqual({
+      tab: 'wanted',
+      browse: 'songs',
+      q: 'canada',
+      filter: 'not-found',
+    });
+  });
+
+  it('reads an older ?failing=1 the same way', async () => {
+    stubFetch();
+    const { router } = renderRoute('/wishlist?failing=1');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/wanted'));
+    expect(new URLSearchParams(router.state.location.searchStr).get('filter')).toBe('not-found');
   });
 
   it("the video side's tabs stay on /wishlist", async () => {
@@ -376,7 +389,8 @@ describe('artists filed as audiobooks', () => {
     renderRoute('/wanted');
     await waitFor(() => expect(screen.queryByText('Folge 93')).not.toBeInTheDocument());
     expect(await screen.findByText('SAW')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('tab', { name: /Wanted/ })).toHaveTextContent('1'));
+    // counted in songs: SAW's two (the audiobook artist's three aren't counted)
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Wanted/ })).toHaveTextContent('2'));
   });
 
   it('are listed under Audiobooks on Wanted, and its Search now sends them too', async () => {

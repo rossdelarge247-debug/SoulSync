@@ -189,8 +189,7 @@ def test_a_playlist_is_matched_by_name_only_when_one_mirror_has_it():
 
 # ── the route ─────────────────────────────────────────────────────────────────
 
-def test_the_route_answers_tracks_quarantine_songs_playlists_and_the_retry_ladder(
-        tmp_path, monkeypatch):
+def _journey_client(tmp_path, monkeypatch, *, admin):
     from flask import Flask
 
     import api.wishlist_routes as routes
@@ -220,16 +219,34 @@ def test_the_route_answers_tracks_quarantine_songs_playlists_and_the_retry_ladde
     monkeypatch.setattr(routes, "get_current_profile_id", lambda: 1)
     monkeypatch.setattr(routes, "download_tasks",
                         {"t": {"status": "searching", "track_info": {"wishlist_id": 2}}})
+    import core.profile_context as profile_context
+    monkeypatch.setattr(profile_context, "is_admin_request", lambda: admin)
     app = Flask(__name__)
     app.register_blueprint(routes.bp)
-    body = app.test_client().get("/api/wishlist/journey").get_json()
+    return app.test_client()
+
+
+def test_the_route_answers_tracks_playlists_and_the_retry_ladder(tmp_path, monkeypatch):
+    body = _journey_client(tmp_path, monkeypatch, admin=True).get(
+        "/api/wishlist/journey").get_json()
     assert body["success"] is True
     assert body["tracks"]["sp-1"]["quarantine"]["count"] == 2
+    assert body["tracks"]["sp-1"]["quarantine"]["entry_id"] == "20261102_100000_b"
     assert body["tracks"]["sp-2"]["download"]["phase"] == "searching"
-    assert (body["quarantine_total"], body["quarantine_songs"]) == (2, 1)
+    # the install's quarantine totals aren't a profile's business
+    assert "quarantine_total" not in body and "quarantine_songs" not in body
     assert body["playlists"] == []
     assert body["retry"]["name"] == "standard"
     assert body["retry"]["ladder"] == {"2": 14400, "3": 86400}
+
+
+def test_a_member_sees_the_status_but_no_way_into_the_quarantine(tmp_path, monkeypatch):
+    body = _journey_client(tmp_path, monkeypatch, admin=False).get(
+        "/api/wishlist/journey").get_json()
+    held = body["tracks"]["sp-1"]["quarantine"]
+    assert held["count"] == 2 and held["trigger"] == "acoustid_unverified"
+    assert "entry_id" not in held
+    assert "quarantine_total" not in body
 
 
 def test_the_quarantine_list_narrows_to_one_songs_attempts(tmp_path, monkeypatch):

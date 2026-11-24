@@ -109,9 +109,10 @@ describe('search params', () => {
     // Needs you first is the default since the Wanted journey; old values still read
     expect(resolveWantedSort('name-asc')).toBe('needs-you');
     expect(resolveWantedSort('newest')).toBe('newest');
-    for (const old of ['searching', 'not-found', 'found'])
-      expect(resolveWantedFilter(old)).toBe(old);
-    for (const step of ['waiting', 'downloading', 'decision'])
+    for (const old of ['not-found', 'found']) expect(resolveWantedFilter(old)).toBe(old);
+    // an old ?filter=searching meant "fewer than three tries": Waiting now
+    expect(resolveWantedFilter('searching')).toBe('waiting');
+    for (const step of ['waiting', 'searching-now', 'downloading', 'decision'])
       expect(resolveWantedFilter(step)).toBe(step);
     expect(resolveFollowedSort('scan-oldest')).toBe('scan-oldest');
     // the Following tab: Nothing new, newest activity first, the Kind row
@@ -126,14 +127,17 @@ describe('search params', () => {
   });
 
   it('old Wishlist and Watchlist links keep what they pointed at', () => {
+    // browse=songs: the old list opens on Songs, whatever View was left on
     expect(wantedSearchFromWishlist({ q: 'saw', failing: true, media: 'audiobooks' })).toEqual({
       tab: 'wanted',
+      browse: 'songs',
       q: 'saw',
       filter: 'not-found',
       media: 'audiobooks',
     });
     expect(wantedSearchFromWishlist({ q: '', failing: false, media: 'music' })).toEqual({
       tab: 'wanted',
+      browse: 'songs',
     });
     expect(
       wantedSearchFromWatchlist({
@@ -319,6 +323,7 @@ describe('filters, sort and counts', () => {
 
   it('counts each filter', () => {
     expect(wantedCounts(items, found)).toEqual({
+      all: 3,
       wanted: 2,
       waiting: 1,
       searching: 0,
@@ -335,7 +340,7 @@ describe('filters, sort and counts', () => {
     expect(filterWantedRows(rows, 'found').map((r) => r.item.title)).toEqual(['Static Bloom']);
     expect(filterWantedRows(rows, 'not-found').map((r) => r.item.title)).toEqual(['Old']);
     // Searching is a search running now; not tried yet is Waiting
-    expect(filterWantedRows(rows, 'searching')).toEqual([]);
+    expect(filterWantedRows(rows, 'searching-now')).toEqual([]);
     expect(filterWantedRows(rows, 'waiting').map((r) => r.item.title)).toEqual(['New']);
     expect(filterWantedRows(rows, 'all', 'aardv').map((r) => r.item.title)).toEqual(['New']);
   });

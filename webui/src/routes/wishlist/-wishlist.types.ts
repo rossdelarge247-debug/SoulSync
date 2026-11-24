@@ -21,7 +21,12 @@ export const wishlistSearchSchema = z.object({
     .preprocess((v) => searchString(v) ?? '', z.string())
     .default('')
     .catch(''),
-  failing: z.boolean().default(false).catch(false),
+  // ?failing=true, and the ?failing=1 older links and bookmarks carry
+  failing: z
+    .union([z.boolean(), z.number(), z.string()])
+    .transform((v) => v === true || v === 1 || v === '1' || v === 'true')
+    .default(false)
+    .catch(false),
   /**
    * Which media type's wishlist is showing. Music is the default and the only
    * value the page had before audiobooks arrived, so an existing bookmark or a

@@ -3,7 +3,7 @@ import { Checkbox } from '@/components/form/form';
 import { StatusTag } from '@/components/primitives';
 
 import type { FollowingRow } from '../-wanted.following';
-import type { FoundItem, WantedItem, WantedTrack } from '../-wanted.types';
+import type { FoundItem, JourneyStatus, WantedItem, WantedTrack } from '../-wanted.types';
 
 import {
   addedLabel,
@@ -116,6 +116,7 @@ export function WantedRowView({
   item,
   now,
   detail,
+  focus,
   qualityName,
   canSearch,
   searching,
@@ -129,6 +130,8 @@ export function WantedRowView({
   now: number;
   /** The line under the status tag: where it has got to, and what's next. */
   detail: string;
+  /** The status filter in use: the tag shows that step for a release listed under it. */
+  focus?: JourneyStatus;
   qualityName: string;
   /** False for a profile that asks an admin first: no Search now. */
   canSearch: boolean;
@@ -140,12 +143,16 @@ export function WantedRowView({
   onToggleSelect: (range: boolean) => void;
   handlers: WantedRowHandlers;
 }) {
-  const status = wantedStatus(item);
+  const status = wantedStatus(item, focus);
   const several = item.trackIds.length > 1;
   const single = item.tracks[0];
 
   const reviewable = item.journey === 'decision' && Boolean(item.quarantineEntry);
-  const downloading = item.journey === 'downloading' || item.journey === 'searching';
+  // a member's read has no entry: Needs your decision, with Details (an admin decides)
+  const downloading =
+    item.journey === 'downloading' ||
+    item.journey === 'searching' ||
+    (item.journey === 'decision' && !reviewable);
 
   const entries = (withSearch: boolean): MenuEntry[] => {
     const list: MenuEntry[] = [];

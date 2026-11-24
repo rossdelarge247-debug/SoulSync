@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { JourneyResponse, WantedTrack } from './-wanted.types';
 
-import { buildWantedItems, sortWantedRows, wantedRows, wantedStatus } from './-wanted.helpers';
+import {
+  buildWantedItems,
+  filterWantedRows,
+  sortWantedRows,
+  wantedCounts,
+  wantedRows,
+  wantedStatus,
+} from './-wanted.helpers';
 import {
   inAbout,
   itemDetail,
@@ -69,8 +76,6 @@ const response: JourneyResponse = {
       quarantine: { entry_id: '20261101_000000_y', count: 1 },
     },
   },
-  quarantine_total: 2271,
-  quarantine_songs: 721,
   playlists: [
     {
       name: 'Running',
@@ -112,8 +117,10 @@ describe('one status per song', () => {
     expect(trackJourney(track('a', { tries: 0 }), undefined)).toBe('waiting');
     expect(trackJourney(track('a', { tries: 2 }), undefined)).toBe('waiting');
     expect(trackJourney(track('a', { tries: 3 }), undefined)).toBe('not-found');
-    expect(journey.quarantineSongs).toBe(721);
-    expect(journey.quarantineFiles).toBe(2271);
+    // a member's read has the count but no entry: still Needs your decision
+    expect(
+      trackJourney(track('m'), { ...journey.tracks.get('held')!, quarantineEntry: null }),
+    ).toBe('decision');
   });
 
   it('gives a release of several the Needs-you-first status, with how many', () => {
@@ -169,6 +176,37 @@ describe('the line under the tag', () => {
     );
   });
 
+  it('says why the last try failed, in plain words, on Waiting and Not found', () => {
+    const line = (t: WantedTrack) => trackDetail(t, undefined, ctx);
+    expect(
+      line(
+        track('a', {
+          tries: 2,
+          lastTried: sql(NOW - 3_600_000),
+          lastError: 'User went offline.',
+        }),
+      ),
+    ).toBe('Tried 2 times · last try: user went offline · next try in about 3 hours');
+    expect(
+      line(
+        track('b', {
+          tries: 4,
+          lastTried: sql(NOW - 3_600_000),
+          lastError: "AcoustID verification failed: mismatch: 'Xtal' by 'Aphex Twin' (score 0.91)",
+        }),
+      ),
+    ).toBe(
+      'No match after 4 searches · last try: the wrong song came back ("Xtal" by Aphex Twin) · tries again in about 7 days',
+    );
+    // "no match" is what the line says already; "Added via …" is why it's on the list
+    expect(
+      line(track('c', { tries: 3, lastError: 'No matching track found', lastTried: '' })),
+    ).toBe('No match after 3 searches · tries again on the next search');
+    expect(
+      line(track('d', { tries: 1, lastError: 'Added via Download Discography', lastTried: '' })),
+    ).toBe('Tried once · tries again on the next search');
+  });
+
   it('works out the next try from the ladder, never before it is due', () => {
     expect(nextTryIn(track('a', { tries: 1, lastTried: sql(NOW) }), journey.retry, NOW)).toBe(0);
     expect(nextTryIn(track('a', { tries: 3, lastTried: sql(NOW) }), journey.retry, NOW)).toBe(
@@ -184,6 +222,28 @@ describe('the line under the tag', () => {
     expect(
       statesSentence({ waiting: 4, searching: 3, downloading: 0, decision: 2, 'not-found': 5 }),
     ).toBe('2 need your decision · 5 not found · 3 searching · 4 waiting');
+  });
+});
+
+describe('a release under each of its steps', () => {
+  it('counts songs, lists the release under every step and says that step', () => {
+    const [album] = withJourney(
+      buildWantedItems([
+        track('s', { album: 'Exile', title: 'One' }),
+        track('x', { album: 'Exile', title: 'Two', tries: 4 }),
+        track('y', { album: 'Exile', title: 'Three', tries: 5, lastTried: '' }),
+      ]),
+      journey.tracks,
+    );
+    const rows = wantedRows([album], []);
+    const counts = wantedCounts([album], []);
+    expect([counts.searching, counts.notFound, counts.all]).toEqual([1, 2, 3]);
+    expect(filterWantedRows(rows, 'searching-now')).toHaveLength(1);
+    expect(filterWantedRows(rows, 'not-found')).toHaveLength(1);
+    expect(filterWantedRows(rows, 'waiting')).toHaveLength(0);
+    expect(wantedStatus(album, 'searching').text).toBe('Searching · 1 of 3');
+    expect(wantedStatus(album, 'not-found').text).toBe('Not found · 2 of 3');
+    expect(itemDetail(album, journey.tracks, ctx, 'searching')).toBe('2 not found · 1 searching');
   });
 });
 
@@ -268,11 +328,29 @@ describe('where songs came from', () => {
     const running = sources.find((s) => s.label === 'Running')!;
     expect(running.headline).toBe('212 of 240 in your library · 28 to go');
     expect(running.meta).toBe('Spotify · mirrored');
-    expect(running.bar).toEqual({ owned: 212, active: 1, waiting: 0, decision: 1, notFound: 1 });
+    // a mirrored playlist's bar is the whole playlist: 212 + 3 on Wanted + 25 more
+    expect(running.bar).toEqual({
+      owned: 212,
+      active: 1,
+      waiting: 0,
+      decision: 1,
+      notFound: 1,
+      rest: 25,
+    });
     const calm = sources.find((s) => s.label === 'Classical calm')!;
     expect(calm.headline).toBe('96 checked so far · 1 still wanted');
     expect(calm.meta).toBe('mirrored, still checking');
-    expect(calm.bar.owned).toBe(0);
+    // still checking: one song wanted out of 140, the rest not checked yet
+    expect(calm.bar).toEqual({
+      owned: 0,
+      active: 0,
+      waiting: 1,
+      decision: 0,
+      notFound: 0,
+      rest: 139,
+    });
+    // not mirrored: just its songs on Wanted
+    expect(sources.find((s) => s.label === 'Liked Songs')!.bar.rest).toBe(0);
     const liked = sources.find((s) => s.label === 'Liked Songs')!;
     expect(liked.headline).toBe('2 still wanted · mirror it to count what you have');
     expect(liked.meta).toBe('Not mirrored');

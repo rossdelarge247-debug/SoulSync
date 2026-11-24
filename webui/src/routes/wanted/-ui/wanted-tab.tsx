@@ -11,6 +11,7 @@ import type { useWantedData } from '../-wanted.hooks';
 import type { WantedView } from '../-wanted.nebula';
 
 import {
+  FOUND_LIMIT,
   qualityProfilesQueryOptions,
   searchWantedNow,
   wantedFoundQueryOptions,
@@ -20,6 +21,7 @@ import {
   aboutIn,
   automationAside,
   cycleText,
+  filterStep,
   filterWantedRows,
   findSystemAutomation,
   plural,
@@ -46,6 +48,7 @@ import {
   readStoredBrowse,
   sourceSummaries,
   storeBrowse,
+  trackJourney,
   withJourney,
   type DetailContext,
   type WantedBrowse,
@@ -264,7 +267,12 @@ export function WantedTab({
   // browser, unless the link says which; a source's page is under Sources.
   const [storedBrowse, setStoredBrowse] = useState<WantedBrowse>(() => readStoredBrowse(profileId));
   useEffect(() => setStoredBrowse(readStoredBrowse(profileId)), [profileId]);
-  const browse: WantedBrowse = search.source ? 'sources' : (search.browse ?? storedBrowse);
+  // a link that carries a filter, sort, search or From is about songs: it
+  // opens on Songs whatever was picked last (an old /wishlist link, say)
+  const linkIsAboutSongs = Boolean(search.filter || search.sort || search.q || search.from);
+  const browse: WantedBrowse = search.source
+    ? 'sources'
+    : (search.browse ?? (linkIsAboutSongs ? 'songs' : storedBrowse));
   const setBrowse = (next: WantedBrowse) => {
     storeBrowse(profileId, next);
     setStoredBrowse(next);
@@ -568,20 +576,34 @@ export function WantedTab({
     );
   }
 
+  // every number is songs (wantedCounts); Got it is capped by the read
+  const foundCapped = allFound.length >= FOUND_LIMIT;
+  const foundKnown = foundQuery.isSuccess && !from;
   const filterOptions: FilterOption<WantedFilter>[] = [
-    { key: 'all', label: 'All', count: counts.wanted + (foundQuery.isSuccess ? counts.found : 0) },
+    {
+      key: 'all',
+      label: 'All',
+      count: counts.all,
+      countLabel: foundKnown && foundCapped ? `${n(counts.all)}+` : undefined,
+      title: from
+        ? 'Every song from here still wanted'
+        : 'Every song on Wanted, and what arrived in the last 30 days (Got it)',
+    },
     { key: 'waiting', label: 'Waiting', count: counts.waiting, dot: 'neutral' },
-    { key: 'searching', label: 'Searching', count: counts.searching, dot: 'info' },
+    { key: 'searching-now', label: 'Searching', count: counts.searching, dot: 'info' },
     { key: 'downloading', label: 'Downloading', count: counts.downloading, dot: 'accent' },
     { key: 'decision', label: 'Needs your decision', count: counts.decision, dot: 'warning' },
     { key: 'not-found', label: 'Not found', count: counts.notFound, dot: 'danger' },
     {
       key: 'found',
       label: 'Got it, last 30 days',
-      count: foundQuery.isSuccess && !from ? counts.found : undefined,
+      count: foundKnown ? counts.found : undefined,
+      countLabel: foundKnown && foundCapped ? `${n(FOUND_LIMIT)}+` : undefined,
       dot: 'success',
     },
   ];
+  const step = filterStep(filter);
+  const canReview = items.some((item) => item.quarantineEntry);
 
   const fromName = source?.label ?? '';
   const emptyFilterText =
@@ -593,7 +615,7 @@ export function WantedTab({
           ? `Nothing from ${fromName || 'there'} is on Wanted now.`
           : filter === 'waiting'
             ? 'Nothing is waiting for a search.'
-            : filter === 'searching'
+            : filter === 'searching-now'
               ? 'Nothing is being searched for right now.'
               : filter === 'downloading'
                 ? 'Nothing is downloading right now.'
@@ -681,7 +703,9 @@ export function WantedTab({
         <p className={styles.line}>
           <span>
             Each was downloaded but held back: it might be the wrong song, version or quality.
-            Review opens its attempts in Quarantine, to keep one and delete the rest.
+            {canReview
+              ? ' Review opens its attempts in Quarantine, to keep one and delete the rest.'
+              : ' An admin keeps one or deletes them in Downloads.'}
           </span>
         </p>
       ) : null}
@@ -697,7 +721,15 @@ export function WantedTab({
             className={styles.linkButton}
             onClick={() =>
               void retry(
-                items.filter((item) => item.journey === 'not-found'),
+                // just the songs that are Not found, not the rest of their releases
+                items
+                  .filter((item) => item.trackStates['not-found'] > 0)
+                  .map((item) => ({
+                    ...item,
+                    trackIds: item.tracks
+                      .filter((t) => trackJourney(t, journey.tracks.get(t.id)) === 'not-found')
+                      .map((t) => t.id),
+                  })),
                 `All ${counts.notFound}`,
               )
             }
@@ -790,7 +822,8 @@ export function WantedTab({
                     key={row.item.key}
                     item={row.item}
                     now={now}
-                    detail={itemDetail(row.item, journey.tracks, detailContext)}
+                    detail={itemDetail(row.item, journey.tracks, detailContext, step)}
+                    focus={step ?? undefined}
                     qualityName={
                       (row.item.qualityProfileId
                         ? names.byId.get(row.item.qualityProfileId)

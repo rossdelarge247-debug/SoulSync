@@ -9,6 +9,7 @@
  * ladder (core/wishlist/journey.py says how each is joined).
  */
 
+import type { ParsedWishlistTrack } from '../wishlist/-wishlist.types';
 import type {
   JourneyResponse,
   JourneyStatus,
@@ -17,6 +18,7 @@ import type {
   WantedTrack,
 } from './-wanted.types';
 
+import { describeTrouble } from '../wishlist/-wishlist.helpers';
 import { WL_FAILING_ATTEMPTS } from '../wishlist/-wishlist.types';
 
 // ---------------------------------------------------------------------------
@@ -66,17 +68,12 @@ export interface RetryLadder {
 export interface JourneyData {
   tracks: Map<string, TrackJourney>;
   retry: RetryLadder | null;
-  /** Files held in quarantine, and the songs they're attempts at. */
-  quarantineFiles: number | null;
-  quarantineSongs: number | null;
   playlists: NonNullable<JourneyResponse['playlists']>;
 }
 
 export const EMPTY_JOURNEY: JourneyData = {
   tracks: new Map(),
   retry: null,
-  quarantineFiles: null,
-  quarantineSongs: null,
   playlists: [],
 };
 
@@ -108,15 +105,7 @@ export function readJourney(response: JourneyResponse | undefined): JourneyData 
     }
     retry = { ladder, maxCooldown: Math.max(0, Number(response.retry.max_cooldown) || 0) };
   }
-  const count = (value: unknown) =>
-    typeof value === 'number' && Number.isFinite(value) ? value : null;
-  return {
-    tracks,
-    retry,
-    quarantineFiles: count(response.quarantine_total),
-    quarantineSongs: count(response.quarantine_songs),
-    playlists: response.playlists ?? [],
-  };
+  return { tracks, retry, playlists: response.playlists ?? [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +120,8 @@ export function readJourney(response: JourneyResponse | undefined): JourneyData 
 export function trackJourney(track: WantedTrack, live: TrackJourney | undefined): JourneyStatus {
   if (live?.downloadPhase === 'downloading') return 'downloading';
   if (live?.downloadPhase === 'searching') return 'searching';
-  if (live?.quarantineEntry) return 'decision';
+  // a member's read has the count but not the entry (no way into the queue)
+  if (live?.quarantineEntry || (live?.quarantineCount ?? 0) > 0) return 'decision';
   if (track.tries >= WL_FAILING_ATTEMPTS) return 'not-found';
   return 'waiting';
 }
@@ -234,6 +224,60 @@ export function heldBecause(trigger: string): string {
   }
 }
 
+/**
+ * A failed try in a person's words, when the reason is one SoulSync wrote
+ * after a download came in and was thrown out (the nebula's describeTrouble):
+ * "only ~30s of 3:54 played, so it was thrown out", "the wrong song came back
+ * ("Xtal" by Aphex Twin)". Anything else (a peer going offline, a timeout)
+ * reads as it was written.
+ */
+export function lastTryPhrase(reason: string): string {
+  const trouble = describeTrouble({
+    failing: true,
+    failReason: reason,
+    retry: 0,
+    lastTried: '',
+  } as ParsedWishlistTrack);
+  switch (trouble.headline) {
+    case 'Downloaded, then thrown out': {
+      const partial = /^Only ~(\d+)s of ([\d:]+) actually played/.exec(trouble.detail);
+      return partial
+        ? `only ~${partial[1]}s of ${partial[2]} played, so it was thrown out`
+        : 'the file failed the integrity check';
+    }
+    case 'The wrong song came back': {
+      const heard = /says it was (".+") by (.+), not this track/.exec(trouble.detail);
+      return heard
+        ? `the wrong song came back (${heard[1]} by ${heard[2]})`
+        : 'the wrong song came back';
+    }
+    case 'Downloaded, then failed to save':
+      return /folder could not be created/.test(trouble.detail)
+        ? "downloaded, but its folder couldn't be created"
+        : 'downloaded, but saving it failed';
+    case 'Downloaded, then quarantined':
+      return 'downloaded, then quarantined';
+    case 'No match found':
+      return 'no match found on your sources';
+    default:
+      return reason;
+  }
+}
+
+/**
+ * "last try: user went offline", or '' when there's nothing to add: no try
+ * yet, a reason that's why it was added ("Added via …"), or "no match",
+ * which the line already says.
+ */
+function lastTryBit(track: WantedTrack): string {
+  const reason = track.lastError.trim();
+  if (track.tries <= 0 || !reason || /^added\b/i.test(reason)) return '';
+  const plain = lastTryPhrase(reason);
+  if (/^no match/i.test(plain)) return '';
+  const text = /^[A-Z][a-z]/.test(plain) ? plain[0].toLowerCase() + plain.slice(1) : plain;
+  return ` · last try: ${text.replace(/[.\s]+$/, '')}`;
+}
+
 export interface DetailContext {
   retry: RetryLadder | null;
   now: number;
@@ -264,7 +308,7 @@ export function trackDetail(
     }
     case 'not-found': {
       const wait = nextTryIn(track, ctx.retry, ctx.now);
-      return `No match after ${n(track.tries)} searches · ${
+      return `No match after ${n(track.tries)} searches${lastTryBit(track)} · ${
         wait > 0 ? `tries again ${inAbout(wait)}` : 'tries again on the next search'
       }`;
     }
@@ -273,9 +317,10 @@ export function trackDetail(
         return ctx.nextSearch ? `Not tried yet · next search ${ctx.nextSearch}` : 'Not tried yet';
       const wait = nextTryIn(track, ctx.retry, ctx.now);
       const tried = track.tries === 1 ? 'Tried once' : `Tried ${n(track.tries)} times`;
+      const last = lastTryBit(track);
       return wait > 0
-        ? `${tried} · next try ${inAbout(wait)}`
-        : `${tried} · tries again on the next search`;
+        ? `${tried}${last} · next try ${inAbout(wait)}`
+        : `${tried}${last} · tries again on the next search`;
     }
   }
 }
@@ -304,10 +349,15 @@ export function itemDetail(
   item: WantedItem,
   journeys: Map<string, TrackJourney> | undefined,
   ctx: DetailContext,
+  /** The status filter in use: a release listed under it speaks for those songs. */
+  focus?: JourneyStatus | null,
 ): string {
-  if (item.tracks.length === 1 || item.journeyCount === item.tracks.length) {
-    const track = [...item.tracks].sort((a, b) => b.tries - a.tries)[0];
-    return trackDetail(track, journeys?.get(track.id), ctx);
+  const step = focus && item.trackStates[focus] > 0 ? focus : item.journey;
+  if (item.tracks.length === 1 || item.trackStates[step] === item.tracks.length) {
+    const track = [...item.tracks]
+      .filter((t) => trackJourney(t, journeys?.get(t.id)) === step)
+      .sort((a, b) => b.tries - a.tries)[0];
+    return trackDetail(track ?? item.tracks[0], journeys?.get((track ?? item.tracks[0]).id), ctx);
   }
   return statesSentence(item.trackStates);
 }
@@ -439,8 +489,20 @@ export interface SourceSummary {
   library: PlaylistLibrary | null;
   meta: string;
   headline: string;
-  /** The bar, left to right: in your library, on its way, waiting, needs you, not found. */
-  bar: { owned: number; active: number; waiting: number; decision: number; notFound: number };
+  /**
+   * The bar, left to right: in your library, on its way, waiting, needs you,
+   * not found, then the rest. A mirrored playlist's bar is its whole length
+   * (`total`): `rest` is what isn't in the library or on Wanted, or hasn't
+   * been checked yet. Other sources' bars are their songs on Wanted (rest 0).
+   */
+  bar: {
+    owned: number;
+    active: number;
+    waiting: number;
+    decision: number;
+    notFound: number;
+    rest: number;
+  };
 }
 
 function distinct(values: string[]): string[] {
@@ -519,6 +581,8 @@ export function sourceSummaries(
     const counts = emptyCounts();
     for (const track of tracks) counts[trackJourney(track, journeys.get(track.id))] += 1;
     const library = name ? playlistLibrary(playlists, name) : null;
+    const owned = library?.kind === 'known' ? library.owned : 0;
+    const whole = library?.kind === 'known' || library?.kind === 'checking' ? library.total : 0;
     out.push({
       key,
       label: fixed?.label ?? name ?? key,
@@ -530,11 +594,12 @@ export function sourceSummaries(
       meta: metaFor(key, tracks, library, name ? mirrorSource(playlists, name) : ''),
       headline: headlineFor(key, tracks.length, library),
       bar: {
-        owned: library?.kind === 'known' ? library.owned : 0,
+        owned,
         active: counts.downloading + counts.searching,
         waiting: counts.waiting,
         decision: counts.decision,
         notFound: counts['not-found'],
+        rest: Math.max(0, whole - owned - tracks.length),
       },
     });
   }
@@ -559,6 +624,7 @@ export function barLabel(bar: SourceSummary['bar']): string {
   if (bar.decision)
     bits.push(`${n(bar.decision)} ${bar.decision === 1 ? 'needs' : 'need'} your decision`);
   if (bar.notFound) bits.push(`${n(bar.notFound)} not found`);
+  if (bar.rest) bits.push(`${n(bar.rest)} not checked yet`);
   return bits.join(', ') || 'Nothing to show';
 }
 

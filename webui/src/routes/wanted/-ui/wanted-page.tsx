@@ -208,7 +208,12 @@ export function WantedPage() {
     [followedArtists.data],
   );
 
-  const wantedCount = data.isPending ? 'loading' : data.isError ? undefined : data.items.length;
+  // songs, as the chips count them (an album is its songs)
+  const wantedCount = data.isPending
+    ? 'loading'
+    : data.isError
+      ? undefined
+      : data.items.reduce((sum, item) => sum + item.tracks.length, 0);
   const followedCount = followingCount;
   // the counts aren't shown at all while a list failed to load (board 2s)
   const listFailed = tab === 'wanted' ? data.isError : followedArtists.isError;

@@ -387,16 +387,19 @@ def get_wishlist_journey():
               "tracks": {<spotify_track_id>: {"download"?: {status, phase,
                          task_id, batch_id}, "quarantine"?: {entry_id, count,
                          reason, matched_by}}},
-              "quarantine_total": n (files), "quarantine_songs": n (songs),
               "playlists": [{name, mirror: {id, name, source, total, in_library,
                              library_checked, library_known} | null}],
               "retry": {name, label, ladder: {tries: seconds}, max_cooldown},
               "generated_at": unix seconds}
     Only rows with a live task or a quarantined attempt are in ``tracks``.
+    Quarantine is the install's, not a profile's: a profile that isn't an
+    admin gets the status (count, trigger) but no ``entry_id``, so its page
+    offers no way into the review queue.
     """
     try:
         from core.imports.paths import docker_resolve_path
-        from core.imports.quarantine_index import count_songs, shared_index
+        from core.imports.quarantine_index import shared_index
+        from core.profile_context import is_admin_request
         from core.wishlist.retry_backoff import get_active_retry_profile, profile_to_json
         from core.wishlist.journey import (
             playlist_progress,
@@ -418,11 +421,13 @@ def get_wishlist_journey():
             tasks=snapshot_active_tasks(download_tasks, tasks_lock),
             quarantine=held,
         )
+        if not is_admin_request():
+            for entry in tracks.values():
+                if "quarantine" in entry:
+                    entry["quarantine"].pop("entry_id", None)
         return jsonify({
             "success": True,
             "tracks": tracks,
-            "quarantine_total": len(held),
-            "quarantine_songs": count_songs(held),
             "playlists": playlist_progress(db, rows, profile_id),
             "retry": profile_to_json(get_active_retry_profile(db)),
             "generated_at": int(time.time()),

@@ -10,6 +10,8 @@ import { LIST_TO_KIND, type WantedSearch } from './-wanted.types';
 export function wantedSearchFromWishlist(search: WishlistSearch): WantedSearch {
   return {
     tab: 'wanted',
+    // the old list: Songs, whatever the Wanted tab's View was left on
+    browse: 'songs',
     ...(search.q ? { q: search.q } : {}),
     ...(search.failing ? { filter: 'not-found' } : {}),
     ...(search.media === 'audiobooks' ? { media: 'audiobooks' as const } : {}),
