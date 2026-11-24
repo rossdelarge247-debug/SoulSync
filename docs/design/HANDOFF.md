@@ -285,7 +285,7 @@ Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted j
 - vitest `-wanted.journey.test.ts`: statuses, lines, retry timing, Needs you first, source names, summaries, the remembered view.
 - `-route.test.tsx`: Wanted (rows, chips, Review's deep link, Sources, a source's page, Show in the list, an unmirrored playlist) and Downloads (`?review=quarantine&entry=`, and without `entry`).
 - `nav-routes.test.ts`, `nav-shell.test.ts` (the row order), and `-activity.helpers.test.ts` (Review, Open in Wanted).
-- Runs (after fix round 2): the full vitest, 12,973 passed (745 files, two workers, none timed out). pytest (`-n 2`, numba warmed first) over `tests/activity`, `tests/imports`, `tests/wishlist`, `tests/test_wanted_page_reads.py`, `tests/test_admin_gating.py` and `tests/test_helper_tours.py`: 1,983 passed. One fails here and on `integration` without this branch: `test_activity_api.py::test_the_feed_answers_with_the_contract`. ruff, tsc and `npm run check` are clean (no new warnings).
+- Runs (after fix round 3): the full vitest, 12,975 of 12,976 passed (745 files, two workers, none timed out); the one failure was the Watchlist route test expecting `/watchlist`'s landing without `browse` (M1 writes it in), updated, and `src/routes/watchlist` then passed on its own (123). pytest (`-n 2`, numba warmed first) over `tests/activity`, `tests/imports`, `tests/wishlist`, `tests/test_wanted_page_reads.py`, `tests/test_admin_gating.py` and `tests/test_helper_tours.py`: 1,983 passed. One fails here and on `integration` without this branch: `test_activity_api.py::test_the_feed_answers_with_the_contract`. ruff, tsc and `npm run check` are clean (no new warnings).
 
 **Fix round 1 (the same day; review: 3 Medium, 5 Low, all fixed, each with a test):**
 - **M1, old links landed on Sources:** a stored Sources choice won over a link carrying `filter`, `sort`, `q` or `from`. Such a link now opens Songs; old `/wishlist` links and Activity's Not found link also add `browse=songs`.
@@ -310,6 +310,8 @@ Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted j
 - **L-c:** the two faint legend dots carry a ring at 3:1 or more against the card; the bar's parts stay faint.
 - **L-d:** "500+" is decided from the found read's own length, not the list after a From.
 - **L-f:** the member screenshot is a real session of a profile that isn't an admin.
+
+**Fix round 3 (re-review: 1 Medium, 3 Low, all fixed, each with a test):** M1, Back didn't restore the view: a landing on `/wanted` without `browse` now writes the resolved view into the URL in place (`replace`, the other params kept; no new entry, and the `/wishlist` and Activity links already carry it), so Back and Forward step between Songs and Sources. L1, a still-checking playlist's owned figure is never more than its checked tracks. L2, Details names its note (`aria-controls`). L3, a member's held release: Details opens only the note; the "…" menu's "Show the N tracks" opens the tracks.
 
 Screenshots (1440×900, 1280×800, 390×844; each also full length): Songs, Needs your decision, From Running, Sources, Running's page, an unmirrored playlist's page, Activity's Needs you, and Downloads on one song's attempts. They're in the session scratchpad, not the repo.
 
