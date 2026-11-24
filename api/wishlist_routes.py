@@ -390,7 +390,11 @@ def get_wishlist_journey():
               "playlists": [{name, mirror: {id, name, source, total, in_library,
                              library_checked, library_known} | null}],
               "retry": {name, label, ladder: {tries: seconds}, max_cooldown},
+              "quarantine_ready": bool,
               "generated_at": unix seconds}
+    Quarantine comes from the shared snapshot (core.imports.quarantine_index):
+    this never lists the folder. Before the snapshot's first read,
+    ``quarantine_ready`` is false and no song has a ``quarantine`` part yet.
     Only rows with a live task or a quarantined attempt are in ``tracks``.
     Quarantine is the install's, not a profile's: a profile that isn't an
     admin gets the status (count, trigger) but no ``entry_id``, so its page
@@ -402,7 +406,7 @@ def get_wishlist_journey():
         from core.profile_context import is_admin_request
         from core.wishlist.retry_backoff import get_active_retry_profile, profile_to_json
         from core.wishlist.journey import (
-            playlist_progress,
+            cached_playlist_progress,
             snapshot_active_tasks,
             wishlist_journey,
         )
@@ -415,11 +419,11 @@ def get_wishlist_journey():
             docker_resolve_path(config_manager.get('soulseek.download_path', './downloads')),
             'ss_quarantine',
         )
-        held = shared_index().records(quarantine_dir)
+        snap = shared_index().peek(quarantine_dir)
         tracks = wishlist_journey(
             rows,
             tasks=snapshot_active_tasks(download_tasks, tasks_lock),
-            quarantine=held,
+            quarantine=snap.records if snap is not None else [],
         )
         if not is_admin_request():
             for entry in tracks.values():
@@ -428,8 +432,9 @@ def get_wishlist_journey():
         return jsonify({
             "success": True,
             "tracks": tracks,
-            "playlists": playlist_progress(db, rows, profile_id),
+            "playlists": cached_playlist_progress(db, rows, profile_id),
             "retry": profile_to_json(get_active_retry_profile(db)),
+            "quarantine_ready": snap is not None,
             "generated_at": int(time.time()),
         })
     except Exception as e:

@@ -29,6 +29,8 @@ global, but only rows of this profile are answered for.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from typing import Any, Dict, Iterable, List, Optional
 
 from core.imports.quarantine_index import QuarantineRecord, name_key
@@ -295,6 +297,35 @@ def playlist_progress(database: Any, rows: List[Dict[str, Any]], profile_id: int
     return out
 
 
+#: how long a profile's playlist figures are reused (seconds): they come from
+#: the mirrored playlists' counts, a query too heavy to run on every poll
+PLAYLIST_CACHE_SECONDS = 60.0
+_playlist_cache: Dict[tuple, tuple] = {}
+_playlist_cache_lock = threading.Lock()
+
+
+def cached_playlist_progress(database: Any, rows: List[Dict[str, Any]],
+                             profile_id: int) -> List[Dict[str, Any]]:
+    """``playlist_progress``, reused for a minute per profile and set of
+    playlists on its Wanted rows."""
+    names = frozenset(
+        _playlist_ref(_as_dict(r.get("source_info")))
+        for r in rows if str(r.get("source_type") or "") == "playlist")
+    key = (profile_id, names)
+    now = time.monotonic()
+    with _playlist_cache_lock:
+        hit = _playlist_cache.get(key)
+        if hit is not None and now - hit[0] < PLAYLIST_CACHE_SECONDS:
+            return hit[1]
+    result = playlist_progress(database, rows, profile_id)
+    with _playlist_cache_lock:
+        # one entry per profile: an older set of playlists is dropped
+        for old in [k for k in _playlist_cache if k[0] == profile_id]:
+            _playlist_cache.pop(old, None)
+        _playlist_cache[key] = (now, result)
+    return result
+
+
 # ── the whole read ────────────────────────────────────────────────────────────
 
 def wishlist_journey(
@@ -326,6 +357,7 @@ __all__ = [
     "DOWNLOAD_STATUSES",
     "SEARCH_STATUSES",
     "download_phase",
+    "cached_playlist_progress",
     "playlist_progress",
     "snapshot_active_tasks",
     "wishlist_journey",

@@ -45,10 +45,19 @@ export function wantedFoundQueryOptions(profileId: number) {
 /**
  * Where each wanted track is on its way in: its live download task and its
  * quarantined attempts, plus each playlist's library figures (GET
- * /api/wishlist/journey). Live, so it refreshes every 10 seconds while the
- * page is in front, and with everything that refreshes the wishlist.
+ * /api/wishlist/journey). It refreshes every 30 seconds while the page is in
+ * front (never in a hidden tab), and with everything that refreshes the
+ * wishlist; every 5 seconds while the server is still reading the quarantine
+ * (`quarantine_ready: false`), so Needs your decision appears soon after.
+ * The Wanted list never waits on it: it's its own query.
  */
-export const JOURNEY_REFRESH_MS = 10_000;
+export const JOURNEY_REFRESH_MS = 30_000;
+export const JOURNEY_WARMING_REFRESH_MS = 5_000;
+
+/** How soon to ask again: sooner while the quarantine is still being read. */
+export function journeyRefreshMs(data: JourneyResponse | undefined): number {
+  return data?.quarantine_ready === false ? JOURNEY_WARMING_REFRESH_MS : JOURNEY_REFRESH_MS;
+}
 
 export function wantedJourneyQueryOptions(profileId: number) {
   return queryOptions({
@@ -60,7 +69,7 @@ export function wantedJourneyQueryOptions(profileId: number) {
       if (payload.success === false) throw new Error(payload.error || 'No journey');
       return payload;
     },
-    refetchInterval: JOURNEY_REFRESH_MS,
+    refetchInterval: (query) => journeyRefreshMs(query.state.data),
     refetchIntervalInBackground: false,
     staleTime: 5_000,
   });

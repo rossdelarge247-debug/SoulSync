@@ -214,6 +214,16 @@ def clear_planned_quarantine(path: str, items: Iterable[Dict[str, Any]]) -> Dict
         out["freed_bytes"] += size
         if _quarantine_kind(name) != "info":
             out["files_removed"] += 1
+    if out["removed"]:
+        # what was deleted leaves the shared snapshot at once (Wanted, Activity, Downloads)
+        try:
+            from core.imports.quarantine import entry_id_from_quarantined_filename
+            from core.imports.quarantine_index import shared_index
+            shared_index().forget(path, [
+                entry_id_from_quarantined_filename(str(item.get("name") or ""))
+                for item in items if str(item.get("name") or "").endswith(".quarantined")])
+        except Exception as exc:  # noqa: BLE001 - the snapshot catches up on its own
+            logger.debug("quarantine snapshot forget after clear failed: %s", exc)
     return out
 
 

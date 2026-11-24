@@ -104,6 +104,13 @@ def move_to_quarantine(file_path: str, context: dict, reason: str, automation_en
     except Exception as exc:
         logger.warning("Failed to write quarantine metadata: %s", exc)
 
+    # the shared quarantine snapshot reads the folder again when it's due
+    try:
+        from core.imports.quarantine_index import shared_index
+        shared_index().invalidate(str(quarantine_dir))
+    except Exception as exc:  # noqa: BLE001 - never stops a quarantine
+        logger.debug("quarantine snapshot invalidate failed: %s", exc)
+
     # #652: also record the source in the db. the sidecar used to be the only
     # thing remembering this upload was bad, and approve/delete/clear all delete
     # sidecars, so clearing the review list handed the same broken file straight

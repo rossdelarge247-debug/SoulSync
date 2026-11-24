@@ -887,6 +887,31 @@ describe('Wanted tab', () => {
     window.localStorage.clear();
   });
 
+  it('while quarantine is still being read: statuses without it, a quiet note, no error', async () => {
+    mockApi({ journey: { quarantine_ready: false } });
+    renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    expect(await screen.findByTestId('quarantine-warming')).toHaveTextContent(
+      'checking for downloads held back…',
+    );
+    expect(screen.queryByText(/Couldn.t load your list/)).toBeNull();
+    // Night Ferry's 22 tries: Not found until the quarantine says otherwise
+    expect(within(list('Wanted')).getAllByText('Not found').length).toBeGreaterThan(0);
+  });
+
+  it('the list never waits on the journey read, nor fails with it', async () => {
+    mockApi();
+    server.use(
+      http.get('*/api/wishlist/journey', () =>
+        HttpResponse.json({ success: false, error: 'busy' }, { status: 500 }),
+      ),
+    );
+    renderRoute('/wanted');
+    expect(await screen.findByText('Harbour Light')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn.t load your list/)).toBeNull();
+  });
+
   it('carries the guided tour’s anchor on its tabs', async () => {
     mockApi();
     renderRoute();

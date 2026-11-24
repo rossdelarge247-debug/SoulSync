@@ -329,6 +329,9 @@ export interface JourneyResponse {
       owned_checked?: number;
     } | null;
   }[];
+  /** False while the server's first read of the quarantine is under way: no
+   *  song has a quarantine part yet (Needs your decision appears once it's in). */
+  quarantine_ready?: boolean;
   generated_at?: number;
   error?: string;
 }

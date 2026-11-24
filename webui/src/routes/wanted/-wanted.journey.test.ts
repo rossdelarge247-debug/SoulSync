@@ -445,3 +445,14 @@ describe('where songs came from', () => {
     expect(readStoredBrowse(2)).toBe('songs');
   });
 });
+
+describe('how often the journey is read', () => {
+  it('every 30 seconds, every 5 while the quarantine is still being read', async () => {
+    const { journeyRefreshMs, wantedJourneyQueryOptions } = await import('./-wanted.api');
+    expect(journeyRefreshMs(undefined)).toBe(30_000);
+    expect(journeyRefreshMs({ quarantine_ready: true })).toBe(30_000);
+    expect(journeyRefreshMs({ quarantine_ready: false })).toBe(5_000);
+    // never in a hidden tab
+    expect(wantedJourneyQueryOptions(1).refetchIntervalInBackground).toBe(false);
+  });
+});
