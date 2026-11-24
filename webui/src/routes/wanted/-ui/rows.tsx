@@ -147,12 +147,14 @@ export function WantedRowView({
   const several = item.trackIds.length > 1;
   const single = item.tracks[0];
 
-  const reviewable = item.journey === 'decision' && Boolean(item.quarantineEntry);
-  // a member's read has no entry: Needs your decision, with Details (an admin decides)
-  const downloading =
-    item.journey === 'downloading' ||
-    item.journey === 'searching' ||
-    (item.journey === 'decision' && !reviewable);
+  // the step the row is shown at: the filter's, when it's listed under one,
+  // so its action and colour match its tag
+  const step = focus && item.trackStates[focus] > 0 ? focus : item.journey;
+  const reviewable = step === 'decision' && Boolean(item.quarantineEntry);
+  // a member's read has no entry: Needs your decision, and Details opens the
+  // row's own note (held for an admin), not Downloads
+  const held = step === 'decision' && !reviewable;
+  const downloading = step === 'downloading' || step === 'searching';
 
   const entries = (withSearch: boolean): MenuEntry[] => {
     const list: MenuEntry[] = [];
@@ -166,6 +168,13 @@ export function WantedRowView({
     if (withSearch && downloading) {
       list.push({ key: 'downloads', label: 'Details', onSelect: handlers.onOpenDownloads });
     }
+    if (withSearch && held) {
+      list.push({
+        key: 'held',
+        label: expanded ? 'Hide details' : 'Details',
+        onSelect: () => handlers.onToggleTracks(item),
+      });
+    }
     if (withSearch && canSearch) {
       list.push({
         key: 'search',
@@ -174,7 +183,7 @@ export function WantedRowView({
         onSelect: () => handlers.onSearchNow(item),
       });
     }
-    if (several) {
+    if (several && !held) {
       list.push({
         key: 'tracks',
         label: expanded ? 'Hide the tracks' : `Show the ${item.trackIds.length} tracks`,
@@ -212,7 +221,7 @@ export function WantedRowView({
       <div
         className={styles.row}
         data-layout="journey"
-        data-status={item.journey}
+        data-status={step}
         data-selecting={selecting ? 'true' : undefined}
         data-selected={selected ? 'true' : undefined}
       >
@@ -246,6 +255,15 @@ export function WantedRowView({
                 >
                   Review
                 </Button>
+              ) : held ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  aria-expanded={expanded}
+                  onClick={() => handlers.onToggleTracks(item)}
+                >
+                  Details
+                </Button>
               ) : downloading ? (
                 <Button
                   size="lg"
@@ -254,7 +272,7 @@ export function WantedRowView({
                 >
                   Details
                 </Button>
-              ) : item.journey === 'not-found' && !several && canSearch ? (
+              ) : step === 'not-found' && !several && canSearch ? (
                 <Button
                   size="lg"
                   className={styles.rowActionShown}
@@ -262,7 +280,7 @@ export function WantedRowView({
                 >
                   Search by hand
                 </Button>
-              ) : several && item.journey === 'not-found' ? (
+              ) : several && step === 'not-found' ? (
                 <Button
                   size="lg"
                   className={styles.rowActionShown}
@@ -294,6 +312,14 @@ export function WantedRowView({
           </>
         )}
       </div>
+      {expanded && held ? (
+        <p className={styles.heldNote} role="note">
+          <strong>Held for an admin to check.</strong>{' '}
+          {item.quarantineCount > 1
+            ? `${item.quarantineCount} downloads of this came in and were held back: they might be the wrong song, version or quality. An admin keeps the right one or deletes them; until then it stays on Wanted.`
+            : 'A download of this came in and was held back: it might be the wrong song, version or quality. An admin keeps it or deletes it; until then it stays on Wanted.'}
+        </p>
+      ) : null}
       {expanded && several ? (
         <ul className={styles.tracks} aria-label={`Tracks of ${item.title} on Wanted`}>
           {item.tracks.map((track) => (

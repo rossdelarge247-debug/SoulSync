@@ -699,6 +699,16 @@ span.art:has(.artIcon) {
   display: none;
 }
 
+/* A held song's note, for a profile that isn't an admin (Details). */
+.heldNote {
+  max-width: 72ch;
+  margin: 0;
+  padding: 0 24px 14px 88px;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* A release's tracks, opened from its menu. */
 .tracks {
   margin: 0;
@@ -1202,10 +1212,26 @@ span.art:has(.artIcon) {
   background: var(--ss-danger);
 }
 
-/* fainter than Waiting's grey: not on Wanted, or not checked yet */
-.barPart[data-part='rest'],
-.legendDot[data-part='rest'] {
+/* A mirrored playlist's rest, fainter than Waiting's grey: checked but not
+   in the library (a faint fill), and not checked yet (fainter still). The
+   bar's parts stay faint; their legend dots carry a border at 3:1 or more
+   against the card. */
+.barPart[data-part='notInLibrary'] {
   background: var(--ss-control-border);
+}
+
+.barPart[data-part='unchecked'] {
+  background: var(--ss-hairline);
+}
+
+.legendDot[data-part='notInLibrary'] {
+  background: var(--ss-control-border);
+  box-shadow: inset 0 0 0 1.5px var(--ss-text-meta);
+}
+
+.legendDot[data-part='unchecked'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ss-text-meta);
 }
 
 .crumbs {
@@ -1332,6 +1358,15 @@ span.art:has(.artIcon) {
   gap: 8px;
   color: var(--ss-text-secondary);
   font-size: 14px;
+}
+
+.stillHeld {
+  grid-column: 1 / -1;
+  max-width: 72ch;
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .stillMore {
@@ -1520,6 +1555,10 @@ span.art:has(.artIcon) {
   }
 
   .tracks {
+    padding: 0 14px 12px 70px;
+  }
+
+  .heldNote {
     padding: 0 14px 12px 70px;
   }
 

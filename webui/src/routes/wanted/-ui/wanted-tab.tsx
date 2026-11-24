@@ -57,8 +57,10 @@ import {
   PAGE_SIZE,
   resolveWantedFilter,
   resolveWantedSort,
+  type JourneyStatus,
   type WantedFilter,
   type WantedItem,
+  type WantedRow,
   type WantedSearch,
   type WantedSort,
   type WantedTrack,
@@ -99,6 +101,22 @@ export const WANTED_SORT_OPTIONS: { key: WantedSort; label: string }[] = [
   { key: 'most-tries', label: 'Most tries first' },
   { key: 'artist', label: 'Artist A–Z' },
 ];
+
+/**
+ * The footer, in the chips' unit: "Showing 50 of 312 releases · 410 songs"
+ * (a release is a row: an album, a single or a track; the songs are the ones
+ * listed, at the status filter's step when there is one).
+ */
+export function listSummary(shown: number, rows: WantedRow[], step: JourneyStatus | null): string {
+  const songs = rows.reduce(
+    (sum, row) =>
+      sum + (row.type === 'found' ? 1 : step ? row.item.trackStates[step] : row.item.tracks.length),
+    0,
+  );
+  const releases = rows.length === 1 ? 'release' : 'releases';
+  const of = shown < rows.length ? `${n(shown)} of ${n(rows.length)}` : n(rows.length);
+  return `Showing ${of} ${releases} · ${n(songs)} ${songs === 1 ? 'song' : 'songs'}`;
+}
 
 export type Go = (patch: Partial<WantedSearch>, options?: { replace?: boolean }) => void;
 
@@ -267,8 +285,9 @@ export function WantedTab({
   // browser, unless the link says which; a source's page is under Sources.
   const [storedBrowse, setStoredBrowse] = useState<WantedBrowse>(() => readStoredBrowse(profileId));
   useEffect(() => setStoredBrowse(readStoredBrowse(profileId)), [profileId]);
-  // a link that carries a filter, sort, search or From is about songs: it
-  // opens on Songs whatever was picked last (an old /wishlist link, say)
+  // An explicit browse in the URL wins (the toggle writes it). Without one, a
+  // link that carries a filter, sort, search or From is about songs and opens
+  // Songs (an old /wishlist link, say); otherwise the profile's last choice.
   const linkIsAboutSongs = Boolean(search.filter || search.sort || search.q || search.from);
   const browse: WantedBrowse = search.source
     ? 'sources'
@@ -276,7 +295,7 @@ export function WantedTab({
   const setBrowse = (next: WantedBrowse) => {
     storeBrowse(profileId, next);
     setStoredBrowse(next);
-    go({ browse: undefined, source: undefined, page: undefined });
+    go({ browse: next, source: undefined, page: undefined });
   };
 
   // ── actions ────────────────────────────────────────────────────────────
@@ -556,7 +575,7 @@ export function WantedTab({
             onSongs={() => {
               storeBrowse(profileId, 'songs');
               setStoredBrowse('songs');
-              go({ browse: undefined, source: undefined, from: search.source, page: undefined });
+              go({ browse: 'songs', source: undefined, from: search.source, page: undefined });
             }}
             onReview={(entry) =>
               void navigate({ to: '/active-downloads', search: quarantineSearch(entry) })
@@ -577,7 +596,8 @@ export function WantedTab({
   }
 
   // every number is songs (wantedCounts); Got it is capped by the read
-  const foundCapped = allFound.length >= FOUND_LIMIT;
+  // the read's own length: the cap is about what it sent, not what's shown
+  const foundCapped = (foundQuery.data?.items?.length ?? 0) >= FOUND_LIMIT;
   const foundKnown = foundQuery.isSuccess && !from;
   const filterOptions: FilterOption<WantedFilter>[] = [
     {
@@ -705,7 +725,7 @@ export function WantedTab({
             Each was downloaded but held back: it might be the wrong song, version or quality.
             {canReview
               ? ' Review opens its attempts in Quarantine, to keep one and delete the rest.'
-              : ' An admin keeps one or deletes them in Downloads.'}
+              : ' They’re held for an admin to check: Details says more.'}
           </span>
         </p>
       ) : null}
@@ -844,6 +864,7 @@ export function WantedTab({
           <ListFooter
             shown={shown.length}
             total={rows.length}
+            summary={listSummary(shown.length, rows, step)}
             onMore={() => go({ page: pages + 1 }, { replace: true })}
           />
         </>

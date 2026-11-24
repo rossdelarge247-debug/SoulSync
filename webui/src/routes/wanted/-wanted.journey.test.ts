@@ -11,6 +11,7 @@ import {
   wantedStatus,
 } from './-wanted.helpers';
 import {
+  barLabel,
   inAbout,
   itemDetail,
   itemsFrom,
@@ -328,29 +329,35 @@ describe('where songs came from', () => {
     const running = sources.find((s) => s.label === 'Running')!;
     expect(running.headline).toBe('212 of 240 in your library · 28 to go');
     expect(running.meta).toBe('Spotify · mirrored');
-    // a mirrored playlist's bar is the whole playlist: 212 + 3 on Wanted + 25 more
+    // a mirrored playlist's bar is the whole playlist: 212 + 3 on Wanted + 25
+    // the sync checked and found neither in the library nor on Wanted
     expect(running.bar).toEqual({
       owned: 212,
       active: 1,
       waiting: 0,
       decision: 1,
       notFound: 1,
-      rest: 25,
+      notInLibrary: 25,
+      unchecked: 0,
     });
     const calm = sources.find((s) => s.label === 'Classical calm')!;
     expect(calm.headline).toBe('96 checked so far · 1 still wanted');
     expect(calm.meta).toBe('mirrored, still checking');
-    // still checking: one song wanted out of 140, the rest not checked yet
+    // still checking: 96 of 140 checked (none owned by the sync's flag here),
+    // one song wanted; 95 checked and not in the library; 44 not checked yet
     expect(calm.bar).toEqual({
       owned: 0,
       active: 0,
       waiting: 1,
       decision: 0,
       notFound: 0,
-      rest: 139,
+      notInLibrary: 95,
+      unchecked: 44,
     });
+    expect(barLabel(calm.bar)).toBe('1 waiting, 95 not in your library yet, 44 not checked yet');
     // not mirrored: just its songs on Wanted
-    expect(sources.find((s) => s.label === 'Liked Songs')!.bar.rest).toBe(0);
+    const likedBar = sources.find((s) => s.label === 'Liked Songs')!.bar;
+    expect([likedBar.notInLibrary, likedBar.unchecked]).toEqual([0, 0]);
     const liked = sources.find((s) => s.label === 'Liked Songs')!;
     expect(liked.headline).toBe('2 still wanted · mirror it to count what you have');
     expect(liked.meta).toBe('Not mirrored');
@@ -364,6 +371,44 @@ describe('where songs came from', () => {
       'not-found',
       'downloading',
     ]);
+  });
+
+  it('counts what the sync found owned among the checked tracks of a playlist still being checked', () => {
+    const playlists = [
+      {
+        name: 'Calm',
+        mirror: {
+          id: 4,
+          total: 10,
+          in_library: 7,
+          library_checked: 6,
+          library_known: false,
+          owned_checked: 4,
+        },
+      },
+    ];
+    const items = withJourney(
+      buildWantedItems([
+        track('c1', {
+          sourceType: 'playlist',
+          sourceInfo: { playlist_name: 'Calm' },
+          album: 'Z',
+        }),
+      ]),
+      new Map(),
+    );
+    const [calm] = sourceSummaries(items, new Map(), playlists);
+    // 4 owned (the flag), 1 wanted, 1 checked and not in the library, 4 unchecked
+    expect(calm.bar).toEqual({
+      owned: 4,
+      active: 0,
+      waiting: 1,
+      decision: 0,
+      notFound: 0,
+      notInLibrary: 1,
+      unchecked: 4,
+    });
+    expect(calm.headline).toBe('6 checked so far · 1 still wanted');
   });
 
   it('remembers Songs or Sources per profile', () => {

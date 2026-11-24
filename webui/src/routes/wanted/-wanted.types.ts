@@ -325,6 +325,8 @@ export interface JourneyResponse {
       in_library?: number;
       library_checked?: number;
       library_known?: boolean;
+      /** While still being checked: the checked tracks the sync found in the library. */
+      owned_checked?: number;
     } | null;
   }[];
   generated_at?: number;

@@ -660,7 +660,7 @@ describe('Wanted tab', () => {
         tracks: { nf: { quarantine: { count: 2, trigger: 'integrity', matched_by: 'id' } } },
       },
     });
-    renderRoute('/wanted');
+    const { router } = renderRoute('/wanted');
     await screen.findByText('Harbour Light');
     await waitFor(() =>
       expect(within(list('Wanted')).getByText('Needs your decision')).toBeTruthy(),
@@ -669,11 +669,93 @@ describe('Wanted tab', () => {
     expect(row).toHaveTextContent('Night Ferry (Live)');
     expect(row).toHaveTextContent('2 tries held back · the file was damaged');
     expect(within(row).queryByRole('button', { name: 'Review' })).toBeNull();
-    expect(within(row).getByRole('button', { name: 'Details' })).toBeInTheDocument();
+    // Details opens the row's own note: it doesn't leave Wanted
+    const details = within(row).getByRole('button', { name: 'Details' });
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(details);
+    expect(details).toHaveAttribute('aria-expanded', 'true');
+    expect(within(row).getByRole('note')).toHaveTextContent(
+      'Held for an admin to check. 2 downloads of this came in and were held back',
+    );
+    expect(router.state.location.pathname).toBe('/wanted');
     fireEvent.click(screen.getByRole('button', { name: /^Needs your decision/ }));
     expect(
-      await screen.findByText(/An admin keeps one or deletes them in Downloads/),
+      await screen.findByText(/held for an admin to check: Details says more/),
     ).toBeInTheDocument();
+  });
+
+  it('a release listed under Not found acts as Not found, not as its decision', async () => {
+    // Lantern: one song held (with an entry), one not found
+    mockApi({
+      journey: {
+        tracks: {
+          ln1: {
+            quarantine: {
+              entry_id: '20261120_x',
+              count: 1,
+              trigger: 'integrity',
+              matched_by: 'id',
+            },
+          },
+        },
+      },
+    });
+    renderRoute('/wanted?filter=not-found');
+    await waitFor(() => expect(within(list('Wanted')).getByText('Lantern')).toBeTruthy());
+    const lantern = within(list('Wanted'))
+      .getAllByRole('listitem')
+      .find((r) => r.querySelector('p')?.textContent === 'Lantern')!;
+    expect(within(lantern).getByText('Not found · 1 of 2')).toBeInTheDocument();
+    expect(lantern.querySelector('[data-status]')).toHaveAttribute('data-status', 'not-found');
+    expect(within(lantern).queryByRole('button', { name: 'Review' })).toBeNull();
+    expect(within(lantern).getByRole('button', { name: 'Show tracks' })).toBeInTheDocument();
+  });
+
+  it('Sources works from any Songs state, and the choice is kept', async () => {
+    mockApi();
+    const { router } = renderRoute('/wanted?filter=not-found&browse=songs');
+    await screen.findByText('Lantern');
+    const view = () => screen.getByRole('group', { name: 'View' });
+    const pressed = (name: string) =>
+      within(view()).getByRole('button', { name }).getAttribute('aria-pressed');
+    const toSources = async () => {
+      fireEvent.click(within(view()).getByRole('button', { name: 'Sources' }));
+      expect(await screen.findByRole('region', { name: 'Your requests' })).toBeInTheDocument();
+      expect(pressed('Sources')).toBe('true');
+      expect(search(router).get('browse')).toBe('sources');
+      const stored = Object.keys(window.localStorage).find((k) =>
+        k.startsWith('soulsync-wanted-browse:'),
+      )!;
+      expect(window.localStorage.getItem(stored)).toBe('sources');
+    };
+    const toSongs = async () => {
+      fireEvent.click(within(view()).getByRole('button', { name: 'Songs' }));
+      expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+      expect(pressed('Songs')).toBe('true');
+    };
+    await toSources();
+    await toSongs();
+    // a chip
+    fireEvent.click(screen.getByRole('button', { name: /^Waiting/ }));
+    await waitFor(() => expect(search(router).get('filter')).toBe('waiting'));
+    await toSources();
+    await toSongs();
+    // a search
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), {
+      target: { value: 'harbour' },
+    });
+    await waitFor(() => expect(search(router).get('q')).toBe('harbour'));
+    await toSources();
+    await toSongs();
+    // Sort and From
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), {
+      target: { value: 'oldest' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'From' }), {
+      target: { value: 'mine' },
+    });
+    await waitFor(() => expect(search(router).get('from')).toBe('mine'));
+    await toSources();
   });
 
   it('lists a release under each step its songs are at, counting songs', async () => {
@@ -821,7 +903,7 @@ describe('Wanted tab', () => {
     // counted by selector: role queries crawl slowly over hundreds of rows
     const rowCount = () => document.querySelectorAll('ul[aria-label="Wanted"] > li').length;
     expect(rowCount()).toBe(50);
-    expect(screen.getByText('50 of 120')).toBeInTheDocument();
+    expect(screen.getByText('Showing 50 of 120 releases · 120 songs')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Show 50 more'));
     await waitFor(() => expect(search(router).get('page')).toBe('2'));
@@ -1107,7 +1189,7 @@ describe('Wanted journey: Sources (boards 2 and 3)', () => {
     ).toBeInTheDocument();
     expect(
       within(playlists).getByRole('img', {
-        name: '212 in your library, 1 waiting, 1 not found, 26 not checked yet',
+        name: '212 in your library, 1 waiting, 1 not found, 26 not in your library yet',
       }),
     ).toBeInTheDocument();
     const requests = screen.getByRole('region', { name: 'Your requests' });

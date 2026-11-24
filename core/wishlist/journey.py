@@ -188,6 +188,35 @@ def _playlist_ref(source_info: Dict[str, Any]) -> tuple:
     return name, (str(pid).strip() if pid not in (None, "") else "")
 
 
+def _owned_among_checked(database: Any, mirror_ids: List[int]) -> Dict[int, int]:
+    """mirror id -> tracks the sync matcher checked and found in the library
+    (its ``in_library`` flag; the flag alone, never the join fallback). For a
+    playlist still being checked, so its bar can tell the checked from the
+    rest. Empty when it can't be read."""
+    if not mirror_ids:
+        return {}
+    try:
+        conn = database._get_connection()
+    except Exception as exc:  # noqa: BLE001 - a nicety
+        logger.debug("journey: owned-among-checked unavailable: %s", exc)
+        return {}
+    try:
+        marks = ",".join("?" * len(mirror_ids))
+        rows = conn.execute(
+            "SELECT playlist_id, SUM(CASE WHEN extra_data LIKE '%\"in_library\": true%' "
+            f"THEN 1 ELSE 0 END) FROM mirrored_playlist_tracks WHERE playlist_id IN ({marks}) "
+            "GROUP BY playlist_id", list(mirror_ids)).fetchall()
+        return {int(r[0]): int(r[1] or 0) for r in rows}
+    except Exception as exc:  # noqa: BLE001 - a nicety
+        logger.debug("journey: owned-among-checked unavailable: %s", exc)
+        return {}
+    finally:
+        try:
+            conn.close()
+        except Exception as exc:  # noqa: BLE001 - closing never fails the read
+            logger.debug("journey: closing the connection failed: %s", exc)
+
+
 def playlist_progress(database: Any, rows: List[Dict[str, Any]], profile_id: int) -> List[Dict[str, Any]]:
     """One entry per playlist name on the wishlist, with its mirror's library
     figures when a mirror is found for it."""
@@ -230,6 +259,7 @@ def playlist_progress(database: Any, rows: List[Dict[str, Any]], profile_id: int
                     by_name[label].append(mirror)
 
     out = []
+    checking: List[int] = []
     for lowered, group in sorted(groups.items()):
         mirror = None
         for pid in sorted(group["playlist_ids"]):
@@ -253,7 +283,15 @@ def playlist_progress(database: Any, rows: List[Dict[str, Any]], profile_id: int
                 # the same rule as the Mirrored playlists page (libraryOwnedKnown)
                 "library_known": total > 0 and checked >= total,
             }
+            if not entry["mirror"]["library_known"] and checked > 0:
+                checking.append(int(mirror.get("id")))
         out.append(entry)
+    owned = _owned_among_checked(database, checking)
+    for entry in out:
+        mirror = entry["mirror"]
+        if mirror is not None and not mirror["library_known"]:
+            # of the checked tracks, the ones the sync found in the library
+            mirror["owned_checked"] = owned.get(int(mirror["id"]), 0)
     return out
 
 

@@ -438,7 +438,13 @@ export function itemsFrom(items: WantedItem[], from: string | undefined): Wanted
 
 export type PlaylistLibrary =
   | { kind: 'known'; owned: number; total: number }
-  | { kind: 'checking'; checked: number; total: number }
+  | {
+      kind: 'checking';
+      checked: number;
+      total: number;
+      /** Of the checked tracks, the ones the sync found in the library. */
+      ownedChecked: number;
+    }
   | { kind: 'not-mirrored' };
 
 type PlaylistEntry = NonNullable<JourneyResponse['playlists']>[number];
@@ -458,7 +464,12 @@ export function playlistLibrary(playlists: PlaylistEntry[], name: string): Playl
   const total = Math.max(0, Number(mirror?.total) || 0);
   if (!mirror || total === 0) return { kind: 'not-mirrored' };
   if (!mirror.library_known)
-    return { kind: 'checking', checked: Math.max(0, Number(mirror.library_checked) || 0), total };
+    return {
+      kind: 'checking',
+      checked: Math.min(total, Math.max(0, Number(mirror.library_checked) || 0)),
+      total,
+      ownedChecked: Math.max(0, Number(mirror.owned_checked) || 0),
+    };
   return { kind: 'known', owned: Math.min(total, Number(mirror.in_library) || 0), total };
 }
 
@@ -492,8 +503,10 @@ export interface SourceSummary {
   /**
    * The bar, left to right: in your library, on its way, waiting, needs you,
    * not found, then the rest. A mirrored playlist's bar is its whole length
-   * (`total`): `rest` is what isn't in the library or on Wanted, or hasn't
-   * been checked yet. Other sources' bars are their songs on Wanted (rest 0).
+   * (`total`): `notInLibrary` is what the sync checked and found neither in
+   * the library nor on Wanted; `unchecked` is what it hasn't checked yet (a
+   * playlist still being checked). Other sources' bars are their songs on
+   * Wanted (both 0).
    */
   bar: {
     owned: number;
@@ -501,7 +514,8 @@ export interface SourceSummary {
     waiting: number;
     decision: number;
     notFound: number;
-    rest: number;
+    notInLibrary: number;
+    unchecked: number;
   };
 }
 
@@ -581,7 +595,20 @@ export function sourceSummaries(
     const counts = emptyCounts();
     for (const track of tracks) counts[trackJourney(track, journeys.get(track.id))] += 1;
     const library = name ? playlistLibrary(playlists, name) : null;
-    const owned = library?.kind === 'known' ? library.owned : 0;
+    // owned: the known figure; while checking, the checked tracks the sync
+    // found in the library (its flag, never the join's guess)
+    const owned =
+      library?.kind === 'known'
+        ? library.owned
+        : library?.kind === 'checking'
+          ? library.ownedChecked
+          : 0;
+    const checked =
+      library?.kind === 'known'
+        ? library.total
+        : library?.kind === 'checking'
+          ? library.checked
+          : 0;
     const whole = library?.kind === 'known' || library?.kind === 'checking' ? library.total : 0;
     out.push({
       key,
@@ -599,7 +626,8 @@ export function sourceSummaries(
         waiting: counts.waiting,
         decision: counts.decision,
         notFound: counts['not-found'],
-        rest: Math.max(0, whole - owned - tracks.length),
+        notInLibrary: Math.max(0, checked - owned - tracks.length),
+        unchecked: Math.max(0, whole - Math.max(checked, owned + tracks.length)),
       },
     });
   }
@@ -624,7 +652,8 @@ export function barLabel(bar: SourceSummary['bar']): string {
   if (bar.decision)
     bits.push(`${n(bar.decision)} ${bar.decision === 1 ? 'needs' : 'need'} your decision`);
   if (bar.notFound) bits.push(`${n(bar.notFound)} not found`);
-  if (bar.rest) bits.push(`${n(bar.rest)} not checked yet`);
+  if (bar.notInLibrary) bits.push(`${n(bar.notInLibrary)} not in your library yet`);
+  if (bar.unchecked) bits.push(`${n(bar.unchecked)} not checked yet`);
   return bits.join(', ') || 'Nothing to show';
 }
 

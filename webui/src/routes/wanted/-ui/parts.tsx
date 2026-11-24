@@ -304,18 +304,19 @@ export function ListFooter({
   shown,
   total,
   onMore,
+  summary,
 }: {
   shown: number;
   total: number;
   onMore: () => void;
+  /** Said instead of "6 of 312" (Wanted: "Showing 50 of 312 releases · 410 songs"). */
+  summary?: string;
 }) {
   if (total === 0) return null;
   const remaining = total - shown;
   return (
     <div className={styles.footer}>
-      <p className={styles.footerCount}>
-        {shown} of {total}
-      </p>
+      <p className={styles.footerCount}>{summary ?? `${shown} of ${total}`}</p>
       {remaining > 0 ? (
         <Button size="lg" onClick={onMore}>
           {remaining <= PAGE_SIZE ? 'Show all' : `Show ${PAGE_SIZE} more`}

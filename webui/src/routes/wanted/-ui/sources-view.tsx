@@ -25,8 +25,10 @@ const LEGEND: { key: keyof SourceSummary['bar']; label: string }[] = [
   { key: 'waiting', label: 'Waiting' },
   { key: 'decision', label: 'Needs your decision' },
   { key: 'notFound', label: 'Not found' },
-  // a mirrored playlist's songs not in your library or on Wanted, or not checked yet
-  { key: 'rest', label: 'Not checked yet' },
+  // a mirrored playlist's songs the sync checked: neither owned nor on Wanted
+  { key: 'notInLibrary', label: 'Not in your library yet' },
+  // and the ones it hasn't checked yet (a playlist still being checked)
+  { key: 'unchecked', label: 'Not checked yet' },
 ];
 
 /** A stacked bar of where a source's songs are; its words are its label. */
@@ -172,11 +174,16 @@ function SongAction({
   status,
   live,
   props,
+  heldOpen,
+  onHeld,
 }: {
   track: WantedTrack;
   status: JourneyStatus;
   live: TrackJourney | undefined;
   props: SourcePageProps;
+  /** A member's held song: its note is open. */
+  heldOpen: boolean;
+  onHeld: () => void;
 }) {
   if (status === 'decision' && live?.quarantineEntry) {
     const entry = live.quarantineEntry;
@@ -186,8 +193,15 @@ function SongAction({
       </Button>
     );
   }
-  // a member's read has no entry: Details, and an admin decides
-  if (status === 'downloading' || status === 'searching' || status === 'decision') {
+  // a member's read has no entry: Details opens the song's own note
+  if (status === 'decision') {
+    return (
+      <Button size="lg" aria-expanded={heldOpen} onClick={onHeld}>
+        Details
+      </Button>
+    );
+  }
+  if (status === 'downloading' || status === 'searching') {
     return (
       <Button size="lg" onClick={props.onOpenDownloads}>
         Details
@@ -216,6 +230,14 @@ function SongAction({
 export function SourcePage(props: SourcePageProps) {
   const { sourceKey, summary, items, journeys, context, onBack, onSongs } = props;
   const [shown, setShown] = useState<Record<string, number>>({});
+  const [heldOpen, setHeldOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleHeld = (id: string) =>
+    setHeldOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const name = summary?.label ?? sourceKey.replace(/^playlist:/, '');
   const tracks = summary ? sourceTracks(items, sourceKey, journeys) : [];
   const library = summary?.library ?? null;
@@ -355,8 +377,22 @@ export function SourcePage(props: SourcePageProps) {
                         {trackDetail(track, live, context)}
                       </span>
                       <div className={styles.sourceAction}>
-                        <SongAction track={track} status={status} live={live} props={props} />
+                        <SongAction
+                          track={track}
+                          status={status}
+                          live={live}
+                          props={props}
+                          heldOpen={heldOpen.has(track.id)}
+                          onHeld={() => toggleHeld(track.id)}
+                        />
                       </div>
+                      {heldOpen.has(track.id) ? (
+                        <p className={styles.stillHeld} role="note">
+                          <strong>Held for an admin to check.</strong> A download of this came in
+                          and was held back: it might be the wrong song, version or quality. An
+                          admin keeps the right one or deletes it; until then it stays on Wanted.
+                        </p>
+                      ) : null}
                     </li>
                   );
                 })}

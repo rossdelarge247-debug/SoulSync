@@ -274,3 +274,29 @@ def test_the_quarantine_list_narrows_to_one_songs_attempts(tmp_path, monkeypatch
     assert gone["entries"] == [] and gone["success"] is True
     # without entry the list is unchanged
     assert client.get("/api/quarantine/list").get_json()["total"] == 3
+
+
+def test_a_playlist_being_checked_says_how_many_checked_tracks_are_owned(tmp_path):
+    """While the sync is still checking a mirror, its bar splits the checked
+    tracks from the rest: owned_checked counts the sync's own in_library flag,
+    never the join's guess."""
+    from database.music_database import MusicDatabase
+
+    db = MusicDatabase(str(tmp_path / "music.db"))
+    conn = db._get_connection()
+    conn.execute("INSERT INTO mirrored_playlists (id, source, source_playlist_id, name, profile_id)"
+                 " VALUES (4, 'spotify', 'sp-pl-9', 'Calm', 1)")
+    flags = ['{"in_library": true, "library_checked_at": "x"}',
+             '{"in_library": true, "library_checked_at": "x"}',
+             '{"in_library": false, "library_checked_at": "x"}',
+             None, None]
+    for pos, extra in enumerate(flags):
+        conn.execute("INSERT INTO mirrored_playlist_tracks (playlist_id, position, track_name,"
+                     " artist_name, extra_data) VALUES (4, ?, ?, 'A', ?)", (pos, f"T{pos}", extra))
+    conn.commit()
+    conn.close()
+    rows = [_row(1, "a", source_type="playlist",
+                 source_info={"playlist_name": "Calm", "playlist_id": "auto_mirror_4"})]
+    mirror = playlist_progress(db, rows, 1)[0]["mirror"]
+    assert (mirror["total"], mirror["library_checked"], mirror["library_known"]) == (5, 3, False)
+    assert mirror["owned_checked"] == 2
