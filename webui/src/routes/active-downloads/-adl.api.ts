@@ -114,10 +114,13 @@ export async function fetchVerificationConfig(): Promise<AdlVerificationConfig> 
  */
 export async function fetchReviewQueueSummary(): Promise<AdlReviewSummary | null> {
   try {
-    const data = await readJson<{ success?: boolean } & Partial<AdlReviewSummary>>(
-      apiClient.get('review-queue/summary'),
-    );
+    const data = await readJson<
+      { success?: boolean; quarantine_ready?: boolean } & Partial<AdlReviewSummary>
+    >(apiClient.get('review-queue/summary'));
     if (!data?.success) return null;
+    // the server is still reading the quarantine (its first snapshot): its
+    // count is a placeholder 0, so keep what we had rather than say "nothing"
+    if (data.quarantine_ready === false) return null;
     return {
       quarantine: data.quarantine ?? 0,
       unverified: data.unverified ?? 0,

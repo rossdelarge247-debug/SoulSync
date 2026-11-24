@@ -235,6 +235,7 @@ class TestSummaryEndpointWiring:
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         }
         # the quarantine half reads the shared snapshot's count
-        # (core.imports.quarantine_index) instead of listing the folder per poll
-        assert "count_quarantine_entries" in called or "peek" in called
+        # (core.imports.quarantine_index), never the folder, on every poll
+        assert "peek" in called
+        assert "count_quarantine_entries" not in called
         assert "count_library_history_unverified" in called

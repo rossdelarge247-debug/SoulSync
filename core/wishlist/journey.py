@@ -28,6 +28,7 @@ global, but only rows of this profile are answered for.
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
@@ -304,25 +305,53 @@ _playlist_cache: Dict[tuple, tuple] = {}
 _playlist_cache_lock = threading.Lock()
 
 
+def _playlists_version(database: Any, profile_id: int) -> tuple:
+    """What changes when a playlist is mirrored, unmirrored, refreshed or
+    synced: the profile's mirrors (how many, the newest update) and the newest
+    sync run. Two indexed reads; () when they can't be read (no reuse then)."""
+    try:
+        conn = database._get_connection()
+    except Exception as exc:  # noqa: BLE001 - no version: no reuse
+        logger.debug("journey: playlists version unavailable: %s", exc)
+        return ()
+    try:
+        mirrors = conn.execute(
+            "SELECT COUNT(*), MAX(updated_at) FROM mirrored_playlists WHERE profile_id = ?",
+            (profile_id,)).fetchone()
+        synced = conn.execute("SELECT MAX(id) FROM sync_history").fetchone()
+        return (tuple(mirrors or ()), tuple(synced or ()))
+    except Exception as exc:  # noqa: BLE001 - no version: no reuse
+        logger.debug("journey: playlists version unavailable: %s", exc)
+        return ()
+    finally:
+        try:
+            conn.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("journey: closing the connection failed: %s", exc)
+
+
 def cached_playlist_progress(database: Any, rows: List[Dict[str, Any]],
                              profile_id: int) -> List[Dict[str, Any]]:
     """``playlist_progress``, reused for a minute per profile and set of
-    playlists on its Wanted rows."""
+    playlists on its Wanted rows, and only while nothing was mirrored,
+    unmirrored or synced since (``_playlists_version``). Returns a copy."""
     names = frozenset(
         _playlist_ref(_as_dict(r.get("source_info")))
         for r in rows if str(r.get("source_type") or "") == "playlist")
-    key = (profile_id, names)
+    version = _playlists_version(database, profile_id)
+    key = (profile_id, names, version)
     now = time.monotonic()
     with _playlist_cache_lock:
-        hit = _playlist_cache.get(key)
+        hit = _playlist_cache.get(key) if version else None
         if hit is not None and now - hit[0] < PLAYLIST_CACHE_SECONDS:
-            return hit[1]
+            return copy.deepcopy(hit[1])
     result = playlist_progress(database, rows, profile_id)
     with _playlist_cache_lock:
-        # one entry per profile: an older set of playlists is dropped
+        # one entry per profile: an older set or version is dropped
         for old in [k for k in _playlist_cache if k[0] == profile_id]:
             _playlist_cache.pop(old, None)
-        _playlist_cache[key] = (now, result)
+        if version:
+            _playlist_cache[key] = (now, copy.deepcopy(result))
     return result
 
 

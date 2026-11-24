@@ -132,8 +132,11 @@ def list_quarantine():
         from core.imports.quarantine_index import shared_index
         if entry_id is not None:
             from core.imports.quarantine_library import annotate_quarantine_library
-            group = shared_index().group_of(_get_quarantine_dir(), entry_id)
-            entries = [dict(r.entry) for r in group]
+            from core.imports.quarantine import _build_quarantine_entry
+            # the folder as it is now (a person asked): a few entries, each
+            # read whole, so a just-quarantined attempt is there with its size
+            group = shared_index().fresh_group(_get_quarantine_dir(), entry_id)
+            entries = [_build_quarantine_entry(_get_quarantine_dir(), r.filename) for r in group]
             annotate_quarantine_library(entries, _get_quarantine_dir(), config_manager)
             return jsonify({"success": True, "entries": entries, "total": len(entries),
                             "entry": entry_id})
@@ -202,8 +205,9 @@ def _list_from_snapshot(snap, limit, offset):
         names = []
     names.sort(key=_entry_id_from_filename, reverse=True)
     known = {r.filename: r for r in snap.records}
-    if len(names) != len(known) or any(n not in known for n in names):
-        shared_index().invalidate(folder)
+    # the badge (the summary's count) agrees with this list: what's gone leaves
+    # the snapshot now, anything new is read on its next refresh
+    shared_index().note_listing(folder, names)
     window = names[offset:offset + limit] if limit is not None else names[offset:]
     entries = [dict(known[n].entry) if n in known else _build_quarantine_entry(folder, n)
                for n in window]

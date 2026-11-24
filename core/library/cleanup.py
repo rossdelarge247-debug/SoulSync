@@ -189,6 +189,8 @@ def clear_planned_quarantine(path: str, items: Iterable[Dict[str, Any]]) -> Dict
                            "freed_bytes": 0, "skipped": 0, "errors": []}
     if not out["existed"]:
         return out
+    items = list(items)  # walked once here; a generator would be spent
+    deleted: List[str] = []
     for item in items:
         name = str(item.get("name") or "")
         if not name or name in (".", "..") or os.sep in name or (os.altsep and os.altsep in name):
@@ -212,16 +214,17 @@ def clear_planned_quarantine(path: str, items: Iterable[Dict[str, Any]]) -> Dict
             continue
         out["removed"] += 1
         out["freed_bytes"] += size
+        deleted.append(name)
         if _quarantine_kind(name) != "info":
             out["files_removed"] += 1
-    if out["removed"]:
-        # what was deleted leaves the shared snapshot at once (Wanted, Activity, Downloads)
+    if deleted:
+        # what was deleted (and only that) leaves the shared snapshot at once
         try:
             from core.imports.quarantine import entry_id_from_quarantined_filename
             from core.imports.quarantine_index import shared_index
             shared_index().forget(path, [
-                entry_id_from_quarantined_filename(str(item.get("name") or ""))
-                for item in items if str(item.get("name") or "").endswith(".quarantined")])
+                entry_id_from_quarantined_filename(name)
+                for name in deleted if name.endswith(".quarantined")])
         except Exception as exc:  # noqa: BLE001 - the snapshot catches up on its own
             logger.debug("quarantine snapshot forget after clear failed: %s", exc)
     return out

@@ -134,7 +134,10 @@ class Snapshot:
 
     quarantine_dir: str
     records: Tuple[QuarantineRecord, ...]
-    taken_at: float  # time.monotonic()
+    taken_at: float  # time.monotonic(), when the refresh finished
+    #: when that refresh started listing the folder (time.monotonic()): what was
+    #: quarantined after this may be missing
+    listed_at: float = 0.0
 
     @property
     def files(self) -> int:
@@ -155,26 +158,39 @@ def _norm(quarantine_dir: str) -> str:
     return os.path.normcase(os.path.abspath(str(quarantine_dir)))
 
 
+class _ListingFailed(Exception):
+    """The folder couldn't be listed (and exists): keep what we had."""
+
+
 # (file size, file mtime, sidecar size, sidecar mtime): a sidecar is read again
 # only when this changes
 _Signature = Tuple[int, int, int, int]
+
+#: a refresh running longer than this is taken for hung: another may start
+HUNG_AFTER = 300.0
 
 
 class QuarantineSnapshots:
     """Thread-safe; one per process is enough (see ``shared_index``)."""
 
-    def __init__(self, *, max_age: float = MAX_AGE, min_interval: float = MIN_INTERVAL) -> None:
+    def __init__(self, *, max_age: float = MAX_AGE, min_interval: float = MIN_INTERVAL,
+                 hung_after: float = HUNG_AFTER) -> None:
         self.max_age = max_age
         self.min_interval = min_interval
+        self.hung_after = hung_after
         self._lock = threading.Lock()
         self._snaps: Dict[str, Snapshot] = {}
         self._stale: set = set()
-        self._running: Dict[str, threading.Event] = {}
+        # folder -> (the running refresh's event, when it started)
+        self._running: Dict[str, Tuple[threading.Event, float]] = {}
+        # folder -> when the last listing failed (an unreadable folder isn't
+        # listed again on every read)
+        self._failed_at: Dict[str, float] = {}
         # folder -> entry id -> when it was forgotten: a refresh that listed the
         # folder before that can't bring it back
         self._gone: Dict[str, Dict[str, float]] = {}
-        # folder -> file name -> (signature, record); touched only by the refresh
-        # (one at a time per folder)
+        # folder -> file name -> (signature, record); written only by a refresh
+        # (one at a time per folder), read by the user actions' fresh groups
         self._cache: Dict[str, Dict[str, Tuple[_Signature, QuarantineRecord]]] = {}
 
     # ── reading ────────────────────────────────────────────────────────────
@@ -189,6 +205,9 @@ class QuarantineSnapshots:
         with self._lock:
             snap = self._snaps.get(quarantine_dir)
             stale = quarantine_dir in self._stale
+            failed_at = self._failed_at.get(quarantine_dir)
+        if failed_at is not None and now - failed_at < self.min_interval:
+            return snap  # the last listing failed just now: not again yet
         if snap is None or now - snap.taken_at >= self.max_age or (
                 stale and now - snap.taken_at >= self.min_interval):
             self._kick(quarantine_dir)
@@ -205,39 +224,72 @@ class QuarantineSnapshots:
     def wait(self, quarantine_dir: str, *, fresh: bool = False,
              timeout: Optional[float] = None) -> Snapshot:
         """A snapshot, waiting for the refresh in flight (or one it starts) when
-        there's none yet, or when ``fresh`` asks for one taken from now on.
-        For a person's own action, never a poll."""
+        there's none yet; with ``fresh``, one that started listing the folder
+        after this call (a refresh already running when it was made doesn't
+        count: another one runs after it). For tests, tools and a person's own
+        action, never a poll. An empty snapshot if none could be had in time."""
         quarantine_dir = _norm(quarantine_dir)
-        if fresh:
+        asked_at = time.monotonic()
+        deadline = None if timeout is None else asked_at + timeout
+        if not fresh:
             with self._lock:
-                self._stale.add(quarantine_dir)
-            event = self._kick(quarantine_dir, force=True)
-        else:
-            snap = self.peek(quarantine_dir)
+                snap = self._snaps.get(quarantine_dir)
             if snap is not None:
                 return snap
+        while True:
+            if fresh:
+                with self._lock:
+                    self._stale.add(quarantine_dir)
             event = self._kick(quarantine_dir)
-        event.wait(timeout)
-        with self._lock:
-            snap = self._snaps.get(quarantine_dir)
-        return snap or Snapshot(quarantine_dir, (), time.monotonic())
+            left = None if deadline is None else max(0.0, deadline - time.monotonic())
+            event.wait(left)
+            with self._lock:
+                snap = self._snaps.get(quarantine_dir)
+            good = snap is not None and (not fresh or snap.listed_at >= asked_at)
+            if good:
+                return snap
+            if deadline is not None and time.monotonic() >= deadline:
+                return snap or Snapshot(quarantine_dir, (), time.monotonic())
+            with self._lock:
+                failed_at = self._failed_at.get(quarantine_dir)
+            if failed_at is not None and failed_at >= asked_at:
+                # the listing failed after the call: what we had, or nothing
+                return snap or Snapshot(quarantine_dir, (), time.monotonic())
 
-    def group_of(self, quarantine_dir: str, entry_id: str) -> List[QuarantineRecord]:
+    def fresh_group(self, quarantine_dir: str, entry_id: str) -> List[QuarantineRecord]:
         """The entry and every other attempt at the same intended song, newest
-        first; [] when the entry isn't there. A person asked, so this waits
-        for a snapshot that has the entry when the last one doesn't. An entry
-        with no group key (nothing names its target) is a group of one."""
+        first, as the folder is now; [] when the entry isn't there. For a
+        person's own action (approve, delete, the one-song list): one listing
+        of the names, no stat per file, and a sidecar read only for files the
+        snapshot hasn't read. An entry with no group key (nothing names its
+        target) is a group of one."""
         quarantine_dir = _norm(quarantine_dir)
-        snap = self.peek(quarantine_dir)
-        target = snap.by_id(entry_id) if snap else None
-        if target is None:
-            snap = self.wait(quarantine_dir, fresh=snap is not None)
-            target = snap.by_id(entry_id)
+        try:
+            names = [n for n in os.listdir(quarantine_dir) if n.endswith(_QUARANTINE_SUFFIX)]
+        except OSError as exc:
+            logger.debug("quarantine fresh group: listing %s failed: %s", quarantine_dir, exc)
+            return []
+        with self._lock:
+            known = dict(self._cache.get(quarantine_dir, {}))
+        records = []
+        for name in names:
+            cached = known.get(name)
+            if cached is not None:
+                records.append(cached[1])
+                continue
+            sidecar = read_sidecar(quarantine_dir, _entry_id_from_filename(name))
+            records.append(record_from_sidecar(name, sidecar, 0))
+        target = next((r for r in records if r.entry_id == entry_id), None)
         if target is None:
             return []
         if target.group_key is None:
             return [target]
-        return [r for r in snap.records if r.group_key == target.group_key]
+        group = [r for r in records if r.group_key == target.group_key]
+        return sorted(group, key=lambda r: r.entry_id, reverse=True)
+
+    def group_of(self, quarantine_dir: str, entry_id: str) -> List[QuarantineRecord]:
+        """``fresh_group``: user actions never go by a snapshot that may be old."""
+        return self.fresh_group(quarantine_dir, entry_id)
 
     # ── changes ────────────────────────────────────────────────────────────
 
@@ -256,7 +308,7 @@ class QuarantineSnapshots:
                 self._snaps[quarantine_dir] = Snapshot(
                     quarantine_dir,
                     tuple(r for r in snap.records if r.entry_id not in gone),
-                    snap.taken_at)
+                    snap.taken_at, snap.listed_at)
             self._stale.add(quarantine_dir)
 
     def forget_all(self, quarantine_dir: str, entry_ids: Optional[Iterable[str]] = None) -> None:
@@ -272,7 +324,8 @@ class QuarantineSnapshots:
                 marks = self._gone.setdefault(quarantine_dir, {})
                 for record in snap.records:
                     marks[record.entry_id] = now
-                self._snaps[quarantine_dir] = Snapshot(quarantine_dir, (), snap.taken_at)
+                self._snaps[quarantine_dir] = Snapshot(quarantine_dir, (), snap.taken_at,
+                                                       snap.listed_at)
             self._stale.add(quarantine_dir)
 
     def invalidate(self, quarantine_dir: str) -> None:
@@ -283,14 +336,20 @@ class QuarantineSnapshots:
 
     # ── refreshing ─────────────────────────────────────────────────────────
 
-    def _kick(self, quarantine_dir: str, *, force: bool = False) -> threading.Event:
-        """Start one background refresh unless one is running; its event."""
+    def _kick(self, quarantine_dir: str) -> threading.Event:
+        """Start one background refresh unless one is running (and isn't
+        hung: older than ``hung_after``); the running one's event."""
+        now = time.monotonic()
         with self._lock:
             running = self._running.get(quarantine_dir)
             if running is not None:
-                return running
+                event, started = running
+                if now - started < self.hung_after:
+                    return event
+                logger.warning("quarantine snapshot of %s has run for %.0fs: starting another",
+                               quarantine_dir, now - started)
             event = threading.Event()
-            self._running[quarantine_dir] = event
+            self._running[quarantine_dir] = (event, now)
         thread = threading.Thread(
             target=self._run, args=(quarantine_dir, event),
             name="quarantine-snapshot", daemon=True)
@@ -304,29 +363,45 @@ class QuarantineSnapshots:
                 self._stale.discard(quarantine_dir)
             snap = self._build(quarantine_dir)
             with self._lock:
+                self._failed_at.pop(quarantine_dir, None)
                 marks = self._gone.get(quarantine_dir, {})
                 if marks:
                     # what was taken out while this listing ran stays out
                     snap = Snapshot(quarantine_dir,
                                     tuple(r for r in snap.records if r.entry_id not in marks),
-                                    snap.taken_at)
+                                    snap.taken_at, snap.listed_at)
                     for entry_id, when in list(marks.items()):
                         if when < started:
                             del marks[entry_id]
-                self._snaps[quarantine_dir] = snap
+                current = self._snaps.get(quarantine_dir)
+                # a hung refresh that finishes late never replaces a newer one
+                if current is None or current.listed_at <= snap.listed_at:
+                    self._snaps[quarantine_dir] = snap
+        except _ListingFailed as exc:
+            # keep the last good snapshot (or stay not ready); try again when due
+            logger.warning("quarantine snapshot: listing %s failed, keeping the last one: %s",
+                           quarantine_dir, exc)
+            with self._lock:
+                self._failed_at[quarantine_dir] = time.monotonic()
+                self._stale.add(quarantine_dir)
         except Exception as exc:  # noqa: BLE001 - a refresh never raises
             logger.warning("quarantine snapshot of %s failed: %s", quarantine_dir, exc)
+            with self._lock:
+                self._failed_at[quarantine_dir] = time.monotonic()
+                self._stale.add(quarantine_dir)
         finally:
             with self._lock:
-                self._running.pop(quarantine_dir, None)
+                running = self._running.get(quarantine_dir)
+                if running is not None and running[0] is event:
+                    self._running.pop(quarantine_dir, None)
             event.set()
 
     def refresh_now(self, quarantine_dir: str) -> Snapshot:
-        """Read the folder now, on this thread (tests and tools)."""
+        """Read the folder now and wait for it (tests and tools)."""
         return self.wait(quarantine_dir, fresh=True)
 
     def _build(self, quarantine_dir: str) -> Snapshot:
-        started = time.monotonic()
+        listed_at = time.monotonic()
         files: Dict[str, Any] = {}
         sidecars: Dict[str, Any] = {}
         try:
@@ -336,11 +411,13 @@ class QuarantineSnapshots:
                         files[item.name] = item
                     elif item.name.endswith(".json"):
                         sidecars[item.name] = item
+        except FileNotFoundError:
+            # no quarantine folder yet: nothing is held
+            return Snapshot(quarantine_dir, (), time.monotonic(), listed_at)
         except OSError as exc:
-            logger.debug("quarantine snapshot: listing %s failed: %s", quarantine_dir, exc)
-            return Snapshot(quarantine_dir, (), time.monotonic())
+            raise _ListingFailed(str(exc)) from exc
 
-        cache = self._cache.setdefault(quarantine_dir, {})
+        cache = self._cache.get(quarantine_dir, {})
         fresh: Dict[str, Tuple[_Signature, QuarantineRecord]] = {}
         read = 0
         for name, item in files.items():
@@ -366,12 +443,32 @@ class QuarantineSnapshots:
             sidecar = read_sidecar(quarantine_dir, _entry_id_from_filename(name)) if side else {}
             read += 1
             fresh[name] = (signature, record_from_sidecar(name, sidecar, int(st.st_size)))
-        self._cache[quarantine_dir] = fresh
+        with self._lock:
+            self._cache[quarantine_dir] = fresh
         records = sorted((record for _sig, record in fresh.values()),
                          key=lambda r: r.entry_id, reverse=True)
         logger.debug("quarantine snapshot of %s: %d files, %d sidecars read, %.2fs",
-                     quarantine_dir, len(records), read, time.monotonic() - started)
-        return Snapshot(quarantine_dir, tuple(records), time.monotonic())
+                     quarantine_dir, len(records), read, time.monotonic() - listed_at)
+        return Snapshot(quarantine_dir, tuple(records), time.monotonic(), listed_at)
+
+    def note_listing(self, quarantine_dir: str, names: Iterable[str]) -> None:
+        """A fresh listing of the folder's names (the Downloads list): what's
+        gone leaves the snapshot at once, so its count agrees with the list;
+        anything new marks it stale (its sidecar is read on the next refresh)."""
+        quarantine_dir = _norm(quarantine_dir)
+        present = set(names)
+        with self._lock:
+            snap = self._snaps.get(quarantine_dir)
+            if snap is None:
+                return
+            known = {r.filename for r in snap.records}
+            if known - present:
+                self._snaps[quarantine_dir] = Snapshot(
+                    quarantine_dir,
+                    tuple(r for r in snap.records if r.filename in present),
+                    snap.taken_at, snap.listed_at)
+            if present - known or known - present:
+                self._stale.add(quarantine_dir)
 
 
 def count_songs(records: Iterable[QuarantineRecord]) -> int:
