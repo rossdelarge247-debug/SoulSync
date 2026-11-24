@@ -5,11 +5,13 @@ import { LIST_TO_KIND, type WantedSearch } from './-wanted.types';
 
 /**
  * Where an old Wishlist link lands on /wanted: the Wanted tab, keeping the
- * filter text, the Failing chip (now "Not found yet") and the Audiobooks tab.
+ * filter text, the Failing chip (now "Not found") and the Audiobooks tab.
  */
 export function wantedSearchFromWishlist(search: WishlistSearch): WantedSearch {
   return {
     tab: 'wanted',
+    // the old list: Songs, whatever the Wanted tab's View was left on
+    browse: 'songs',
     ...(search.q ? { q: search.q } : {}),
     ...(search.failing ? { filter: 'not-found' } : {}),
     ...(search.media === 'audiobooks' ? { media: 'audiobooks' as const } : {}),

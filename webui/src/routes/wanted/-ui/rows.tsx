@@ -1,9 +1,11 @@
+import { useId, useState } from 'react';
+
 import { Button } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { StatusTag } from '@/components/primitives';
 
 import type { FollowingRow } from '../-wanted.following';
-import type { FoundItem, WantedItem, WantedTrack } from '../-wanted.types';
+import type { FoundItem, JourneyStatus, WantedItem, WantedTrack } from '../-wanted.types';
 
 import {
   addedLabel,
@@ -84,6 +86,10 @@ function SelectBox({
 }
 
 export interface WantedRowHandlers {
+  /** Open the row's attempts in Downloads → Review → Quarantine. */
+  onReview: (item: WantedItem) => void;
+  /** Open Downloads, where the row's download is. */
+  onOpenDownloads: () => void;
   onOpenArtist: (artist: string) => void;
   onSearchNow: (item: WantedItem) => void;
   onRetry: (item: WantedItem) => void;
@@ -94,9 +100,25 @@ export interface WantedRowHandlers {
 }
 
 /** One wanted thing (Wanted v3, 2a; phones 2c). */
+/** A status tag in the journey's colours: Downloading takes the accent,
+ *  which StatusTag has no tone for. */
+function JourneyTag({ text, tone, live }: ReturnType<typeof wantedStatus>) {
+  return (
+    <StatusTag
+      tone={tone === 'accent' ? 'info' : tone}
+      live={live}
+      className={tone === 'accent' ? styles.tagAccent : undefined}
+    >
+      {text}
+    </StatusTag>
+  );
+}
+
 export function WantedRowView({
   item,
   now,
+  detail,
+  focus,
   qualityName,
   canSearch,
   searching,
@@ -108,6 +130,10 @@ export function WantedRowView({
 }: {
   item: WantedItem;
   now: number;
+  /** The line under the status tag: where it has got to, and what's next. */
+  detail: string;
+  /** The status filter in use: the tag shows that step for a release listed under it. */
+  focus?: JourneyStatus;
   qualityName: string;
   /** False for a profile that asks an admin first: no Search now. */
   canSearch: boolean;
@@ -119,12 +145,42 @@ export function WantedRowView({
   onToggleSelect: (range: boolean) => void;
   handlers: WantedRowHandlers;
 }) {
-  const status = wantedStatus(item);
+  const status = wantedStatus(item, focus);
   const several = item.trackIds.length > 1;
   const single = item.tracks[0];
 
+  // the step the row is shown at: the filter's, when it's listed under one,
+  // so its action and colour match its tag
+  const step = focus && item.trackStates[focus] > 0 ? focus : item.journey;
+  const reviewable = step === 'decision' && Boolean(item.quarantineEntry);
+  // a member's read has no entry: Needs your decision, and Details opens the
+  // row's own note (held for an admin), not Downloads
+  const held = step === 'decision' && !reviewable;
+  const downloading = step === 'downloading' || step === 'searching';
+  // a held song's note: its own state, so a release's Details opens the note
+  // and not its track list (the menu's "Show the N tracks" does that)
+  const [noteOpen, setNoteOpen] = useState(false);
+  const noteId = `${useId()}-held`;
+
   const entries = (withSearch: boolean): MenuEntry[] => {
     const list: MenuEntry[] = [];
+    if (withSearch && reviewable) {
+      list.push({
+        key: 'review',
+        label: 'Review in quarantine',
+        onSelect: () => handlers.onReview(item),
+      });
+    }
+    if (withSearch && downloading) {
+      list.push({ key: 'downloads', label: 'Details', onSelect: handlers.onOpenDownloads });
+    }
+    if (withSearch && held) {
+      list.push({
+        key: 'held',
+        label: noteOpen ? 'Hide details' : 'Details',
+        onSelect: () => setNoteOpen((open) => !open),
+      });
+    }
     if (withSearch && canSearch) {
       list.push({
         key: 'search',
@@ -170,6 +226,8 @@ export function WantedRowView({
     <li className={styles.item}>
       <div
         className={styles.row}
+        data-layout="journey"
+        data-status={step}
         data-selecting={selecting ? 'true' : undefined}
         data-selected={selected ? 'true' : undefined}
       >
@@ -188,15 +246,60 @@ export function WantedRowView({
         </div>
         <span className={styles.added}>{addedLabel(item.addedAt, now)}</span>
         <span className={styles.status}>
-          <StatusTag tone={status.tone}>{status.text}</StatusTag>
+          <JourneyTag {...status} />
+          {detail ? <span className={styles.statusDetail}>{detail}</span> : null}
         </span>
         {selecting ? null : (
           <>
             <div className={styles.actions}>
-              {canSearch ? (
+              {reviewable ? (
                 <Button
                   size="lg"
-                  className={styles.rowAction}
+                  variant="primary"
+                  className={styles.rowActionShown}
+                  onClick={() => handlers.onReview(item)}
+                >
+                  Review
+                </Button>
+              ) : held ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  aria-expanded={noteOpen}
+                  aria-controls={noteId}
+                  onClick={() => setNoteOpen((open) => !open)}
+                >
+                  Details
+                </Button>
+              ) : downloading ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  onClick={handlers.onOpenDownloads}
+                >
+                  Details
+                </Button>
+              ) : step === 'not-found' && !several && canSearch ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  onClick={() => handlers.onSearchByHand(single)}
+                >
+                  Search by hand
+                </Button>
+              ) : several && step === 'not-found' ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
+                  aria-expanded={expanded}
+                  onClick={() => handlers.onToggleTracks(item)}
+                >
+                  {expanded ? 'Hide tracks' : 'Show tracks'}
+                </Button>
+              ) : canSearch ? (
+                <Button
+                  size="lg"
+                  className={styles.rowActionShown}
                   disabled={searching}
                   focusableWhenDisabled
                   onClick={() => handlers.onSearchNow(item)}
@@ -216,6 +319,14 @@ export function WantedRowView({
           </>
         )}
       </div>
+      {noteOpen && held ? (
+        <p className={styles.heldNote} role="note" id={noteId}>
+          <strong>Held for an admin to check.</strong>{' '}
+          {item.quarantineCount > 1
+            ? `${item.quarantineCount} downloads of this came in and were held back: they might be the wrong song, version or quality. An admin keeps the right one or deletes them; until then it stays on Wanted.`
+            : 'A download of this came in and was held back: it might be the wrong song, version or quality. An admin keeps it or deletes it; until then it stays on Wanted.'}
+        </p>
+      ) : null}
       {expanded && several ? (
         <ul className={styles.tracks} aria-label={`Tracks of ${item.title} on Wanted`}>
           {item.tracks.map((track) => (
@@ -262,9 +373,16 @@ export function FoundRowView({
   const entries: MenuEntry[] = item.artist
     ? [{ key: 'artist', label: 'Open artist', onSelect: () => onOpenArtist(item.artist) }]
     : [];
+  // "In your library · today 14:02, FLAC 16/44": phones leave the time out
+  const quality = item.quality ? `, ${item.quality}` : '';
   return (
     <li className={styles.item}>
-      <div className={styles.row} data-selecting={selecting ? 'true' : undefined}>
+      <div
+        className={styles.row}
+        data-layout="journey"
+        data-status="found"
+        data-selecting={selecting ? 'true' : undefined}
+      >
         {selecting ? <span className={styles.check} /> : null}
         <RowArt src={item.image} />
         <div className={styles.main}>
@@ -275,17 +393,13 @@ export function FoundRowView({
         </div>
         <span className={styles.added} />
         <span className={styles.status}>
-          <StatusTag tone="success">
-            {when ? (
-              // one flex item, so the day and the time wrap as one line of text
-              <span>
-                Found {when.day}
-                <span className={styles.statusTime}>{` ${when.time}`}</span>
-              </span>
-            ) : (
-              'Found this week'
-            )}
-          </StatusTag>
+          <StatusTag tone="success">Got it</StatusTag>
+          <span className={styles.statusDetail}>
+            In your library
+            {when ? ` · ${when.day}` : ''}
+            {when ? <span className={styles.statusTime}>{` ${when.time}`}</span> : null}
+            {quality}
+          </span>
         </span>
         {selecting || entries.length === 0 ? null : (
           <>

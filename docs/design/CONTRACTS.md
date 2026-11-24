@@ -144,6 +144,8 @@ One newest-first list of what SoulSync did, plus what needs you. Query: `range` 
 | automation | an enabled automation's latest run failed or timed out (system automations: admins only) | a later run works, or it's switched off |
 | download | an album or track download finished with failed tracks, none of them on Wanted, so nothing retries them | that release is downloaded again |
 | safety | a preview expired without being confirmed | the same tool is previewed again or confirmed, or `POST /api/activity/dismiss {"id": "safety:31"}` |
+| download (admins) | quarantine holds files: one item for them all, `id: "quarantine:review"`, titled in songs ("721 songs are waiting for your decision"; attempts at the same intended target are one song), the files in its detail, `link: "/active-downloads?review=quarantine"`, `ref: {"quarantine": <files>, "songs": <songs>}`, time = the newest file's | the quarantine folder is empty |
+| download | the viewer's Wanted songs the Wanted page calls Not found (three tries or more, no download on its way, no attempt in quarantine): one item, `id: "wanted:not-found"`, "15 songs couldn’t be found", `link: "/wanted?filter=not-found&browse=songs"`, `ref: {"not_found": n}` | none are left |
 
 Only `safety` items can be dismissed. Expired and confirmed previews are recorded from this release on (`action_plan_events`); earlier ones, and previews pending when SoulSync restarts, leave no record.
 
@@ -252,6 +254,8 @@ Already used by search; one addition. For each `{"name", "artist"}` in `tracks`,
 
 ### Navigation shell badges
 
+Since the Wanted journey the sidebar has a **Downloads** row under Automate (`data-nav-row="downloads"`, `data-page="active-downloads"`, after Activity); `/active-downloads` lights it instead of Activity.
+
 What the shell (`src/shell/nav-shell.ts`) reads, and how:
 
 - **`GET /api/activity/status`** → `{"success", "running_count", "needs_you_count", "generated_at"}` for the top bar's "N running" link and Activity's needs-you badge. Built (Activity feed above). The shell polls it every 30 seconds while the tab is visible and again soon after the app's activity socket events (`ss:dashboard-activity`, `ss:automation-progress`, a change in active downloads). A 404, an error or `success: false` is unknown: no count, no badge, never "0". After a 404 it asks every 5 minutes instead.
@@ -263,7 +267,7 @@ What the shell (`src/shell/nav-shell.ts`) reads, and how:
 
 Three read-only routes, scoped to the current profile and open to every profile, like the wishlist and watchlist routes beside them.
 
-**What Wanted found: `GET /api/wishlist/found?days=7`.** `days` is 1 to 30. Tracks Wanted downloaded in that window, newest first, each once:
+**What Wanted found: `GET /api/wishlist/found?days=7`.** `days` is 1 to 30 (the page asks for 30 since the Wanted journey: "Got it, last 30 days"). Tracks Wanted downloaded in that window, newest first, each once:
 
 ```json
 {
@@ -276,6 +280,37 @@ Three read-only routes, scoped to the current profile and open to every profile,
 ```
 
 `reason` is `download_complete` or `atomic_published`. The title, artist, album, quality and art come from the library history entry for the downloaded file; a profile sees a find when that entry lists the profile or lists none.
+
+**Where each wanted song has got to: `GET /api/wishlist/journey`** (the Wanted journey, step 1; `core/wishlist/journey.py`). Read-only, the current profile's rows. Only songs with something live are in `tracks`:
+
+```json
+{
+  "success": true,
+  "tracks": {
+    "<spotify_track_id>": {
+      "download": {"status": "downloading", "phase": "downloading", "task_id": "…", "batch_id": "…", "progress": 62},
+      "quarantine": {"entry_id": "20261120_101010_Harbour Light", "count": 3, "reason": "…",
+                     "trigger": "acoustid_unverified", "matched_by": "id"}
+    }
+  },
+  "playlists": [{"name": "Running", "mirror": {"id": 3, "name": "Running", "source": "spotify", "total": 240,
+                 "in_library": 212, "library_checked": 240, "library_known": true}}],
+  "retry": {"name": "standard", "label": "Standard", "ladder": {"2": 14400, "3": 86400}, "max_cooldown": 604800},
+  "generated_at": 1795000000
+}
+```
+
+- `download`: the live task (in memory; gone on a restart) for the song, joined by the task's `track_info.wishlist_id` (the row id) or `spotify_track_id`/`track_id`/`id` (the source id: Wanted's own batches and playlist batches). The furthest along wins. `status` is `pending`, `searching`, `queued`, `downloading` or `post_processing`; `phase` is `searching` for the first two, `downloading` otherwise; `progress` (0–100) only while downloading, when the task has it. A download started from Search for the same song carries another id and isn't joined.
+- `quarantine`: the newest held attempt and how many there are, from each sidecar's `context.track_info`: the source id or the row id (`matched_by: "id"`), else the ISRC (`"isrc"`), else, for sidecars that name no ids (written before the full context was kept), the expected artist and title against the row's first artist and title, case and spacing ignored (`"name"`: it can't tell two versions of a song apart). `trigger` is the check that held it (`integrity`, `acoustid_unverified`, `bit_depth`, `quality`, `silence`).
+- The sidecars are read through a cached index (`core/imports/quarantine_index.py`): the folder is listed each time; a sidecar is read once, and again only when it or its file changes.
+- Quarantine is the install's, not a profile's: a profile that isn't an admin gets each song's `quarantine` without `entry_id` (the count, trigger and reason stay, so the status shows), and no install-wide totals are sent to anyone.
+- `playlists[].mirror.owned_checked` (only while `library_known` is false and the sync has checked some): of the checked tracks, the ones the sync found in the library, by its own flag (never the join's guess). The Sources bar uses it to split a playlist still being checked: owned, "Not in your library yet" (checked, not owned, not on Wanted), "Not checked yet".
+- `playlists`: one per playlist name on the profile's Wanted rows (`source_type: "playlist"`), with its mirror when one is found: `source_info.playlist_id` `auto_mirror_<id>`, or the mirror's `source_playlist_id`/`upstream_playlist_id`, else a name only one mirror has. `library_known` is the Mirrored playlists page's rule: the sync matcher has checked every track (`library_checked >= total`); only then is `in_library` stated.
+- `retry`: the active retry timing (as `GET /api/wishlist/retry-profile`'s `profile`), so the page can say when a song is tried again.
+
+**One song's attempts in quarantine: `GET /api/quarantine/list?entry=<id>`** (added). The entry and every other attempt at the same intended target, newest first, as the list's entries, with `"entry"` echoed; `[]` when it's gone. `limit`/`offset` are ignored with it; without `entry` the list is unchanged.
+
+**Deep links (web):** `/active-downloads?review=quarantine` opens Downloads on Review → Quarantine; `&entry=<id>` narrows it to that song's attempts, with "Show everything in quarantine". `/wanted` takes `browse=songs|sources` (the View toggle writes it; it wins over everything else; a landing without it gets the resolved one written in, replacing the entry, so every history entry says which view it showed. Absent: Songs when the link carries `filter`, `sort`, `q` or `from`, otherwise the profile's last choice in this browser; old `/wishlist` links and Activity's Not found link add `browse=songs`), `source=<From key>` (a source's page), `from=<From key>` (the From filter: `playlist:<name, lower-cased>`, `followed-artists`, `followed-labels`, `mine`, `discography`, `upgrades`, `redownloads`, `playlist`), `filter=waiting|searching-now|downloading|decision|not-found|found` (an old `filter=searching` meant fewer than three tries, so it resolves to `waiting`; `not-found` and `found` keep their meaning) and `sort=needs-you` (the default) as well as the old sorts. A status filter lists every row with at least one song at that status; every count is songs.
 
 **Followed-artist numbers: `GET /api/watchlist/artists/summary`.** One entry per followed artist, matched to `/api/watchlist/artists` by `id`:
 

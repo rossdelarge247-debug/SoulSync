@@ -9,7 +9,22 @@ import { WATCHLIST_SORT_VALUES, type WatchlistSort } from '../watchlist/-watchli
 export const WANTED_TABS = ['wanted', 'followed'] as const;
 export type WantedTab = (typeof WANTED_TABS)[number];
 
-export const WANTED_FILTERS = ['all', 'searching', 'not-found', 'found'] as const;
+/**
+ * The Wanted tab's Show filters: one per step of a wanted song's journey
+ * (Waiting → Searching → Downloading → Needs your decision → Not found →
+ * Got it). Searching is `searching-now` (a search running now). An old
+ * `?filter=searching` meant "fewer than three tries", which is Waiting now,
+ * so it resolves to Waiting; `not-found` and `found` keep their meaning.
+ */
+export const WANTED_FILTERS = [
+  'all',
+  'waiting',
+  'searching-now',
+  'downloading',
+  'decision',
+  'not-found',
+  'found',
+] as const;
 export type WantedFilter = (typeof WANTED_FILTERS)[number];
 
 /**
@@ -32,7 +47,9 @@ export type FollowedFilter = (typeof FOLLOWED_FILTERS)[number];
 export const FOLLOW_KINDS = ['all', 'artists', 'labels', 'podcasts', 'authors'] as const;
 export type FollowKindFilter = (typeof FOLLOW_KINDS)[number];
 
-export const WANTED_SORTS = ['newest', 'oldest', 'most-tries', 'artist'] as const;
+/** "Needs you first" is the default (the Wanted journey's board 1); the
+ *  others keep their old values, so an old ?sort= link means the same. */
+export const WANTED_SORTS = ['needs-you', 'newest', 'oldest', 'most-tries', 'artist'] as const;
 export type WantedSort = (typeof WANTED_SORTS)[number];
 
 /** The Following tab's sorts: newest activity first (the default, board 5e),
@@ -90,6 +107,12 @@ export const wantedSearchSchema = z.object({
   q: z.preprocess(optionalString, z.string().optional()).catch(undefined),
   /** The Wanted tab drawn as the artist nebula instead of the list. */
   view: z.enum(['nebula']).optional().catch(undefined),
+  /** The Wanted tab's From filter: where wanted things came from (see sourceKey). */
+  from: z.preprocess(optionalString, z.string().optional()).catch(undefined),
+  /** Songs or Sources; absent, the profile's last choice in this browser. */
+  browse: z.enum(['songs', 'sources']).optional().catch(undefined),
+  /** One source's page under Sources (board 3), by its From key. */
+  source: z.preprocess(optionalString, z.string().optional()).catch(undefined),
   /** The Wanted tab's audiobooks (the old Wishlist → Audiobooks tab). */
   media: z.enum(['audiobooks']).optional().catch(undefined),
   /** The Following tab's Kind row. */
@@ -112,6 +135,7 @@ export function resolveTab(search: Pick<WantedSearch, 'tab'>): WantedTab {
 }
 
 export function resolveWantedFilter(value: string | undefined): WantedFilter {
+  if (value === 'searching') return 'waiting';
   return (WANTED_FILTERS as readonly string[]).includes(value ?? '')
     ? (value as WantedFilter)
     : 'all';
@@ -126,7 +150,7 @@ export function resolveFollowedFilter(value: string | undefined): FollowedFilter
 export function resolveWantedSort(value: string | undefined): WantedSort {
   return (WANTED_SORTS as readonly string[]).includes(value ?? '')
     ? (value as WantedSort)
-    : 'newest';
+    : 'needs-you';
 }
 
 export function resolveFollowedSort(value: string | undefined): FollowedSort {
@@ -169,7 +193,36 @@ export interface WantedTrack {
   qualityProfileId: number | null;
 }
 
+/** Where the scheduled searches have got to: the nebula's two groups. */
 export type WantedStatus = 'searching' | 'not-found';
+
+/**
+ * Where a wanted song is on its way in (the Wanted journey, board 4):
+ * - waiting: wanted, not tried yet, or between tries;
+ * - searching: being searched for right now;
+ * - downloading: a file is coming in, or being checked and tagged;
+ * - decision: downloaded but held back in quarantine, for you to decide;
+ * - not-found: three tries or more found nothing (it's still tried, less often).
+ * Got it is the found rows.
+ */
+export type JourneyStatus = 'waiting' | 'searching' | 'downloading' | 'decision' | 'not-found';
+
+/** A song's live state from GET /api/wishlist/journey. */
+export interface TrackJourney {
+  /** The live download task's status (pending, searching, queued, downloading, post_processing). */
+  downloadStatus: string | null;
+  downloadPhase: 'searching' | 'downloading' | null;
+  /** 0–100 while downloading, when the task says. */
+  progress: number | null;
+  /** The newest quarantined attempt at it (admins only: a member's read
+   *  carries the count, not the entry), and how many there are. */
+  quarantineEntry: string | null;
+  quarantineCount: number;
+  quarantineReason: string;
+  /** Which check held it (integrity, acoustid_unverified, bit_depth, quality, silence). */
+  quarantineTrigger: string;
+  quarantineMatchedBy: string;
+}
 
 export interface WantedItem {
   key: string;
@@ -190,6 +243,18 @@ export interface WantedItem {
   sourceInfo: Record<string, unknown> | null;
   qualityProfileId: number | null;
   status: WantedStatus;
+  /** The row's one status: its songs', Needs you first (see itemJourney). */
+  journey: JourneyStatus;
+  /** How many of its songs are at that status. */
+  journeyCount: number;
+  /** How many of its songs are at each status. */
+  trackStates: Record<JourneyStatus, number>;
+  /** The newest quarantined attempt at any of its tracks, for the Review link. */
+  quarantineEntry: string | null;
+  /** How many quarantined attempts there are, across its tracks. */
+  quarantineCount: number;
+  /** A live task is searching for it right now (not just "will be tried again"). */
+  searchingNow: boolean;
 }
 
 /** A track Wanted found recently (GET /api/wishlist/found). */
@@ -224,6 +289,47 @@ export interface FoundResponse {
     found_at?: string | null;
     reason?: string;
   }[];
+  error?: string;
+}
+
+/** GET /api/wishlist/journey (core/wishlist/journey.py). */
+export interface JourneyResponse {
+  success?: boolean;
+  tracks?: Record<
+    string,
+    {
+      download?: {
+        status?: string;
+        phase?: string;
+        task_id?: string;
+        batch_id?: string;
+        progress?: number;
+      };
+      quarantine?: {
+        entry_id?: string;
+        count?: number;
+        reason?: string;
+        trigger?: string;
+        matched_by?: string;
+      };
+    }
+  >;
+  retry?: { name?: string; label?: string; ladder?: Record<string, number>; max_cooldown?: number };
+  playlists?: {
+    name?: string;
+    mirror?: {
+      id?: number;
+      name?: string;
+      source?: string;
+      total?: number;
+      in_library?: number;
+      library_checked?: number;
+      library_known?: boolean;
+      /** While still being checked: the checked tracks the sync found in the library. */
+      owned_checked?: number;
+    } | null;
+  }[];
+  generated_at?: number;
   error?: string;
 }
 

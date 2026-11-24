@@ -396,7 +396,7 @@ export function toolDestination(tool: unknown, fallback = '/tools'): ToolDestina
 export type PinnedAction =
   | { type: 'preview-again'; label: string; destination: ToolDestination }
   | { type: 'dismiss'; label: string }
-  | { type: 'link'; label: string; href: string };
+  | { type: 'link'; label: string; href: string; primary?: boolean };
 
 const IMPORT_CHOICES = new Set(['pending_review', 'needs_identification']);
 
@@ -413,6 +413,11 @@ export function pinnedActions(item: ActivityItem): PinnedAction[] {
     ];
   }
   if (!item.link) return [];
+  // the Wanted journey's two (board 5): the quarantine, and songs not found
+  if (item.ref?.quarantine != null)
+    return [{ type: 'link', label: 'Review', href: item.link, primary: true }];
+  if (item.ref?.not_found != null)
+    return [{ type: 'link', label: 'Open in Wanted', href: item.link }];
   const choose = item.kind === 'import' && IMPORT_CHOICES.has(String(item.ref?.import_status));
   return [{ type: 'link', label: choose ? 'Choose' : 'Open', href: item.link }];
 }

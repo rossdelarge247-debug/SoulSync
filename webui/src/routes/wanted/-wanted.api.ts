@@ -6,6 +6,7 @@ import type { ArtistIndexResponse, IndexArtist } from '../library/-library.types
 import type {
   FollowedSummaryResponse,
   FoundResponse,
+  JourneyResponse,
   PodcastSummaryResponse,
   QualityProfilesResponse,
 } from './-wanted.types';
@@ -25,7 +26,11 @@ import { WISHLIST_QUERY_KEY } from '../wishlist/-wishlist.api';
  * refreshes these too.
  */
 
-export const FOUND_DAYS = 7;
+/** Got it covers the last 30 days (Ross, Wanted journey Q3): the read's maximum. */
+export const FOUND_DAYS = 30;
+
+/** The most the found read lists (core/wishlist/found.py MAX_ITEMS): at it, the count says "500+". */
+export const FOUND_LIMIT = 500;
 
 export function wantedFoundQueryOptions(profileId: number) {
   return queryOptions({
@@ -34,6 +39,30 @@ export function wantedFoundQueryOptions(profileId: number) {
       readJson<FoundResponse>(
         apiClient.get('wishlist/found', { searchParams: { days: FOUND_DAYS } }),
       ),
+  });
+}
+
+/**
+ * Where each wanted track is on its way in: its live download task and its
+ * quarantined attempts, plus each playlist's library figures (GET
+ * /api/wishlist/journey). Live, so it refreshes every 10 seconds while the
+ * page is in front, and with everything that refreshes the wishlist.
+ */
+export const JOURNEY_REFRESH_MS = 10_000;
+
+export function wantedJourneyQueryOptions(profileId: number) {
+  return queryOptions({
+    queryKey: [...WISHLIST_QUERY_KEY, 'journey', profileId] as const,
+    queryFn: async () => {
+      const payload = await readJson<JourneyResponse>(
+        apiClient.get('wishlist/journey', { timeout: 30_000 }),
+      );
+      if (payload.success === false) throw new Error(payload.error || 'No journey');
+      return payload;
+    },
+    refetchInterval: JOURNEY_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 5_000,
   });
 }
 

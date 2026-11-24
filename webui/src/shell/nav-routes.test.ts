@@ -54,7 +54,7 @@ describe('which row a page lights', () => {
     ['audiobooks', '', 'audiobooks'],
     ['sample-studio', '', 'sample-studio'],
     ['automations', '', 'automations'],
-    ['active-downloads', '', 'activity'],
+    ['active-downloads', '', 'downloads'],
     ['settings', '', 'settings'],
     ['setup-check', '', 'setup-check'],
     ['hydrabase', '', 'hydrabase'],

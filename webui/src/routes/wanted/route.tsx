@@ -24,6 +24,7 @@ import {
   followedSummaryQueryOptions,
   qualityProfilesQueryOptions,
   wantedFoundQueryOptions,
+  wantedJourneyQueryOptions,
 } from './-wanted.api';
 import { resolveTab, wantedSearchSchema } from './-wanted.types';
 
@@ -87,6 +88,7 @@ export const Route = createFileRoute('/wanted')({
       void queryClient.prefetchQuery(wishlistStatsQueryOptions(id));
       void queryClient.prefetchQuery(wishlistCycleQueryOptions(id));
       void queryClient.prefetchQuery(wantedFoundQueryOptions(id));
+      void queryClient.prefetchQuery(wantedJourneyQueryOptions(id));
       void queryClient.prefetchQuery(qualityProfilesQueryOptions());
     }
   },

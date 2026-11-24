@@ -408,6 +408,12 @@
   display: none;
 }
 
+/* the From line's source name */
+.fromName {
+  color: var(--ss-text);
+  font-weight: 500;
+}
+
 .linkButton {
   display: inline;
   padding: 0;
@@ -676,14 +682,31 @@ span.art:has(.artIcon) {
   }
 }
 
-.rowAction.rowAction {
+.rowAction.rowAction,
+.rowActionShown.rowActionShown {
   padding: 0 14px;
   white-space: nowrap;
+}
+
+/* a row that needs your decision keeps its Review button in view */
+.actions:has(.rowActionShown) {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .phoneMenu {
   grid-area: menu;
   display: none;
+}
+
+/* A held song's note, for a profile that isn't an admin (Details). */
+.heldNote {
+  max-width: 72ch;
+  margin: 0;
+  padding: 0 24px 14px 88px;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 /* A release's tracks, opened from its menu. */
@@ -880,6 +903,476 @@ span.art:has(.artIcon) {
 
 /* ── Phones (the 390 boards) ─────────────────────────────────────────── */
 
+/* ── The Wanted journey (step 1): View, status chips, fields ──────────── */
+
+.viewRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.viewNote {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.browse {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.segments {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+}
+
+.segment {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  background: none;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.segment + .segment {
+  border-left: 1px solid var(--ss-control-border);
+}
+
+.segment:hover {
+  background: var(--ss-hover-wash);
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--ss-selected-fill);
+  color: var(--ss-text);
+  font-weight: 600;
+}
+
+.segment:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset-inset);
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.fieldGrow {
+  flex: 1 1 280px;
+}
+
+.fieldLabel {
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chipDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ss-neutral);
+}
+
+.chipDot[data-tone='info'] {
+  background: var(--ss-info);
+}
+
+.chipDot[data-tone='accent'] {
+  background: rgb(var(--ss-accent-light-rgb));
+}
+
+.chipDot[data-tone='warning'] {
+  background: var(--ss-warning);
+}
+
+.chipDot[data-tone='danger'] {
+  background: var(--ss-danger);
+}
+
+.chipDot[data-tone='success'] {
+  background: var(--ss-success);
+}
+
+/* Downloading: the accent, which StatusTag has no tone for (board 1) */
+.tagAccent.tagAccent {
+  background: rgba(var(--ss-accent-rgb), 0.14);
+  color: rgb(var(--ss-accent-light-rgb));
+}
+
+/* a wanted or found row: art, the song, its status and line, one action */
+.row[data-layout='journey'] {
+  grid-template-columns: 48px minmax(0, 1fr) 260px 200px;
+  grid-template-areas: 'art main status actions';
+}
+
+.row[data-layout='journey'][data-selecting='true'] {
+  grid-template-columns: 24px 48px minmax(0, 1fr) 260px;
+  grid-template-areas: 'check art main status';
+}
+
+.row[data-layout='journey'] .added {
+  display: none;
+}
+
+.row[data-layout='journey'] .status {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.statusDetail {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* ── Sources (board 2) and one source (board 3) ───────────────────────── */
+
+.sources,
+.sourcePage {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  list-style: none;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendDot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sourceCard,
+.progressCard,
+.stillCard {
+  overflow: hidden;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+}
+
+.sourceHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.sourceGroup {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sourceSum {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.sourceList,
+.stillList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sourceRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 380px) auto;
+  gap: 24px;
+  align-items: center;
+  padding: 16px 20px;
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.sourceText {
+  min-width: 0;
+}
+
+.sourceName {
+  margin: 0;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceMeta {
+  margin: 4px 0 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.sourceHeadline {
+  margin: 8px 0 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+}
+
+.sourceAction {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sourcesNote {
+  max-width: 760px;
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.bar {
+  display: flex;
+  overflow: hidden;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--ss-neutral-fill);
+}
+
+.barLarge {
+  height: 14px;
+  margin-top: 14px;
+  border-radius: 7px;
+}
+
+.barPart {
+  flex: 0 0 0;
+  min-width: 3px;
+}
+
+.barPart[data-part='owned'],
+.legendDot[data-part='owned'] {
+  background: var(--ss-success);
+}
+
+.barPart[data-part='active'],
+.legendDot[data-part='active'] {
+  background: rgb(var(--ss-accent-light-rgb));
+}
+
+.barPart[data-part='waiting'],
+.legendDot[data-part='waiting'] {
+  background: var(--ss-text-tertiary);
+}
+
+.barPart[data-part='decision'],
+.legendDot[data-part='decision'] {
+  background: var(--ss-warning);
+}
+
+.barPart[data-part='notFound'],
+.legendDot[data-part='notFound'] {
+  background: var(--ss-danger);
+}
+
+/* A mirrored playlist's rest, fainter than Waiting's grey: checked but not
+   in the library (a faint fill), and not checked yet (fainter still). The
+   bar's parts stay faint; their legend dots carry a border at 3:1 or more
+   against the card. */
+.barPart[data-part='notInLibrary'] {
+  background: var(--ss-control-border);
+}
+
+.barPart[data-part='unchecked'] {
+  background: var(--ss-hairline);
+}
+
+.legendDot[data-part='notInLibrary'] {
+  background: var(--ss-control-border);
+  box-shadow: inset 0 0 0 1.5px var(--ss-text-meta);
+}
+
+.legendDot[data-part='unchecked'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ss-text-meta);
+}
+
+.crumbs {
+  margin: 0 0 6px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.sourcePageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sourceTitle {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.sourcePageActions a {
+  text-decoration: none;
+}
+
+.sourcePageActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.progressCard {
+  padding: 20px 24px;
+}
+
+.progressHeadline {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1 1 160px;
+  padding: 16px 20px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-quiet);
+}
+
+.tile[data-part='decision'] {
+  border-color: rgba(var(--ss-warning-rgb), 0.45);
+}
+
+.tileLabel {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tile[data-part='decision'] .tileLabel {
+  color: var(--ss-warning);
+}
+
+.tile[data-part='notFound'] .tileLabel {
+  color: var(--ss-danger);
+}
+
+.tileCount {
+  margin: 6px 0 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.stillTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stillGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 20px 4px;
+  border-top: 1px solid var(--ss-hairline);
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stillRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 320px) 170px;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.stillDetail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+}
+
+.stillHeld {
+  grid-column: 1 / -1;
+  max-width: 72ch;
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.stillMore {
+  padding: 8px 20px 16px;
+}
+
 @media (max-width: 640px) {
   .page {
     gap: 16px;
@@ -946,8 +1439,17 @@ span.art:has(.artIcon) {
     display: none;
   }
 
+  /* the status chips scroll sideways on their own (board 6) */
   .filters {
     flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .filters::-webkit-scrollbar {
+    display: none;
   }
 
   .filters [data-slot='filter'] {
@@ -1056,6 +1558,10 @@ span.art:has(.artIcon) {
     padding: 0 14px 12px 70px;
   }
 
+  .heldNote {
+    padding: 0 14px 12px 70px;
+  }
+
   .footer {
     flex-direction: column;
     align-items: stretch;
@@ -1081,5 +1587,50 @@ span.art:has(.artIcon) {
      :not() chain; the inline "Search now" in the line is text, not a box. */
   :global(#webui-react-root) .linkButton {
     min-height: 0;
+  }
+
+  /* the Wanted journey on a phone (board 6) */
+  .row[data-layout='journey'] {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-areas:
+      'art main menu'
+      'art status menu';
+  }
+
+  .row[data-layout='journey'][data-selecting='true'] {
+    grid-template-columns: 24px 44px minmax(0, 1fr);
+    grid-template-areas:
+      'check art main'
+      'check art status';
+  }
+
+  .fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .field,
+  .fieldGrow {
+    flex: none;
+    min-width: 0;
+  }
+
+  .viewRow {
+    gap: 8px;
+  }
+
+  .sourceRow,
+  .stillRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .sourceAction {
+    justify-content: flex-start;
+  }
+
+  .sourceTitle {
+    font-size: 24px;
   }
 }

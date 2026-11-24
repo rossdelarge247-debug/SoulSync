@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button, OptionButton, Select } from '@/components/form';
 import { Notice, Skeleton, SkeletonList } from '@/components/primitives';
@@ -9,16 +9,31 @@ import { PAGE_SIZE } from '../-wanted.types';
 import styles from './wanted-page.module.css';
 
 /** The 13px count on a tab or filter; shimmers while it isn't known yet. */
-export function CountBadge({ count, loading = false }: { count?: number; loading?: boolean }) {
+export function CountBadge({
+  count,
+  label,
+  loading = false,
+}: {
+  count?: number;
+  /** Said instead of the number ("500+" when a read was capped). */
+  label?: string;
+  loading?: boolean;
+}) {
   if (loading) return <Skeleton className={styles.badgeLoading} />;
   if (count === undefined) return null;
-  return <span className={styles.badge}>{count}</span>;
+  return <span className={styles.badge}>{label ?? count}</span>;
 }
 
 export interface FilterOption<T extends string> {
   key: T;
   label: string;
   count?: number;
+  /** Said instead of the count ("500+"). */
+  countLabel?: string;
+  /** The chip's title (what All includes, say). */
+  title?: string;
+  /** A status colour's dot before the label (the Wanted journey's chips). */
+  dot?: 'neutral' | 'info' | 'accent' | 'warning' | 'danger' | 'success';
 }
 
 /** OptionButtons, pressed for the one in use (the boards' "Show" group). */
@@ -33,20 +48,158 @@ export function FilterButtons<T extends string>({
   onChange: (next: T) => void;
   label?: string;
 }) {
+  const group = useRef<HTMLDivElement>(null);
+  // on a phone the chips scroll sideways: keep the one in use in view
+  // (the row's own scroll only: scrollIntoView would move the page's
+  // scrolling ancestors too, and push the layout sideways)
+  useEffect(() => {
+    const row = group.current;
+    const pressed = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!row || !pressed || row.scrollWidth <= row.clientWidth) return;
+    const box = row.getBoundingClientRect();
+    const chip = pressed.getBoundingClientRect();
+    if (chip.left < box.left) row.scrollLeft -= box.left - chip.left + 16;
+    else if (chip.right > box.right) row.scrollLeft += chip.right - box.right + 16;
+  }, [value]);
   return (
-    <div className={styles.filters} role="group" aria-label={label}>
+    <div className={styles.filters} role="group" aria-label={label} ref={group}>
       {options.map((option) => (
         <OptionButton
           key={option.key}
           data-slot="filter"
+          title={option.title}
           selected={option.key === value}
           onClick={() => onChange(option.key)}
         >
+          {option.dot ? (
+            <span className={styles.chipDot} data-tone={option.dot} aria-hidden="true" />
+          ) : null}
           {option.label}
-          {option.count !== undefined ? <CountBadge count={option.count} /> : null}
+          {option.count !== undefined ? (
+            <CountBadge count={option.count} label={option.countLabel} />
+          ) : null}
         </OptionButton>
       ))}
     </div>
+  );
+}
+
+/**
+ * View: Songs | Sources (the Wanted journey, boards 1 and 2): two 44px
+ * segments, the one in use in the selected style with aria-pressed.
+ */
+export function BrowseToggle({
+  value,
+  onChange,
+}: {
+  value: 'songs' | 'sources';
+  onChange: (next: 'songs' | 'sources') => void;
+}) {
+  return (
+    <div className={styles.browse} role="group" aria-label="View">
+      <span className={styles.fieldLabel} aria-hidden="true">
+        View
+      </span>
+      <div className={styles.segments}>
+        {(['songs', 'sources'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={styles.segment}
+            aria-pressed={value === key}
+            onClick={() => onChange(key)}
+          >
+            {key === 'songs' ? 'Songs' : 'Sources'}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A select with its label above it, in the 12px uppercase field label. */
+export function FieldSelect<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { key: T; label: string }[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  const id = useId();
+  return (
+    <span className={styles.field}>
+      <label className={styles.fieldLabel} htmlFor={id}>
+        {label}
+      </label>
+      <Select
+        id={id}
+        size="lg"
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+      >
+        {options.map((option) => (
+          <option key={option.key} value={option.key}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
+    </span>
+  );
+}
+
+/**
+ * The From filter: where wanted things came from, each with how many songs
+ * are still wanted from there. Everywhere first, then the sources as the
+ * Sources view groups them, so a long list of playlists stays one control.
+ */
+export function FromSelect({
+  sources,
+  value,
+  onChange,
+}: {
+  sources: { key: string; label: string; group: string; wanted: number }[];
+  value: string | undefined;
+  onChange: (next: string | undefined) => void;
+}) {
+  const id = useId();
+  const groups = [
+    { group: 'playlists', label: 'Playlists' },
+    { group: 'following', label: 'Following' },
+    { group: 'requests', label: 'Your requests' },
+  ];
+  // a link to a source that's no longer on Wanted keeps its place in the menu
+  const missing = value && !sources.some((source) => source.key === value);
+  return (
+    <span className={styles.field}>
+      <label className={styles.fieldLabel} htmlFor={id}>
+        From
+      </label>
+      <Select
+        id={id}
+        size="lg"
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value || undefined)}
+      >
+        <option value="">{`Everywhere (${sources.length} ${sources.length === 1 ? 'source' : 'sources'})`}</option>
+        {missing ? <option value={value}>{value.replace(/^playlist:/, '')}</option> : null}
+        {groups.map(({ group, label }) => {
+          const list = sources.filter((source) => source.group === group);
+          return list.length ? (
+            <optgroup key={group} label={label}>
+              {list.map((source) => (
+                <option key={source.key} value={source.key}>
+                  {`${source.label} (${source.wanted.toLocaleString('en-GB')})`}
+                </option>
+              ))}
+            </optgroup>
+          ) : null;
+        })}
+      </Select>
+    </span>
   );
 }
 
@@ -94,7 +247,7 @@ export function ViewToggle({
   onView: (view: 'list' | 'nebula') => void;
 }) {
   return (
-    <div className={styles.viewToggle} role="group" aria-label="View">
+    <div className={styles.viewToggle} role="group" aria-label="Layout">
       <button
         type="button"
         className={styles.viewButton}
@@ -151,18 +304,19 @@ export function ListFooter({
   shown,
   total,
   onMore,
+  summary,
 }: {
   shown: number;
   total: number;
   onMore: () => void;
+  /** Said instead of "6 of 312" (Wanted: "Showing 50 of 312 releases · 410 songs"). */
+  summary?: string;
 }) {
   if (total === 0) return null;
   const remaining = total - shown;
   return (
     <div className={styles.footer}>
-      <p className={styles.footerCount}>
-        {shown} of {total}
-      </p>
+      <p className={styles.footerCount}>{summary ?? `${shown} of ${total}`}</p>
       {remaining > 0 ? (
         <Button size="lg" onClick={onMore}>
           {remaining <= PAGE_SIZE ? 'Show all' : `Show ${PAGE_SIZE} more`}

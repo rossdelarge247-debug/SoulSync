@@ -2,15 +2,15 @@ import { parseServerTime } from '@/features/automations/format';
 
 import type { Automation } from '../automations/-automations.types';
 import type { WatchlistArtist } from '../watchlist/-watchlist.types';
-import type { ParsedWishlistTrack } from '../wishlist/-wishlist.types';
 
 import { primaryArtistId } from '../watchlist/-watchlist.helpers';
-import { describeTrouble } from '../wishlist/-wishlist.helpers';
 import { WL_FAILING_ATTEMPTS } from '../wishlist/-wishlist.types';
+import { itemJourney, journeyRank, sourceLabelFor } from './-wanted.journey';
 import {
   type FollowedArtistSummary,
   type FoundItem,
   type FoundResponse,
+  type JourneyStatus,
   type QualityProfileRow,
   type WantedFilter,
   type WantedItem,
@@ -255,6 +255,7 @@ export function buildWantedItems(tracks: WantedTrack[]): WantedItem[] {
       sourceInfo: first.sourceInfo,
       qualityProfileId: group.find((t) => t.qualityProfileId)?.qualityProfileId ?? null,
       status: tries >= WL_FAILING_ATTEMPTS ? 'not-found' : 'searching',
+      ...itemJourney(group, undefined),
     };
   });
 }
@@ -289,18 +290,81 @@ export function kindLabel(kind: WantedKind): string {
   return KIND_LABEL[kind];
 }
 
-/** The status tag: always a word, with the try count once there is one. */
-export function wantedStatus(item: WantedItem): {
-  text: string;
-  tone: 'info' | 'neutral';
-} {
+export type WantedStatusTone = 'info' | 'neutral' | 'warning' | 'danger' | 'accent';
+
+/**
+ * The nebula's tag: where the scheduled searches have got to, with the try
+ * count (the nebula files artists by their tries, not by the live journey).
+ */
+export function triesStatus(item: WantedItem): { text: string; tone: 'info' | 'danger' } {
   if (item.status === 'not-found') {
-    return { text: `Not found yet · ${plural(item.tries, 'try', 'tries')}`, tone: 'neutral' };
+    return { text: `Not found · ${plural(item.tries, 'try', 'tries')}`, tone: 'danger' };
   }
   return {
     text: item.tries > 0 ? `Searching · ${plural(item.tries, 'try', 'tries')}` : 'Searching',
     tone: 'info',
   };
+}
+
+/** The status words (the Wanted journey, Q1: approved). */
+export const JOURNEY_LABELS = {
+  waiting: 'Waiting',
+  searching: 'Searching',
+  downloading: 'Downloading',
+  decision: 'Needs your decision',
+  'not-found': 'Not found',
+} as const;
+
+/**
+ * The status tag: the row's one status, in the board's colours (Waiting
+ * neutral, Searching info, Downloading the accent, Needs your decision
+ * warning, Not found danger). A live step pulses. A release of several
+ * songs says how many are at that step.
+ */
+export function wantedStatus(
+  item: WantedItem,
+  /** The status filter in use: a release shows the step it's listed under. */
+  focus?: JourneyStatus,
+): {
+  text: string;
+  tone: WantedStatusTone;
+  live?: boolean;
+} {
+  const step = focus && item.trackStates[focus] > 0 ? focus : item.journey;
+  const label = JOURNEY_LABELS[step];
+  const count = item.trackStates[step] ?? item.journeyCount;
+  // a release of several says how many are at that step, unless all are
+  const of =
+    item.tracks.length > 1 && count < item.tracks.length
+      ? ` · ${count} of ${item.tracks.length}`
+      : '';
+  switch (step) {
+    case 'downloading':
+      return { text: `${label}${of}`, tone: 'accent', live: true };
+    case 'searching':
+      return { text: `${label}${of}`, tone: 'info', live: true };
+    case 'decision':
+      return { text: `${label}${of}`, tone: 'warning' };
+    case 'not-found':
+      return { text: `${label}${of}`, tone: 'danger' };
+    default:
+      return { text: `${label}${of}`, tone: 'neutral' };
+  }
+}
+
+/** The song status a Show filter lists ('all' and 'found' list none). */
+export function filterStep(filter: WantedFilter): JourneyStatus | null {
+  switch (filter) {
+    case 'waiting':
+    case 'downloading':
+    case 'decision':
+    case 'not-found':
+      return filter;
+    case 'searching-now':
+      return 'searching';
+    default:
+      return null;
+  }
 }
 
 const UNNAMED_PLAYLISTS = new Set(['', 'unknown playlist', 'wishlist']);
@@ -338,57 +402,13 @@ export interface MetaPart {
   wide?: boolean;
 }
 
-/**
- * A failed try in a person's words, when the reason is one SoulSync wrote
- * after a download came in and was thrown out (the nebula's describeTrouble):
- * "only ~30s of 3:54 played, so it was thrown out", "the wrong song came back
- * ("Xtal" by Aphex Twin)". Anything else (a peer going offline, a timeout)
- * reads as it was written.
- */
-export function lastTryPhrase(reason: string): string {
-  const trouble = describeTrouble({
-    failing: true,
-    failReason: reason,
-    retry: 0,
-    lastTried: '',
-  } as ParsedWishlistTrack);
-  switch (trouble.headline) {
-    case 'Downloaded, then thrown out': {
-      const partial = /^Only ~(\d+)s of ([\d:]+) actually played/.exec(trouble.detail);
-      return partial
-        ? `only ~${partial[1]}s of ${partial[2]} played, so it was thrown out`
-        : 'the file failed the integrity check';
-    }
-    case 'The wrong song came back': {
-      const heard = /says it was (".+") by (.+), not this track/.exec(trouble.detail);
-      return heard
-        ? `the wrong song came back (${heard[1]} by ${heard[2]})`
-        : 'the wrong song came back';
-    }
-    case 'Downloaded, then failed to save':
-      return /folder could not be created/.test(trouble.detail)
-        ? "downloaded, but its folder couldn't be created"
-        : 'downloaded, but saving it failed';
-    case 'Downloaded, then quarantined':
-      return 'downloaded, then quarantined';
-    case 'No match found':
-      return 'no match found on your sources';
-    default:
-      return reason;
-  }
-}
-
-/** "last try: user went offline" (lower-cases a capitalised first word). */
-function lastTryText(reason: string): string {
-  const plain = lastTryPhrase(reason);
-  const text = /^[A-Z][a-z]/.test(plain) ? plain[0].toLowerCase() + plain.slice(1) : plain;
-  return text.replace(/[.\s]+$/, '');
-}
+/** Moved to the journey, where the status line uses it; the nebula reads it here. */
+export { lastTryPhrase } from './-wanted.journey';
 
 /**
  * The meta line under a wanted row's title: artist · album (for a track) ·
- * kind · track count · the quality it's held to · where it came from · why
- * the last try failed.
+ * kind · track count · where it came from · the quality it's held to. Why
+ * the last try failed is the status line's job now (the Wanted journey).
  */
 export function wantedMeta(item: WantedItem, qualityName: string): MetaPart[] {
   const parts: MetaPart[] = [{ key: 'artist', text: item.artist, artist: true }];
@@ -405,22 +425,21 @@ export function wantedMeta(item: WantedItem, qualityName: string): MetaPart[] {
           : plural(wanted, 'track'),
     });
   }
+  parts.push({
+    key: 'source',
+    text: `from ${sourceLabelFor(item.sourceType, item.sourceInfo)}`,
+    wide: true,
+  });
   if (qualityName) parts.push({ key: 'quality', text: qualityName, wide: true });
-  const source = sourceLabel(item.sourceType, item.sourceInfo);
-  if (source) parts.push({ key: 'source', text: source, wide: true });
-  if (item.lastError) {
-    parts.push({ key: 'error', text: `last try: ${lastTryText(item.lastError)}`, warning: true });
-  }
   return parts;
 }
 
-/** The found row's meta: artist · album · quality. */
+/** The found row's meta: artist · album (the quality is on its status line). */
 export function foundMeta(item: FoundItem): MetaPart[] {
   const parts: MetaPart[] = [];
   if (item.artist) parts.push({ key: 'artist', text: item.artist, artist: true });
   if (item.album && lower(item.album) !== lower(item.title))
     parts.push({ key: 'album', text: item.album, wide: true });
-  if (item.quality) parts.push({ key: 'quality', text: item.quality, wide: true });
   return parts;
 }
 
@@ -457,12 +476,11 @@ function rowMatches(row: WantedRow, needle: string): boolean {
 
 export function filterWantedRows(rows: WantedRow[], filter: WantedFilter, query = ''): WantedRow[] {
   const needle = query.trim().toLowerCase();
+  const step = filterStep(filter);
   return rows.filter((row) => {
     if (filter === 'found' && row.type !== 'found') return false;
-    if (filter === 'searching' && (row.type !== 'wanted' || row.item.status !== 'searching'))
-      return false;
-    if (filter === 'not-found' && (row.type !== 'wanted' || row.item.status !== 'not-found'))
-      return false;
+    // a row is listed under every step one of its songs is at
+    if (step && (row.type !== 'wanted' || row.item.trackStates[step] === 0)) return false;
     return needle ? rowMatches(row, needle) : true;
   });
 }
@@ -483,6 +501,12 @@ export function sortWantedRows(rows: WantedRow[], sort: WantedSort): WantedRow[]
         const triesB = b.type === 'wanted' ? b.item.tries : -1;
         return triesB - triesA || rowDate(b) - rowDate(a) || byTitle(a, b);
       });
+    case 'needs-you':
+      return out.sort((a, b) => {
+        const rankA = journeyRank(a.type === 'wanted' ? a.item.journey : 'found');
+        const rankB = journeyRank(b.type === 'wanted' ? b.item.journey : 'found');
+        return rankA - rankB || rowDate(b) - rowDate(a) || byTitle(a, b);
+      });
     case 'artist':
       return out.sort(
         (a, b) =>
@@ -494,14 +518,49 @@ export function sortWantedRows(rows: WantedRow[], sort: WantedSort): WantedRow[]
   }
 }
 
-export function wantedCounts(items: WantedItem[], found: FoundItem[]) {
-  let searching = 0;
-  let notFound = 0;
+/**
+ * The chips' numbers, in songs: a release counts each of its songs at its own
+ * step, so an album with one song searching and two not found adds 1 to
+ * Searching and 2 to Not found. `all` is the six chips together, Got it
+ * included; `wanted` leaves Got it out (the Wanted tab's number).
+ */
+export interface WantedCounts {
+  all: number;
+  wanted: number;
+  waiting: number;
+  searching: number;
+  downloading: number;
+  decision: number;
+  notFound: number;
+  found: number;
+}
+
+export function wantedCounts(items: WantedItem[], found: FoundItem[]): WantedCounts {
+  const counts: WantedCounts = {
+    all: 0,
+    wanted: 0,
+    waiting: 0,
+    searching: 0,
+    downloading: 0,
+    decision: 0,
+    notFound: 0,
+    found: found.length,
+  };
   for (const item of items) {
-    if (item.status === 'not-found') notFound += 1;
-    else searching += 1;
+    counts.waiting += item.trackStates.waiting;
+    counts.searching += item.trackStates.searching;
+    counts.downloading += item.trackStates.downloading;
+    counts.decision += item.trackStates.decision;
+    counts.notFound += item.trackStates['not-found'];
+    counts.wanted += item.tracks.length;
   }
-  return { wanted: items.length, searching, notFound, found: found.length };
+  counts.all = counts.wanted + counts.found;
+  return counts;
+}
+
+/** Songs on Wanted (the Wanted tab's number). */
+export function songCount(items: WantedItem[]): number {
+  return items.reduce((sum, item) => sum + item.tracks.length, 0);
 }
 
 /** How many wanted things each artist has, by lower-cased name. */

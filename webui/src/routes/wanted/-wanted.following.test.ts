@@ -27,6 +27,7 @@ import {
   type FollowingContext,
 } from './-wanted.following';
 import { buildFollowedRows } from './-wanted.helpers';
+import { itemJourney } from './-wanted.journey';
 
 const NOW = Date.UTC(2026, 9, 22, 12, 0, 0);
 const DAY = 86_400_000;
@@ -101,6 +102,7 @@ function wanted(over: Partial<WantedItem>): WantedItem {
     sourceInfo: { label_mbid: 'mb-hessle', label_name: 'Hessle Audio' },
     qualityProfileId: null,
     status: 'searching',
+    ...itemJourney([], undefined),
     ...over,
   };
 }

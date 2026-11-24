@@ -92,6 +92,7 @@ function NeedsYouRow({ item }: { item: ActivityItem }) {
           return (
             <LinkButton
               key={action.label}
+              variant={action.type === 'link' && action.primary ? 'primary' : 'default'}
               to={action.type === 'preview-again' ? action.destination.href : action.href}
               onNavigated={
                 action.type === 'preview-again' ? toolNavigated(action.destination) : undefined

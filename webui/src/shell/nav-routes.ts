@@ -53,6 +53,7 @@ export const NAV_ROWS = [
   // Automate
   'automations',
   'activity',
+  'downloads',
   // Settings
   'settings',
   // Admin and help
@@ -90,6 +91,7 @@ export const ROW_GROUP: Partial<Record<NavRowKey, NavGroupKey>> = {
   'sample-studio': 'library',
   automations: 'automate',
   activity: 'automate',
+  downloads: 'automate',
   settings: 'settings',
   // the admin fold is the end of the Settings sheet on phones
   'setup-check': 'settings',
@@ -123,7 +125,9 @@ const LEGACY_PAGE_ROWS: Record<string, NavRowKey> = {
   audiobooks: 'audiobooks',
   'sample-studio': 'sample-studio',
   automations: 'automations',
-  'active-downloads': 'activity',
+  // its own row since the Wanted journey (board 5): it was only reachable
+  // from Activity, and people couldn't find the quarantine
+  'active-downloads': 'downloads',
   settings: 'settings',
   'setup-check': 'setup-check',
   hydrabase: 'hydrabase',

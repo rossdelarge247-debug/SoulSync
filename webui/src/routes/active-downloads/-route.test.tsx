@@ -236,6 +236,73 @@ describe('the active-downloads route', () => {
     expect(pills[1].textContent).toContain('Deleted');
   });
 
+  it('opens on Quarantine from a link, narrowed to one song’s attempts (Wanted journey)', async () => {
+    const entry = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      filename: `${id}.flac.quarantined`,
+      original_filename: `${id}.flac`,
+      reason: 'no match',
+      expected_track: 'Night Ferry',
+      expected_artist: 'Pale Harbour',
+      group_key: 'nm:pale harbour|night ferry',
+      timestamp: '2026-11-20T10:00:00Z',
+      size_bytes: 1,
+      has_full_context: true,
+      trigger: 'acoustid_unverified',
+      source_username: 'peer',
+      source_filename: `peer/${id}.flac`,
+      thumb_url: '',
+      quality: 'FLAC',
+      ...over,
+    });
+    const asked: string[] = [];
+    stub({ quarantine: [entry('other', { expected_track: 'Else', group_key: 'g2' })] });
+    server.use(
+      http.get('/api/quarantine/list', ({ request }) => {
+        const wanted = new URL(request.url).searchParams.get('entry');
+        if (wanted) asked.push(wanted);
+        return HttpResponse.json({
+          success: true,
+          entries: wanted ? [entry('20261120_b'), entry('20261119_a')] : [entry('other')],
+        });
+      }),
+    );
+    const { container } = renderRoute('/active-downloads?review=quarantine&entry=20261120_b');
+    const focus = await screen.findByTestId('quarantine-focus');
+    await waitFor(() =>
+      expect(focus).toHaveTextContent(
+        '2 attempts at “Night Ferry” by Pale Harbour. Keep the right one or delete them.',
+      ),
+    );
+    expect(asked).toEqual(['20261120_b']);
+    // on Review → Quarantine, with the song's group open
+    expect(container.querySelector('[data-filter="unverified"]')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await waitFor(() =>
+      expect(container.querySelector('[data-quarantine-id="20261119_a"]')).not.toBeNull(),
+    );
+    expect(container.querySelector('[data-quarantine-id="other"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show everything in quarantine' }));
+    await waitFor(() => expect(screen.queryByTestId('quarantine-focus')).toBeNull());
+    await waitFor(() =>
+      expect(container.querySelector('[data-quarantine-id="other"]')).not.toBeNull(),
+    );
+  });
+
+  it('opens on Quarantine from Activity’s link, without narrowing', async () => {
+    stub();
+    const { container } = renderRoute('/active-downloads?review=quarantine');
+    await settled();
+    await waitFor(() => expect(container.querySelector('#verif-subview-banner')).not.toBeNull());
+    expect(
+      container.querySelector('#verif-subview-banner [data-seg="quarantine"]'),
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('quarantine-focus')).toBeNull();
+  });
+
   it('the review badge counts only what the views can show', async () => {
     // "hundreds in the quarantine badge, list empty" (aug 25): with no
     // unverified view possible, unverified rows must not inflate the pill

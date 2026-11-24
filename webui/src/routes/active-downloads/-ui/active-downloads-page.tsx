@@ -8,6 +8,7 @@ import type { ReviewActionHandlers } from './adl-review';
 
 import {
   QUARANTINE_PAGE_SIZE,
+  fetchQuarantineGroup,
   cancelBatch,
   cancelTask,
   clearCompleted,
@@ -42,6 +43,7 @@ import {
   unverifiedPlay,
 } from '../-adl.verif-actions';
 import { musicChipCounts, musicLive, musicQuiet } from '../-dl.header-data';
+import { Route } from '../route';
 import { AdlClientsTab } from './adl-clients';
 import { AdlGroupedList } from './adl-groups';
 import { AdlHeader } from './adl-header';
@@ -61,8 +63,16 @@ const toast = (message: string, type: string) => window.showToast?.(message, typ
 /** How many unverified rows render at once — rendering is windowed, bulk logic is not. */
 export const UNVERIFIED_RENDER_STEP = 100;
 
+/** One song's attempts, opened from a link (?review=quarantine&entry=). */
+interface QuarantineFocus {
+  entryId: string;
+  entries: AdlQuarantineEntry[] | null;
+  error: string | null;
+}
+
 export function ActiveDownloadsPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const verification = useAdlVerification();
   const [cancelAllPending, setCancelAllPending] = useState(false);
   /**
@@ -89,6 +99,47 @@ export function ActiveDownloadsPage() {
   });
 
   const { state, visible, counts, hasRunningWork } = downloads;
+
+  // ?review=quarantine opens Review on Quarantine (Activity's Needs you, and
+  // Wanted); &entry= narrows it to that song's attempts. Once, per link.
+  const { setFilter } = downloads;
+  const { setSubView } = verification;
+  const appliedLink = useRef<string | null>(null);
+  useEffect(() => {
+    const link = search.review === 'quarantine' ? `quarantine:${search.entry ?? ''}` : null;
+    if (link === appliedLink.current) return;
+    appliedLink.current = link;
+    if (!link) return;
+    setFilter('unverified');
+    setSubView('quarantine');
+  }, [search.review, search.entry, setFilter, setSubView]);
+
+  const [focus, setFocus] = useState<QuarantineFocus | null>(null);
+  const [focusClosed, setFocusClosed] = useState<ReadonlySet<string>>(new Set());
+  const loadFocus = useCallback(async (entryId: string) => {
+    const result = await fetchQuarantineGroup(entryId);
+    setFocus((prev) =>
+      prev && prev.entryId !== entryId
+        ? prev
+        : 'error' in result
+          ? { entryId, entries: prev?.entries ?? null, error: result.error }
+          : { entryId, entries: result.entries, error: null },
+    );
+  }, []);
+  useEffect(() => {
+    if (search.review !== 'quarantine' || !search.entry) {
+      setFocus(null);
+      return;
+    }
+    setFocus({ entryId: search.entry, entries: null, error: null });
+    setFocusClosed(new Set());
+    void loadFocus(search.entry);
+  }, [search.review, search.entry, loadFocus]);
+  const showEverything = useCallback(
+    () =>
+      void navigate({ to: '/active-downloads', search: { media: 'music', review: 'quarantine' } }),
+    [navigate],
+  );
   // the Music | Video switch shows this side's live count
   useReportActive('music', counts.active);
   const [historyCount, setHistoryCount] = useState<number | null>(null);
@@ -102,10 +153,12 @@ export function ActiveDownloadsPage() {
   const reviewing = state.filter === 'unverified';
 
   const refresh = useCallback(() => void downloads.refresh(), [downloads]);
-  const refreshQuarantine = useCallback(
-    () => void verification.loadQuarantine(true),
-    [verification],
-  );
+  const focusEntryId = focus?.entryId ?? null;
+  const refreshQuarantine = useCallback(() => {
+    void verification.loadQuarantine(true);
+    // an approve or delete in the narrowed view takes it off that view too
+    if (focusEntryId) void loadFocus(focusEntryId);
+  }, [verification, focusEntryId, loadFocus]);
   const refreshDeleted = useCallback(() => void verification.loadDeleted(true), [verification]);
   // Emptying the bin, deleting one binned file and clearing the quarantine
   // delete for good: each previews a plan and is confirmed in the shared
@@ -341,6 +394,9 @@ export function ActiveDownloadsPage() {
   const showQuarantine = reviewing && verification.state.subView === 'quarantine';
   const showDeleted = reviewing && verification.state.subView === 'deleted';
   const quarantineGroups = showQuarantine ? groupQuarantine(verification.state.quarantine) : [];
+  const focusing = showQuarantine && focus !== null;
+  const focusGroups = focusing && focus.entries ? groupQuarantine(focus.entries) : [];
+  const focusFirst = focus?.entries?.[0];
   const quarantineHasMore =
     verification.state.quarantineTotal != null &&
     verification.state.quarantineOffset < verification.state.quarantineTotal;
@@ -464,6 +520,48 @@ export function ActiveDownloadsPage() {
                 handlersFor={deletedHandlers}
                 onKeepDays={(days) => void onKeepDays(days)}
               />
+            </div>
+          ) : focusing ? (
+            <div className="adl-list dlc-stack" id="adl-list" data-testid="quarantine-focus">
+              <div className="dlc-empty-line" role="status">
+                {focus.entries === null && !focus.error
+                  ? 'Loading this song’s attempts…'
+                  : focusFirst
+                    ? `${focus.entries!.length === 1 ? 'The attempt' : `${focus.entries!.length} attempts`} at “${focusFirst.expected_track || focusFirst.original_filename}”${focusFirst.expected_artist ? ` by ${focusFirst.expected_artist}` : ''}. Keep the right one or delete ${focus.entries!.length === 1 ? 'it' : 'them'}.`
+                    : focus.error
+                      ? `Couldn’t load this song’s attempts: ${focus.error}`
+                      : 'Nothing left to decide for this song: its attempts were kept or deleted.'}{' '}
+                <button type="button" className="dlc-more-link" onClick={showEverything}>
+                  Show everything in quarantine
+                </button>
+              </div>
+              {focusGroups.length ? (
+                <AdlQuarantineList
+                  groups={focusGroups}
+                  openDetails={verification.state.openQuarantine}
+                  openGroups={
+                    // one song: its group starts open
+                    new Set(
+                      focusGroups
+                        .map((group) => group.key || group.members[0]?.id || '')
+                        .filter((key) => !focusClosed.has(key)),
+                    )
+                  }
+                  onToggleDetails={verification.toggleQuarantine}
+                  onToggleGroup={(key) =>
+                    setFocusClosed((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    })
+                  }
+                  handlersFor={quarantineHandlers}
+                  onDeleteGroup={(entry, count) =>
+                    void quarantineDeleteGroup(entry, count, refreshQuarantine)
+                  }
+                />
+              ) : null}
             </div>
           ) : showQuarantine ? (
             <div className="adl-list dlc-stack" id="adl-list">

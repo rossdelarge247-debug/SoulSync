@@ -120,8 +120,24 @@ def _get_quarantine_dir():
 
 @bp.route('/api/quarantine/list', methods=['GET'])
 def list_quarantine():
-    """Return all quarantined files with sidecar metadata."""
+    """Return all quarantined files with sidecar metadata.
+
+    ``?entry=<id>`` returns just that entry and the other attempts at the same
+    song (its group), newest first, with ``"entry": <id>`` echoed: the Wanted
+    page links to one song's attempts. An entry that's gone answers an empty
+    list. ``limit``/``offset`` are ignored with it.
+    """
     try:
+        entry_id = request.args.get('entry')
+        if entry_id is not None:
+            from core.imports.quarantine import _build_quarantine_entry
+            from core.imports.quarantine_index import shared_index
+            from core.imports.quarantine_library import annotate_quarantine_library
+            group = shared_index().group_of(_get_quarantine_dir(), entry_id)
+            entries = [_build_quarantine_entry(_get_quarantine_dir(), r.filename) for r in group]
+            annotate_quarantine_library(entries, _get_quarantine_dir(), config_manager)
+            return jsonify({"success": True, "entries": entries, "total": len(entries),
+                            "entry": entry_id})
         limit = None
         offset = 0
         raw_limit = request.args.get('limit')
