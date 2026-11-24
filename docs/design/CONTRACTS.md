@@ -296,6 +296,7 @@ Three read-only routes, scoped to the current profile and open to every profile,
   "playlists": [{"name": "Running", "mirror": {"id": 3, "name": "Running", "source": "spotify", "total": 240,
                  "in_library": 212, "library_checked": 240, "library_known": true}}],
   "retry": {"name": "standard", "label": "Standard", "ladder": {"2": 14400, "3": 86400}, "max_cooldown": 604800},
+  "quarantine_ready": true,
   "generated_at": 1795000000
 }
 ```
@@ -307,6 +308,8 @@ Three read-only routes, scoped to the current profile and open to every profile,
 - `playlists[].mirror.owned_checked` (only while `library_known` is false and the sync has checked some): of the checked tracks, the ones the sync found in the library, by its own flag (never the join's guess). The Sources bar uses it to split a playlist still being checked: owned, "Not in your library yet" (checked, not owned, not on Wanted), "Not checked yet".
 - `playlists`: one per playlist name on the profile's Wanted rows (`source_type: "playlist"`), with its mirror when one is found: `source_info.playlist_id` `auto_mirror_<id>`, or the mirror's `source_playlist_id`/`upstream_playlist_id`, else a name only one mirror has. `library_known` is the Mirrored playlists page's rule: the sync matcher has checked every track (`library_checked >= total`); only then is `in_library` stated.
 - `retry`: the active retry timing (as `GET /api/wishlist/retry-profile`'s `profile`), so the page can say when a song is tried again.
+
+- `quarantine_ready`: quarantine comes from a shared snapshot of the folder, refreshed in the background (`core/imports/quarantine_index.py`); until its first read lands it's `false` and no song has a `quarantine` part. Wanted asks every 30 s, every 5 s while it's `false`. `GET /api/review-queue/summary` has the same `quarantine_ready` (its `quarantine` is 0 until then, and Downloads keeps its last count rather than show 0). Approve, delete and `?entry=` read the folder's names as they are now, not the snapshot.
 
 **One song's attempts in quarantine: `GET /api/quarantine/list?entry=<id>`** (added). The entry and every other attempt at the same intended target, newest first, as the list's entries, with `"entry"` echoed; `[]` when it's gone. `limit`/`offset` are ignored with it; without `entry` the list is unchanged.
 

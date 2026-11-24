@@ -129,11 +129,13 @@ def list_quarantine():
     """
     try:
         entry_id = request.args.get('entry')
+        from core.imports.quarantine_index import shared_index
         if entry_id is not None:
-            from core.imports.quarantine import _build_quarantine_entry
-            from core.imports.quarantine_index import shared_index
             from core.imports.quarantine_library import annotate_quarantine_library
-            group = shared_index().group_of(_get_quarantine_dir(), entry_id)
+            from core.imports.quarantine import _build_quarantine_entry
+            # the folder as it is now (a person asked): a few entries, each
+            # read whole, so a just-quarantined attempt is there with its size
+            group = shared_index().fresh_group(_get_quarantine_dir(), entry_id)
             entries = [_build_quarantine_entry(_get_quarantine_dir(), r.filename) for r in group]
             annotate_quarantine_library(entries, _get_quarantine_dir(), config_manager)
             return jsonify({"success": True, "entries": entries, "total": len(entries),
@@ -157,7 +159,15 @@ def list_quarantine():
                 return jsonify({"success": False, "error": "offset must be a non-negative integer"}), 400
             offset = int(raw_offset)
         paginated = limit is not None or raw_offset is not None
-        if paginated:
+        # With the shared snapshot (core.imports.quarantine_index): the folder's
+        # names only (one listing, no stat per file), each known entry from the
+        # snapshot and only new ones read from their sidecars, so a person
+        # looking at the list sees what's there now. Before the first snapshot,
+        # the folder itself.
+        snap = shared_index().peek(_get_quarantine_dir())
+        if snap is not None:
+            entries, total = _list_from_snapshot(snap, limit, offset)
+        elif paginated:
             from core.imports.quarantine import (
                 count_quarantine_entries, list_quarantine_entries)
             entries = list_quarantine_entries(
@@ -182,26 +192,57 @@ def list_quarantine():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _list_from_snapshot(snap, limit, offset):
+    """The list's window and total: the folder's names now, the snapshot's
+    entries for those it knows, the sidecar for any it doesn't (and the
+    snapshot marked stale when they differ)."""
+    from core.imports.quarantine import _QUARANTINE_SUFFIX, _build_quarantine_entry, _entry_id_from_filename
+    from core.imports.quarantine_index import shared_index
+    folder = _get_quarantine_dir()
+    listed_at = time.monotonic()
+    try:
+        names = [n for n in os.listdir(folder) if n.endswith(_QUARANTINE_SUFFIX)]
+        listed = True
+    except OSError:
+        names = []
+        listed = False
+    names.sort(key=_entry_id_from_filename, reverse=True)
+    known = {r.filename: r for r in snap.records}
+    # the badge (the summary's count) agrees with this list: what's gone leaves
+    # the snapshot now, anything new is read on its next refresh. A listing
+    # that failed says nothing about what's there, so the snapshot is left be.
+    if listed:
+        shared_index().note_listing(folder, names, listed_at)
+    window = names[offset:offset + limit] if limit is not None else names[offset:]
+    entries = [dict(known[n].entry) if n in known else _build_quarantine_entry(folder, n)
+               for n in window]
+    return entries, len(names)
+
+
 @bp.route('/api/review-queue/summary', methods=['GET'])
 def review_queue_summary():
     """counts for the review badge, cheap enough to poll.
 
     the page used to load the quarantine list once and never again, so the
-    number at the top was whatever it was when you last opened the tab. this is
-    a listdir plus one indexed count, so the badge can just ride the downloads
+    number at the top was whatever it was when you last opened the tab. the
+    quarantine count comes from the shared snapshot (no folder listing per
+    poll); before its first read the count is 0 and ``quarantine_ready`` is
+    false, plus one indexed count, so the badge can just ride the downloads
     poll and the dashboard can show it too.
     """
     try:
-        from core.imports.quarantine import count_quarantine_entries
+        from core.imports.quarantine_index import shared_index
         from database.music_database import MusicDatabase
 
-        quarantined = count_quarantine_entries(_get_quarantine_dir())
+        snap = shared_index().peek(_get_quarantine_dir())
+        quarantined = snap.files if snap is not None else 0
         # what the Downloads page shows, so the badge and the list agree
         unverified = MusicDatabase().count_library_history_unverified(
             exclude_download_sources=('acoustid_scan',))
         return jsonify({
             "success": True,
             "quarantine": quarantined,
+            "quarantine_ready": snap is not None,
             "unverified": unverified,
             "total": quarantined + unverified,
         })

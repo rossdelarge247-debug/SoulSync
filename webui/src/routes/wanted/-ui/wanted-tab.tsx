@@ -561,6 +561,10 @@ export function WantedTab({
         {decisionSongs
           ? ` · ${n(decisionSongs)} ${decisionSongs === 1 ? 'needs' : 'need'} your decision`
           : ''}
+        {journeyQuery.data?.quarantine_ready === false ? (
+          // the quarantine is still being read: statuses without it for now, no error
+          <span data-testid="quarantine-warming">{' · '}checking for downloads held back…</span>
+        ) : null}
       </span>
     </div>
   );

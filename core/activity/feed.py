@@ -1299,38 +1299,38 @@ def _quarantine_dir() -> Optional[str]:
         return None
 
 
+def _quarantine_snapshot():
+    """The shared quarantine snapshot (core.imports.quarantine_index), or None
+    before its first read: never lists the folder on the request path."""
+    try:
+        from core.imports.quarantine_index import shared_index
+        return shared_index().peek(_quarantine_dir() or "")
+    except Exception as exc:  # noqa: BLE001 - no snapshot reads as nothing held
+        logger.debug("activity: quarantine snapshot unavailable: %s", exc)
+        return None
+
+
 def _quarantine_held(ctx: _Ctx) -> Tuple[int, int]:
     """How many files quarantine holds and when the newest went in (unix
-    seconds), for admins; (0, 0) otherwise. A listdir, no sidecar reads."""
+    seconds), for admins; (0, 0) otherwise, and before the shared snapshot's
+    first read (the item appears once it's ready)."""
     if not ctx.viewer.is_admin:
         return 0, 0
-    folder = _quarantine_dir()
-    if not folder or not os.path.isdir(folder):
+    snap = _quarantine_snapshot()
+    if snap is None or not snap.files:
         return 0, 0
-    try:
-        names = [n for n in os.listdir(folder) if n.endswith(".quarantined")
-                 and os.path.isfile(os.path.join(folder, n))]
-    except OSError:
-        return 0, 0
-    if not names:
-        return 0, 0
-    newest = 0
-    for name in names:
-        try:  # "<YYYYmmdd_HHMMSS>_<original>…", local time (move_to_quarantine)
-            newest = max(newest, int(datetime.strptime(name[:15], "%Y%m%d_%H%M%S").timestamp()))
-        except ValueError:
-            continue
-    return len(names), newest or int(ctx.now)
+    from core.imports.quarantine_index import newest_time
+    return snap.files, newest_time(snap) or int(ctx.now)
 
 
 def _quarantine_item(ctx: _Ctx, files: int, newest: int) -> Dict[str, Any]:
-    """One item for the whole quarantine, in songs. The songs need each
-    sidecar's target, read through the shared index (a sidecar is read once,
-    then only when it changes); if that fails the files stand in."""
+    """One item for the whole quarantine, in songs (each file's intended
+    target, from the shared snapshot); if that fails the files stand in."""
     songs = files
     try:
-        from core.imports.quarantine_index import count_songs, shared_index
-        songs = count_songs(shared_index().records(_quarantine_dir() or "")) or files
+        from core.imports.quarantine_index import count_songs
+        snap = _quarantine_snapshot()
+        songs = (count_songs(snap.records) if snap is not None else 0) or files
     except Exception as exc:  # noqa: BLE001 - the file count is still true
         logger.debug("activity: quarantine songs unavailable: %s", exc)
     when = "today" if newest >= ctx.now - 86400 else None
@@ -1360,8 +1360,8 @@ def _not_found_row(ctx: _Ctx) -> Optional[Dict[str, Any]]:
     """The viewer's Wanted songs the Wanted page calls Not found: tried three
     times or more (WL_FAILING_ATTEMPTS), with no download on its way and no
     attempt held in quarantine (those are Downloading or Searching, and Needs
-    your decision). Quarantine's sidecars are only read (through the shared
-    index) when there are songs at three tries or more."""
+    your decision). Quarantine comes from the shared snapshot; before its
+    first read, held songs count here until it's ready."""
     try:
         rows = [dict(r) for r in ctx.conn.execute(
             f"SELECT id, spotify_track_id, spotify_data, {_ts('last_attempted')} AS _t "
@@ -1373,11 +1373,11 @@ def _not_found_row(ctx: _Ctx) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
     try:
-        from core.imports.quarantine_index import shared_index
         from core.wishlist.journey import wishlist_journey
+        snap = _quarantine_snapshot()
         moving = wishlist_journey(
             rows, tasks=_live_tasks(),
-            quarantine=shared_index().records(_quarantine_dir() or ""))
+            quarantine=snap.records if snap is not None else [])
     except Exception as exc:  # noqa: BLE001 - without the join, the tries alone
         logger.debug("activity: not-found join unavailable: %s", exc)
         moving = {}

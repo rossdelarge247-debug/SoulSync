@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.imports.quarantine_index import QuarantineIndex, count_songs
+from core.imports.quarantine_index import QuarantineSnapshots, count_songs, shared_index
 from core.wishlist.journey import (
     playlist_progress,
     snapshot_active_tasks,
@@ -79,7 +79,7 @@ def test_quarantine_joins_by_id_then_isrc_then_name(qdir):
     # names its own ids: never joined by name to another song
     _sidecar(qdir, "20261105_100000_e", artist="Saltmarsh", track="Static Bloom",
              track_info={"id": "someone-else"})
-    records = QuarantineIndex().records(str(qdir))
+    records = QuarantineSnapshots().refresh_now(str(qdir)).records
     rows = [
         _row(1, "sp-1"),
         _row(2, "sp-2", name="Other", data={"external_ids": {"isrc": "gbaaa0000001"}}),
@@ -101,28 +101,32 @@ def test_a_reused_wishlist_row_id_only_joins_its_own_song(qdir):
     _sidecar(qdir, "20261101_100000_a", track_info={"wishlist_id": 5, "id": "old-song"},
              artist="A", track="B")
     out = wishlist_journey([_row(5, "new-song")], tasks={},
-                           quarantine=QuarantineIndex().records(str(qdir)))
+                           quarantine=QuarantineSnapshots().refresh_now(str(qdir)).records)
     assert out == {}
 
 
-def test_the_index_reads_a_sidecar_once_and_again_only_when_it_changes(qdir, monkeypatch):
+def test_the_snapshot_reads_a_sidecar_once_and_again_only_when_it_changes(qdir, monkeypatch):
     import core.imports.quarantine_index as mod
     _sidecar(qdir, "20261101_100000_a")
     _sidecar(qdir, "20261102_100000_b")
     reads = []
-    real = mod._read_record
-    monkeypatch.setattr(mod, "_read_record", lambda d, n: reads.append(n) or real(d, n))
-    index = QuarantineIndex()
-    assert [r.entry_id for r in index.records(str(qdir))] == ["20261102_100000_b",
-                                                              "20261101_100000_a"]
+    real = mod.read_sidecar
+    monkeypatch.setattr(mod, "read_sidecar", lambda d, e: reads.append(e) or real(d, e))
+    snaps = QuarantineSnapshots()
+    assert [r.entry_id for r in snaps.refresh_now(str(qdir)).records] == [
+        "20261102_100000_b", "20261101_100000_a"]
     assert len(reads) == 2
-    index.records(str(qdir))
-    assert len(reads) == 2  # nothing new: no sidecar read
+    snaps.refresh_now(str(qdir))
+    assert len(reads) == 2  # nothing changed: no sidecar read
     _sidecar(qdir, "20261103_100000_c")
     (qdir / "20261101_100000_a.flac.quarantined").unlink()
-    ids = [r.entry_id for r in index.records(str(qdir))]
+    ids = [r.entry_id for r in snaps.refresh_now(str(qdir)).records]
     assert ids == ["20261103_100000_c", "20261102_100000_b"]
     assert len(reads) == 3
+    # a rewritten sidecar (another size) is read again
+    _sidecar(qdir, "20261102_100000_b", reason="a longer reason than before")
+    snaps.refresh_now(str(qdir))
+    assert reads[-1] == "20261102_100000_b" and len(reads) == 4
 
 
 def test_a_group_is_every_attempt_at_the_same_song_and_songs_count_groups(qdir):
@@ -130,14 +134,14 @@ def test_a_group_is_every_attempt_at_the_same_song_and_songs_count_groups(qdir):
     _sidecar(qdir, "20261102_100000_b", artist="PALE HARBOUR")
     _sidecar(qdir, "20261103_100000_c", artist="Saltmarsh", track="Static Bloom")
     (qdir / "20261104_100000_orphan.flac.quarantined").write_bytes(b"x")  # no sidecar
-    index = QuarantineIndex()
+    index = QuarantineSnapshots()
     assert [r.entry_id for r in index.group_of(str(qdir), "20261101_100000_a")] == [
         "20261102_100000_b", "20261101_100000_a"]
     assert index.group_of(str(qdir), "missing") == []
     assert [r.entry_id for r in index.group_of(str(qdir), "20261104_100000_orphan")] == [
         "20261104_100000_orphan"]
     # 4 files, 3 songs: the two Harbour Lights are one
-    assert count_songs(index.records(str(qdir))) == 3
+    assert count_songs(index.refresh_now(str(qdir)).records) == 3
 
 
 # ── playlists ─────────────────────────────────────────────────────────────────
@@ -189,7 +193,15 @@ def test_a_playlist_is_matched_by_name_only_when_one_mirror_has_it():
 
 # ── the route ─────────────────────────────────────────────────────────────────
 
-def _journey_client(tmp_path, monkeypatch, *, admin):
+@pytest.fixture(autouse=True)
+def _fresh_playlist_cache():
+    import core.wishlist.journey as journey
+    journey._playlist_cache.clear()
+    yield
+    journey._playlist_cache.clear()
+
+
+def _journey_client(tmp_path, monkeypatch, *, admin, warm=True):
     from flask import Flask
 
     import api.wishlist_routes as routes
@@ -200,6 +212,9 @@ def _journey_client(tmp_path, monkeypatch, *, admin):
     folder.mkdir()
     _sidecar(folder, "20261101_100000_a", track_info={"id": "sp-1"})
     _sidecar(folder, "20261102_100000_b", track_info={"id": "sp-1"})
+    if warm:
+        # what the background refresh does on the first poll
+        shared_index().refresh_now(str(folder))
 
     class FakeDb:
         def get_wishlist_tracks(self, profile_id=1):
@@ -229,7 +244,7 @@ def _journey_client(tmp_path, monkeypatch, *, admin):
 def test_the_route_answers_tracks_playlists_and_the_retry_ladder(tmp_path, monkeypatch):
     body = _journey_client(tmp_path, monkeypatch, admin=True).get(
         "/api/wishlist/journey").get_json()
-    assert body["success"] is True
+    assert body["success"] is True and body["quarantine_ready"] is True
     assert body["tracks"]["sp-1"]["quarantine"]["count"] == 2
     assert body["tracks"]["sp-1"]["quarantine"]["entry_id"] == "20261102_100000_b"
     assert body["tracks"]["sp-2"]["download"]["phase"] == "searching"
@@ -238,6 +253,27 @@ def test_the_route_answers_tracks_playlists_and_the_retry_ladder(tmp_path, monke
     assert body["playlists"] == []
     assert body["retry"]["name"] == "standard"
     assert body["retry"]["ladder"] == {"2": 14400, "3": 86400}
+
+
+def test_before_the_first_quarantine_read_the_journey_says_so_and_waits_for_nothing(
+        tmp_path, monkeypatch):
+    """A cold start: no snapshot yet. The read answers at once, statuses
+    without quarantine, and says it isn't ready; the refresh runs behind it."""
+    body = _journey_client(tmp_path, monkeypatch, admin=True, warm=False).get(
+        "/api/wishlist/journey").get_json()
+    assert body["success"] is True and body["quarantine_ready"] is False
+    assert "quarantine" not in body["tracks"].get("sp-1", {})
+    assert body["tracks"]["sp-2"]["download"]["phase"] == "searching"
+    # once the background read lands, the next poll has it
+    shared_index().wait(str(tmp_path / "ss_quarantine"))
+    from flask import Flask
+
+    import api.wishlist_routes as routes
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    again = app.test_client().get("/api/wishlist/journey").get_json()
+    assert again["quarantine_ready"] is True
+    assert again["tracks"]["sp-1"]["quarantine"]["count"] == 2
 
 
 def test_a_member_sees_the_status_but_no_way_into_the_quarantine(tmp_path, monkeypatch):

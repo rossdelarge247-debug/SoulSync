@@ -12,6 +12,7 @@ import {
   fetchBatchHistory,
   fetchDownloads,
   fetchQuarantine,
+  fetchReviewQueueSummary,
   fetchVerificationConfig,
   quarantineApprove,
   quarantineDelete,
@@ -286,5 +287,38 @@ describe('the quarantine endpoints', () => {
     const seen = capture('delete', '/api/quarantine/:id');
     await quarantineDelete('a b/c');
     expect(seen[0].url.pathname).toBe('/api/quarantine/a%20b%2Fc');
+  });
+});
+
+describe('the review summary', () => {
+  it('says nothing (not zero) while the server is still reading the quarantine', async () => {
+    server.use(
+      http.get('/api/review-queue/summary', () =>
+        HttpResponse.json({
+          success: true,
+          quarantine: 0,
+          quarantine_ready: false,
+          unverified: 2,
+          total: 2,
+        }),
+      ),
+    );
+    expect(await fetchReviewQueueSummary()).toBeNull();
+    server.use(
+      http.get('/api/review-queue/summary', () =>
+        HttpResponse.json({
+          success: true,
+          quarantine: 4500,
+          quarantine_ready: true,
+          unverified: 2,
+          total: 4502,
+        }),
+      ),
+    );
+    expect(await fetchReviewQueueSummary()).toEqual({
+      quarantine: 4500,
+      unverified: 2,
+      total: 4502,
+    });
   });
 });

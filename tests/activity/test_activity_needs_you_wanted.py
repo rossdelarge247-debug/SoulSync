@@ -27,6 +27,12 @@ def qdir(tmp_path, monkeypatch):
     return folder
 
 
+def _warm(folder):
+    """What the shared snapshot's background refresh does on the first read."""
+    from core.imports.quarantine_index import shared_index
+    shared_index().refresh_now(str(folder))
+
+
 def _held(folder, stem, artist="Pale Harbour", track="Harbour Light"):
     (folder / f"{stem}.flac.quarantined").write_bytes(b"x")
     (folder / f"{stem}.json").write_text(json.dumps(
@@ -37,6 +43,7 @@ def test_quarantine_is_one_item_in_songs_linking_to_review(build, qdir):
     _held(qdir, "20261020_120000_a")
     _held(qdir, "20261020_130000_b")  # another try at the same song
     _held(qdir, "20261019_090000_c", artist="Saltmarsh", track="Static Bloom")
+    _warm(qdir)
     page = build()
     item = next(i for i in page["needs_you"] if i["id"] == "quarantine:review")
     assert item["title"] == "2 songs are waiting for your decision"
@@ -49,22 +56,27 @@ def test_quarantine_is_one_item_in_songs_linking_to_review(build, qdir):
 
 def test_one_song_reads_in_the_singular(build, qdir):
     _held(qdir, "20261020_120000_a")
+    _warm(qdir)
     item = next(i for i in build()["needs_you"] if i["id"] == "quarantine:review")
     assert item["title"] == "1 song is waiting for your decision"
     assert item["detail"].startswith("1 download was held back")
 
 
 def test_quarantine_is_admins_only_and_absent_when_empty(build, qdir):
+    _warm(qdir)
     assert all(i["id"] != "quarantine:review" for i in build()["needs_you"])
     _held(qdir, "20261020_120000_a")
+    _warm(qdir)
     member = feed.Viewer(profile_id=1, is_admin=False)
     assert all(i["id"] != "quarantine:review" for i in build(member)["needs_you"])
 
 
-def test_the_badge_counts_quarantine_without_reading_a_sidecar(db, qdir, monkeypatch):
+def test_the_badge_counts_quarantine_without_touching_the_folder(db, qdir, monkeypatch):
     _held(qdir, "20261020_120000_a")
+    _warm(qdir)
     import core.imports.quarantine_index as index
-    monkeypatch.setattr(index, "_read_record", lambda *a: pytest.fail("read a sidecar"))
+    monkeypatch.setattr(index, "read_sidecar", lambda *a: pytest.fail("read a sidecar"))
+    monkeypatch.setattr(index.os, "scandir", lambda *a: pytest.fail("listed the folder"))
     status = feed.build_status(db, feed.Viewer(profile_id=1, is_admin=True), now=NOW,
                                live_batches={}, running_automations={})
     assert status["needs_you_count"] == 1
@@ -99,6 +111,7 @@ def test_not_found_leaves_out_what_the_page_shows_as_moving_or_held(build, rows,
     (qdir / "20261020_120000_h.json").write_text(json.dumps(
         {"expected_artist": "A", "expected_track": "B",
          "context": {"track_info": {"spotify_track_id": "held"}}}))
+    _warm(qdir)
     page = build()
     item = next(i for i in page["needs_you"] if i["id"] == "wanted:not-found")
     assert item["title"] == "1 song couldn’t be found"
@@ -110,3 +123,16 @@ def test_no_item_when_every_song_at_three_tries_is_moving(build, rows, qdir, mon
     monkeypatch.setattr(feed, "_live_tasks", lambda: {
         "sid:moving": {"status": "searching", "task_id": "t", "batch_id": ""}})
     assert all(i["id"] != "wanted:not-found" for i in build()["needs_you"])
+
+
+def test_before_the_first_quarantine_read_the_badge_waits_for_nothing(db, qdir):
+    """A cold start: the badge answers at once without the quarantine item,
+    and the item is there once the background read lands."""
+    _held(qdir, "20261020_120000_a")
+    viewer = feed.Viewer(profile_id=1, is_admin=True)
+    cold = feed.build_status(db, viewer, now=NOW, live_batches={}, running_automations={})
+    assert cold["needs_you_count"] == 0
+    from core.imports.quarantine_index import shared_index
+    shared_index().wait(str(qdir))
+    warm = feed.build_status(db, viewer, now=NOW, live_batches={}, running_automations={})
+    assert warm["needs_you_count"] == 1

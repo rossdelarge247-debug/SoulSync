@@ -76,6 +76,16 @@ def _coerce_dict(d: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _snapshot_forget(quarantine_dir: str, entry_ids) -> None:
+    """Take entries a person dealt with out of the shared quarantine snapshot
+    at once (core.imports.quarantine_index), so the next read is right."""
+    try:
+        from core.imports.quarantine_index import shared_index
+        shared_index().forget(quarantine_dir, entry_ids)
+    except Exception as exc:  # noqa: BLE001 - the snapshot catches up on its own
+        logger.debug("quarantine snapshot forget failed: %s", exc)
+
+
 def _entry_id_from_filename(quarantined_filename: str) -> str:
     """Derive a stable entry id from the quarantined filename.
 
@@ -135,7 +145,24 @@ def get_quarantined_source_keys(quarantine_dir: str) -> set:
     except Exception as exc:
         logger.debug("get_quarantined_source_keys: db blocks unavailable: %s", exc)
 
-    if not quarantine_dir or not os.path.isdir(quarantine_dir):
+    if not quarantine_dir:
+        return keys
+
+    # the sidecars' half from the shared snapshot when there is one: reading
+    # every sidecar on each search held the disk on a big, slow quarantine.
+    # A snapshot can be up to a minute old; what was quarantined since is in
+    # the table above already (move_to_quarantine writes it first).
+    try:
+        from core.imports.quarantine_index import shared_index
+        snap = shared_index().peek(quarantine_dir)
+    except Exception as exc:  # noqa: BLE001 - fall back to the folder
+        logger.debug("get_quarantined_source_keys: snapshot unavailable: %s", exc)
+        snap = None
+    if snap is not None:
+        keys |= {r.source_key for r in snap.records if r.source_key}
+        return keys
+
+    if not os.path.isdir(quarantine_dir):
         return keys
 
     try:
@@ -222,22 +249,22 @@ def find_quarantine_siblings(quarantine_dir: str, entry_id: str) -> List[str]:
     ``entry_id`` (see :func:`quarantine_group_key`). Excludes ``entry_id``
     itself. Returns ``[]`` when the entry is missing, has an ungroupable
     (``None``) key, or has no siblings. Never raises.
+
+    Read from the shared quarantine snapshot (``core.imports.quarantine_index``),
+    not by reading every sidecar: a person asked, so it waits for a snapshot
+    that has the entry when the last one doesn't.
     """
     if not entry_id:
         return []
-    entries = list_quarantine_entries(quarantine_dir)
-    target_key = None
-    for e in entries:
-        if e.get("id") == entry_id:
-            target_key = e.get("group_key")
-            break
-    if target_key is None:
+    try:
+        from core.imports.quarantine_index import shared_index
+        group = shared_index().group_of(quarantine_dir, entry_id)
+    except Exception as exc:  # noqa: BLE001 - never raises
+        logger.debug("find_quarantine_siblings: snapshot unavailable: %s", exc)
         return []
-    return [
-        e["id"]
-        for e in entries
-        if e.get("id") != entry_id and e.get("group_key") == target_key
-    ]
+    if len(group) <= 1:
+        return []
+    return [r.entry_id for r in group if r.entry_id != entry_id]
 
 
 def count_quarantine_entries(quarantine_dir: str) -> int:
@@ -260,25 +287,36 @@ def count_quarantine_entries(quarantine_dir: str) -> int:
         return 0
 
 
+def read_sidecar(quarantine_dir: str, entry_id: str) -> Dict[str, Any]:
+    """The entry's sidecar as a dict; {} when it's missing or unreadable."""
+    sidecar_path = os.path.join(quarantine_dir, f"{entry_id}.json")
+    try:
+        with open(sidecar_path, encoding="utf-8") as f:
+            loaded = json.load(f)
+        return loaded if isinstance(loaded, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        logger.debug("sidecar read failed for %s: %s", entry_id, exc)
+        return {}
+
+
 def _build_quarantine_entry(quarantine_dir: str, name: str) -> Dict[str, Any]:
     """Build one entry dict for a `.quarantined` file name."""
     full_path = os.path.join(quarantine_dir, name)
     entry_id = _entry_id_from_filename(name)
-    sidecar_path = os.path.join(quarantine_dir, f"{entry_id}.json")
-    sidecar: Dict[str, Any] = {}
-    if os.path.isfile(sidecar_path):
-        try:
-            with open(sidecar_path, encoding="utf-8") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict):
-                sidecar = loaded
-        except Exception as exc:
-            logger.debug("sidecar read failed for %s: %s", entry_id, exc)
-
+    sidecar = read_sidecar(quarantine_dir, entry_id)
     try:
         size_bytes = os.path.getsize(full_path)
     except OSError:
         size_bytes = 0
+    return entry_from_sidecar(name, sidecar, size_bytes)
+
+
+def entry_from_sidecar(name: str, sidecar: Dict[str, Any], size_bytes: int) -> Dict[str, Any]:
+    """One list entry from a `.quarantined` file name, its sidecar and its size
+    (no filesystem access: the quarantine snapshot builds entries this way)."""
+    entry_id = _entry_id_from_filename(name)
 
     # Issue #608 follow-up (AfonsoG6): surface the source username
     # + filename that was originally downloaded, so the user can see
@@ -458,6 +496,8 @@ def delete_quarantine_entry(quarantine_dir: str, entry_id: str) -> bool:
             removed = True
         except OSError as exc:
             logger.error("Failed to delete quarantine sidecar %s: %s", sidecar_path, exc)
+    if removed:
+        _snapshot_forget(quarantine_dir, [entry_id])
     return removed
 
 
@@ -600,6 +640,7 @@ def approve_quarantine_entry(
     # songs about five times. unblocking here would leave it exactly as it was.
     # the block is one specific (uploader, file), not the uploader, so nothing
     # else that person shares is affected.
+    _snapshot_forget(quarantine_dir, [entry_id])
     return restored_path, context, trigger
 
 
@@ -642,6 +683,7 @@ def recover_to_staging(
         except OSError as exc:
             logger.warning("recover: failed to remove sidecar %s: %s", sidecar_path, exc)
 
+    _snapshot_forget(quarantine_dir, [entry_id])
     return target
 
 
