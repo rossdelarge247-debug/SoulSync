@@ -285,7 +285,7 @@ Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted j
 - vitest `-wanted.journey.test.ts`: statuses, lines, retry timing, Needs you first, source names, summaries, the remembered view.
 - `-route.test.tsx`: Wanted (rows, chips, Review's deep link, Sources, a source's page, Show in the list, an unmirrored playlist) and Downloads (`?review=quarantine&entry=`, and without `entry`).
 - `nav-routes.test.ts`, `nav-shell.test.ts` (the row order), and `-activity.helpers.test.ts` (Review, Open in Wanted).
-- Runs (after fix round 1): the full vitest, 12,970 passed (745 files). pytest over `tests/activity`, `tests/imports`, `tests/wishlist`, `tests/test_wanted_page_reads.py`, `tests/test_admin_gating.py` and `tests/test_helper_tours.py`: 1,982 passed. One fails here and on `integration` without this branch: `test_activity_api.py::test_the_feed_answers_with_the_contract`. ruff, tsc and `npm run check` are clean (no new warnings).
+- Runs (after fix round 2): the full vitest, 12,973 passed (745 files, two workers, none timed out). pytest (`-n 2`, numba warmed first) over `tests/activity`, `tests/imports`, `tests/wishlist`, `tests/test_wanted_page_reads.py`, `tests/test_admin_gating.py` and `tests/test_helper_tours.py`: 1,983 passed. One fails here and on `integration` without this branch: `test_activity_api.py::test_the_feed_answers_with_the_contract`. ruff, tsc and `npm run check` are clean (no new warnings).
 
 **Fix round 1 (the same day; review: 3 Medium, 5 Low, all fixed, each with a test):**
 - **M1, old links landed on Sources:** a stored Sources choice won over a link carrying `filter`, `sort`, `q` or `from`. Such a link now opens Songs; old `/wishlist` links and Activity's Not found link also add `browse=songs`.
@@ -297,6 +297,19 @@ Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted j
 - **L6:** Got it at the found read's limit (500) says "500+", and All "N+".
 - **L7:** on a phone the chip in use is scrolled into view.
 - **L8:** an old `?filter=searching` (fewer than three tries) opens Waiting; the Searching chip is `filter=searching-now`.
+
+**Fix round 2 (the next day; review: 1 High, 2 Medium, 5 Low, all fixed, each with a test):**
+- **H1, Sources did nothing once Songs had a filter, sort, search or From:** the toggle cleared `browse`, and the link rule (a filter means Songs) won again. The toggle now writes `browse=sources|songs` into the URL and keeps the choice; an explicit `browse` beats both that rule and the stored choice, and the rule only applies when the URL has no `browse`.
+- **M-a, "Not checked yet" was wrong for checked playlists (535):**
+  - Checked through: the rest is "Not in your library yet" (checked, neither owned nor on Wanted).
+  - Still being checked: split by what the sync has checked. Owned is the checked tracks the sync found in the library (its flag, never the join's guess: `owned_checked`); the checked rest is "Not in your library yet"; the unchecked part is "Not checked yet", fainter still.
+  - The legend has both, and the bar's label names both.
+- **M-b, a member's Details:** on Needs your decision it opens the row's own note ("Held for an admin to check. … until then it stays on Wanted."), on Songs and on a source's page, and the decision explainer says the same. It doesn't leave Wanted.
+- **L-a:** under a status filter a row's action, colour and `data-status` follow the step it's listed at, as its tag does: an album under Not found shows Show tracks, not a primary Review.
+- **L-b:** the list's footer is in the chips' unit: "Showing 50 of 312 releases · 410 songs".
+- **L-c:** the two faint legend dots carry a ring at 3:1 or more against the card; the bar's parts stay faint.
+- **L-d:** "500+" is decided from the found read's own length, not the list after a From.
+- **L-f:** the member screenshot is a real session of a profile that isn't an admin.
 
 Screenshots (1440×900, 1280×800, 390×844; each also full length): Songs, Needs your decision, From Running, Sources, Running's page, an unmirrored playlist's page, Activity's Needs you, and Downloads on one song's attempts. They're in the session scratchpad, not the repo.
 
