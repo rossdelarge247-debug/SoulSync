@@ -145,7 +145,7 @@ One newest-first list of what SoulSync did, plus what needs you. Query: `range` 
 | download | an album or track download finished with failed tracks, none of them on Wanted, so nothing retries them | that release is downloaded again |
 | safety | a preview expired without being confirmed | the same tool is previewed again or confirmed, or `POST /api/activity/dismiss {"id": "safety:31"}` |
 | download (admins) | quarantine holds files: one item for them all, `id: "quarantine:review"`, titled in songs ("721 songs are waiting for your decision"; attempts at the same intended target are one song), the files in its detail, `link: "/active-downloads?review=quarantine"`, `ref: {"quarantine": <files>, "songs": <songs>}`, time = the newest file's | the quarantine folder is empty |
-| download | the viewer's Wanted songs tried three times or more without a result: one item, `id: "wanted:not-found"`, "15 songs couldn’t be found", `link: "/wanted?filter=not-found"`, `ref: {"not_found": n}` | none are left at three tries or more |
+| download | the viewer's Wanted songs the Wanted page calls Not found (three tries or more, no download on its way, no attempt in quarantine): one item, `id: "wanted:not-found"`, "15 songs couldn’t be found", `link: "/wanted?filter=not-found&browse=songs"`, `ref: {"not_found": n}` | none are left |
 
 Only `safety` items can be dismissed. Expired and confirmed previews are recorded from this release on (`action_plan_events`); earlier ones, and previews pending when SoulSync restarts, leave no record.
 
@@ -293,7 +293,6 @@ Three read-only routes, scoped to the current profile and open to every profile,
                      "trigger": "acoustid_unverified", "matched_by": "id"}
     }
   },
-  "quarantine_total": 2271, "quarantine_songs": 721,
   "playlists": [{"name": "Running", "mirror": {"id": 3, "name": "Running", "source": "spotify", "total": 240,
                  "in_library": 212, "library_checked": 240, "library_known": true}}],
   "retry": {"name": "standard", "label": "Standard", "ladder": {"2": 14400, "3": 86400}, "max_cooldown": 604800},
@@ -304,13 +303,13 @@ Three read-only routes, scoped to the current profile and open to every profile,
 - `download`: the live task (in memory; gone on a restart) for the song, joined by the task's `track_info.wishlist_id` (the row id) or `spotify_track_id`/`track_id`/`id` (the source id: Wanted's own batches and playlist batches). The furthest along wins. `status` is `pending`, `searching`, `queued`, `downloading` or `post_processing`; `phase` is `searching` for the first two, `downloading` otherwise; `progress` (0–100) only while downloading, when the task has it. A download started from Search for the same song carries another id and isn't joined.
 - `quarantine`: the newest held attempt and how many there are, from each sidecar's `context.track_info`: the source id or the row id (`matched_by: "id"`), else the ISRC (`"isrc"`), else, for sidecars that name no ids (written before the full context was kept), the expected artist and title against the row's first artist and title, case and spacing ignored (`"name"`: it can't tell two versions of a song apart). `trigger` is the check that held it (`integrity`, `acoustid_unverified`, `bit_depth`, `quality`, `silence`).
 - The sidecars are read through a cached index (`core/imports/quarantine_index.py`): the folder is listed each time; a sidecar is read once, and again only when it or its file changes.
-- `quarantine_total` is files; `quarantine_songs` is songs (one per intended target, `quarantine_group_key`).
+- Quarantine is the install's, not a profile's: a profile that isn't an admin gets each song's `quarantine` without `entry_id` (the count, trigger and reason stay, so the status shows), and no install-wide totals are sent to anyone.
 - `playlists`: one per playlist name on the profile's Wanted rows (`source_type: "playlist"`), with its mirror when one is found: `source_info.playlist_id` `auto_mirror_<id>`, or the mirror's `source_playlist_id`/`upstream_playlist_id`, else a name only one mirror has. `library_known` is the Mirrored playlists page's rule: the sync matcher has checked every track (`library_checked >= total`); only then is `in_library` stated.
 - `retry`: the active retry timing (as `GET /api/wishlist/retry-profile`'s `profile`), so the page can say when a song is tried again.
 
 **One song's attempts in quarantine: `GET /api/quarantine/list?entry=<id>`** (added). The entry and every other attempt at the same intended target, newest first, as the list's entries, with `"entry"` echoed; `[]` when it's gone. `limit`/`offset` are ignored with it; without `entry` the list is unchanged.
 
-**Deep links (web):** `/active-downloads?review=quarantine` opens Downloads on Review → Quarantine; `&entry=<id>` narrows it to that song's attempts, with "Show everything in quarantine". `/wanted` takes `browse=songs|sources` (absent: the profile's last choice in this browser), `source=<From key>` (a source's page), `from=<From key>` (the From filter: `playlist:<name, lower-cased>`, `followed-artists`, `followed-labels`, `mine`, `discography`, `upgrades`, `redownloads`, `playlist`), `filter=waiting|searching|downloading|decision|not-found|found` (the old `searching`, `not-found` and `found` keep working) and `sort=needs-you` (the default) as well as the old sorts.
+**Deep links (web):** `/active-downloads?review=quarantine` opens Downloads on Review → Quarantine; `&entry=<id>` narrows it to that song's attempts, with "Show everything in quarantine". `/wanted` takes `browse=songs|sources` (absent: Songs when the link carries `filter`, `sort`, `q` or `from`, otherwise the profile's last choice in this browser; old `/wishlist` links and Activity's Not found link add `browse=songs`), `source=<From key>` (a source's page), `from=<From key>` (the From filter: `playlist:<name, lower-cased>`, `followed-artists`, `followed-labels`, `mine`, `discography`, `upgrades`, `redownloads`, `playlist`), `filter=waiting|searching-now|downloading|decision|not-found|found` (an old `filter=searching` meant fewer than three tries, so it resolves to `waiting`; `not-found` and `found` keep their meaning) and `sort=needs-you` (the default) as well as the old sorts. A status filter lists every row with at least one song at that status; every count is songs.
 
 **Followed-artist numbers: `GET /api/watchlist/artists/summary`.** One entry per followed artist, matched to `/api/watchlist/artists` by `id`:
 

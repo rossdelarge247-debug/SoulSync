@@ -226,8 +226,8 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 531. **Waiting's line.** Board 1's "In the queue · 3,412 ahead" isn't built: the scheduled search keeps no queue position (oldest first, albums and singles on alternate runs, each song's wait between tries). Built instead: "Not tried yet · next search in about 2 hours", "Tried 2 times · next try in about 3 hours", from the schedule and the retry timing in use. Is that enough?
 532. **Actions per status.** Waiting's one action is Search now (board 4 says Details), as it was. A release whose songs are all Not found gets Show tracks. Got it has no Play: a find doesn't carry the library track to play. Right, or should Got it get Play (Dev: the found read would need the library track id)?
 533. **Got it per source needs a migration.** A wanted row is deleted when its song arrives, and the removal record doesn't keep where it came from, so Got it can't be split by source: under a From it says so, and the Sources bars show only library ownership. Record the source on each removal from now on (a new column, with an upgrade test)?
-534. **What the chips count.** The status chips count rows, as before (an album is one row; its tag says "Not found · 2 of 3" when its songs differ). Sources and a source's page count songs. Should the chips count songs too?
-535. **A mirrored playlist that's still being checked** (board 2's "Classical calm"): its bar has no green, since ownership isn't known until every track is checked, and the headline says "96 checked so far · 41 still wanted". Readable, or should the bar show the checked part?
+534. ~~**What the chips count.**~~ **Settled (fix round 1):** everything is counted in songs: the chips, All and the Wanted tab's number. A status filter lists every row with a song at that status: an album with one song searching and two not found is under both, adding 1 to Searching and 2 to Not found, and its tag there says "Searching · 1 of 3". All is the six chips together, Got it included (its title says so).
+535. ~~**A mirrored playlist that's still being checked.**~~ **Settled (fix round 1):** a mirrored playlist's bar is the whole playlist (its `total`): Running is 212 green of 240. What isn't in the library or on Wanted, or isn't checked yet, is a fainter grey than Waiting's, "Not checked yet" in the legend, so a playlist still being checked with one song wanted is mostly that grey. Other sources' bars are their songs on Wanted, as before.
 536. **Where the Downloads row sits.** Board 5 drew Downloads between Activity and Automations. Built after Activity, keeping Automations, Activity in their order: Automations, Activity, Downloads. Right?
 537. **Who sees the quarantine item.** Admins only: the quarantine is the install's, not a profile's. Should a profile allowed on Downloads see it too?
 538. **The nebula.** Kept behind the list/nebula icons beside Sort (the icons' group is now named "Layout", since "View" is Songs | Sources). It still files artists by their tries, with the new words (Searching, Not found, Got it). Should it learn the journey's statuses, or go?
@@ -261,12 +261,12 @@ Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted j
   - `&entry=<id>` narrows it to that song's attempts (`GET /api/quarantine/list?entry=`, the entry and its group), its group open, under "3 attempts at “Harbour Light” by Pale Harbour. Keep the right one or delete them. Show everything in quarantine". An approve or delete there refreshes both lists.
 - **Activity's Needs you (board 5):**
   - "721 songs are waiting for your decision", detail "2,271 downloads were held back because they might be the wrong song, version or quality. Newest today.", with Review (primary). Songs are counted as intended targets (`quarantine_group_key`). Admins only.
-  - "15 songs couldn’t be found", with Open in Wanted (`/wanted?filter=not-found`).
+  - "15 songs couldn’t be found", with Open in Wanted (`/wanted?filter=not-found&browse=songs`): the same songs as Wanted's Not found chip (three tries or more, nothing on its way, nothing held).
   - The nav badge counts each once. The quarantine half is a listdir, so the badge's poll reads no sidecars.
 - **Downloads in the sidebar (board 5):** a Downloads row under Automate, after Activity (`data-page="active-downloads"`, so profile access hides it as before); `/active-downloads` lights it instead of Activity.
 - **Phone (board 6):** the chips scroll sideways, the fields stack, and each row is title, meta, tag and line with the "⋮" menu (Review in quarantine first when it needs you). Sources and a source's page stack to one column.
 
-**Kept working:** `?filter=searching|not-found|found` and `?sort=newest|oldest|most-tries|artist` still mean their filter and sort (Searching is now "running now"; tries 1–2 are Waiting). `/wishlist?failing=1` still lands on Not found. The nebula stays behind the list/nebula icons; its words are now Searching, Not found and Got it, and its icons' group is named "Layout".
+**Kept working:** `?filter=not-found|found` and `?sort=newest|oldest|most-tries|artist` still mean their filter and sort; an old `?filter=searching` (fewer than three tries) opens Waiting, since Searching is now "running now" (`filter=searching-now`). `/wishlist?failing=1` still lands on Not found. The nebula stays behind the list/nebula icons; its words are now Searching, Not found and Got it, and its icons' group is named "Layout".
 
 **Deliberately not built (step 2, hidden until it works):** an album's "x of y owned" and Complete this album, Do this first, Keep the best one, and Got it per source (533). Also not built: board 1's "In the queue · N ahead" (531) and Got it's Play (532).
 
@@ -285,7 +285,18 @@ Built on `feat/wanted-journey` from `integration` (88cdf6a6), from the "Wanted j
 - vitest `-wanted.journey.test.ts`: statuses, lines, retry timing, Needs you first, source names, summaries, the remembered view.
 - `-route.test.tsx`: Wanted (rows, chips, Review's deep link, Sources, a source's page, Show in the list, an unmirrored playlist) and Downloads (`?review=quarantine&entry=`, and without `entry`).
 - `nav-routes.test.ts`, `nav-shell.test.ts` (the row order), and `-activity.helpers.test.ts` (Review, Open in Wanted).
-- Runs: the full vitest, 12,962 passed (745 files). pytest over `tests/activity`, `tests/imports`, `tests/wishlist` and `tests/test_wanted_page_reads.py`: 1,823 passed. One failure (`test_activity_api.py::test_the_feed_answers_with_the_contract`) and one error (`test_ffmpeg_errors.py`) fail the same way on `integration` without this branch. ruff, tsc and `npm run check` are clean (no new warnings).
+- Runs (after fix round 1): the full vitest, 12,970 passed (745 files). pytest over `tests/activity`, `tests/imports`, `tests/wishlist`, `tests/test_wanted_page_reads.py`, `tests/test_admin_gating.py` and `tests/test_helper_tours.py`: 1,982 passed. One fails here and on `integration` without this branch: `test_activity_api.py::test_the_feed_answers_with_the_contract`. ruff, tsc and `npm run check` are clean (no new warnings).
+
+**Fix round 1 (the same day; review: 3 Medium, 5 Low, all fixed, each with a test):**
+- **M1, old links landed on Sources:** a stored Sources choice won over a link carrying `filter`, `sort`, `q` or `from`. Such a link now opens Songs; old `/wishlist` links and Activity's Not found link also add `browse=songs`.
+- **M2, rows against songs (534):** every number is songs, and a status filter lists every row with a song at that status (534 above).
+- **M3, members:** `GET /api/wishlist/journey` no longer sends install-wide quarantine totals (nothing read them), and a profile that isn't an admin gets each song's quarantine count without its entry. Its rows say Needs your decision with Details, not Review, and the explainer says an admin decides (`tests/test_admin_gating.py`, `tests/wishlist/test_journey.py`).
+- **The source bars (535):** a mirrored playlist's bar is the whole playlist, with "Not checked yet" in a fainter grey.
+- **L4:** the last try's reason is back, on Waiting's and Not found's line ("Tried 2 times · last try: user went offline · next try in about 3 hours"); a "no match" reason isn't repeated.
+- **L5:** Activity's "N songs couldn’t be found" counts what the Not found chip counts: three tries or more, leaving out songs downloading or searching now and songs with an attempt in quarantine. Quarantine's sidecars are read for it only when some song is at three tries.
+- **L6:** Got it at the found read's limit (500) says "500+", and All "N+".
+- **L7:** on a phone the chip in use is scrolled into view.
+- **L8:** an old `?filter=searching` (fewer than three tries) opens Waiting; the Searching chip is `filter=searching-now`.
 
 Screenshots (1440×900, 1280×800, 390×844; each also full length): Songs, Needs your decision, From Running, Sources, Running's page, an unmirrored playlist's page, Activity's Needs you, and Downloads on one song's attempts. They're in the session scratchpad, not the repo.
 
