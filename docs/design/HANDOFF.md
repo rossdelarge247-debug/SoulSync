@@ -269,6 +269,7 @@ Built on `fix/wanted-slow-quarantine` from `integration` (e528e210). Ross's medi
   - **L3:** the journey's playlist figures are reused only while the profile's mirrors and the newest sync run are unchanged (mirror, unmirror, refresh and sync all read them again), and the cache hands out copies.
   - **L4:** the summary's wiring test checks it reads the snapshot and doesn't list the folder.
   - Bench afterwards, same script: cold journey 0.08 s, first Activity 0.01 s, burst of 24 slowest 0.48 s, median 0.32 s.
+- **Fix round 2 (review: 1 Medium, 2 Low):** the Downloads list no longer prunes the snapshot when its own `listdir` fails (it used to pass an empty list and empty the badge, Wanted's held songs and Activity's item until the folder could be read again), and `note_listing` takes the time its listing started, so an older listing never prunes a snapshot that listed later (a just-quarantined file stayed hidden for a refresh). Tests: `test_a_failed_list_listing_leaves_the_snapshot_alone`, `test_an_older_listing_doesnt_prune_a_newer_snapshot`. Left as is: before the first snapshot lands, an approve or delete reads every sidecar once on its request (no bulk loop calls it).
 - **Tests:**
   - pytest `tests/imports/test_quarantine_slow_fs.py`: the cold start, the burst (and no request touching the folder), approve and delete, clear, and one refresh however many ask.
   - The journey, Activity and quarantine tests warm the snapshot. The summary's wiring test accepts the snapshot's count.

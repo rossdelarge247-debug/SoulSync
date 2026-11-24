@@ -198,6 +198,30 @@ def test_the_list_takes_what_is_gone_out_of_the_badges_count(folder, client):
     assert qi.shared_index().peek(str(folder)).files == 1
 
 
+
+def test_a_failed_list_listing_leaves_the_snapshot_alone(folder, client, monkeypatch):
+    import api.quarantine as routes
+    _put(folder, "20261101_100000_a")
+    qi.shared_index().refresh_now(str(folder))
+
+    def denied(path):
+        raise PermissionError("EACCES")
+
+    monkeypatch.setattr(routes.os, "listdir", denied)
+    client.get("/api/quarantine/list?limit=100&offset=0")
+    assert qi.shared_index().peek(str(folder)).files == 1
+
+
+def test_an_older_listing_doesnt_prune_a_newer_snapshot(folder):
+    snaps = qi.QuarantineSnapshots(min_interval=0.0)
+    listed_before = time.monotonic()  # a list request starts listing here...
+    _put(folder, "20261101_100000_new")
+    assert snaps.refresh_now(str(folder)).files == 1  # ...a refresh lands after it
+    snaps.note_listing(str(folder), [], listed_before)  # the older names lack the new file
+    assert snaps.peek(str(folder)).files == 1
+    snaps.note_listing(str(folder), [], time.monotonic())  # a later listing still prunes
+    assert snaps.peek(str(folder)).files == 0
+
 # ── L2: a clear forgets only what it deleted ─────────────────────────────────
 
 def test_a_clear_forgets_only_what_it_deleted(folder, monkeypatch):

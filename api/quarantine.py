@@ -199,15 +199,20 @@ def _list_from_snapshot(snap, limit, offset):
     from core.imports.quarantine import _QUARANTINE_SUFFIX, _build_quarantine_entry, _entry_id_from_filename
     from core.imports.quarantine_index import shared_index
     folder = _get_quarantine_dir()
+    listed_at = time.monotonic()
     try:
         names = [n for n in os.listdir(folder) if n.endswith(_QUARANTINE_SUFFIX)]
+        listed = True
     except OSError:
         names = []
+        listed = False
     names.sort(key=_entry_id_from_filename, reverse=True)
     known = {r.filename: r for r in snap.records}
     # the badge (the summary's count) agrees with this list: what's gone leaves
-    # the snapshot now, anything new is read on its next refresh
-    shared_index().note_listing(folder, names)
+    # the snapshot now, anything new is read on its next refresh. A listing
+    # that failed says nothing about what's there, so the snapshot is left be.
+    if listed:
+        shared_index().note_listing(folder, names, listed_at)
     window = names[offset:offset + limit] if limit is not None else names[offset:]
     entries = [dict(known[n].entry) if n in known else _build_quarantine_entry(folder, n)
                for n in window]

@@ -451,10 +451,15 @@ class QuarantineSnapshots:
                      quarantine_dir, len(records), read, time.monotonic() - listed_at)
         return Snapshot(quarantine_dir, tuple(records), time.monotonic(), listed_at)
 
-    def note_listing(self, quarantine_dir: str, names: Iterable[str]) -> None:
+    def note_listing(self, quarantine_dir: str, names: Iterable[str],
+                     listed_at: Optional[float] = None) -> None:
         """A fresh listing of the folder's names (the Downloads list): what's
         gone leaves the snapshot at once, so its count agrees with the list;
-        anything new marks it stale (its sidecar is read on the next refresh)."""
+        anything new marks it stale (its sidecar is read on the next refresh).
+
+        ``listed_at`` is when this listing started (time.monotonic()). A
+        snapshot whose own listing started later is newer than these names, so
+        nothing is pruned from it (a file it found may postdate this listing)."""
         quarantine_dir = _norm(quarantine_dir)
         present = set(names)
         with self._lock:
@@ -462,7 +467,8 @@ class QuarantineSnapshots:
             if snap is None:
                 return
             known = {r.filename for r in snap.records}
-            if known - present:
+            newer = listed_at is not None and snap.listed_at > listed_at
+            if known - present and not newer:
                 self._snaps[quarantine_dir] = Snapshot(
                     quarantine_dir,
                     tuple(r for r in snap.records if r.filename in present),
