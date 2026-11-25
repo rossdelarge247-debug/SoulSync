@@ -328,6 +328,30 @@ class QuarantineSnapshots:
                                                        snap.listed_at)
             self._stale.add(quarantine_dir)
 
+    def replace(self, quarantine_dir: str, filename: str, sidecar: Dict[str, Any]) -> None:
+        """A sidecar this process just rewrote (the AcoustID re-check): the
+        entry's record from it, in the snapshot at once. The folder is read
+        again soon as well (its changed mtime brings the same sidecar in), so
+        a refresh already running with the old one can't keep it for long."""
+        quarantine_dir = _norm(quarantine_dir)
+        with self._lock:
+            cached = self._cache.get(quarantine_dir, {}).get(filename)
+            snap = self._snaps.get(quarantine_dir)
+            old = snap.by_id(_entry_id_from_filename(filename)) if snap is not None else None
+            if old is None and cached is not None:
+                old = cached[1]
+            size = int((old.entry if old is not None else {}).get("size_bytes") or 0)
+            fresh = record_from_sidecar(filename, sidecar, size)
+            if snap is not None:
+                self._snaps[quarantine_dir] = Snapshot(
+                    quarantine_dir,
+                    tuple(fresh if r.filename == filename else r for r in snap.records),
+                    snap.taken_at, snap.listed_at)
+            if cached is not None:
+                # the old signature: the next refresh still reads the sidecar
+                self._cache[quarantine_dir][filename] = (cached[0], fresh)
+            self._stale.add(quarantine_dir)
+
     def invalidate(self, quarantine_dir: str) -> None:
         """Something changed in the folder (a new file): refresh when due."""
         quarantine_dir = _norm(quarantine_dir)

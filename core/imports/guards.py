@@ -28,13 +28,18 @@ def _get_config_manager():
     return config_manager
 
 
-def move_to_quarantine(file_path: str, context: dict, reason: str, automation_engine=None, *, trigger: str = "unknown") -> str:
+def move_to_quarantine(file_path: str, context: dict, reason: str, automation_engine=None, *, trigger: str = "unknown",
+                       facts: Optional[Dict[str, Any]] = None) -> str:
     """Move a file to the quarantine folder and write a metadata sidecar.
 
     `trigger` identifies which check fired (`integrity` / `acoustid` /
     `bit_depth` / `unknown`) and is persisted in the sidecar so
     one-click Approve can set the matching `_skip_quarantine_check`
     bypass when re-running the pipeline.
+
+    ``facts`` (optional): what the checks measured, in the sidecar's
+    ``facts`` (lengths, whether it plays to the end, AcoustID's answer,
+    quality, size), read by core.imports.quarantine_verdict.
 
     Sidecar also persists a JSON-safe snapshot of the full `context`
     dict via `serialize_quarantine_context`, enabling in-place approve
@@ -97,6 +102,8 @@ def move_to_quarantine(file_path: str, context: dict, reason: str, automation_en
         "trigger": trigger,
         "context": serialize_quarantine_context(context),
     }
+    if facts:
+        metadata["facts"] = facts
 
     try:
         with open(metadata_path, "w", encoding="utf-8") as f:

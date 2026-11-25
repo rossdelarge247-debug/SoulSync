@@ -235,6 +235,57 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-11-25: Dev, quarantine explained (boards 10 and 11)
+
+Built on `feat/quarantine-explained` from `integration` (0a6255f3). Ross's quarantine holds 2,568 files, all with sidecars: 2,393 (93%) held by the integrity check's length leg ("Duration mismatch"), about 172 "File too small" stubs, 2 lossless density failures and 1 replacement guard. By file length against Spotify's: 80–100% 832, 100–120% 243, over 120% 652, 50–80% 456, under 50% 210. The review list only said "Failed integrity check", with the reason in a hover title, and the length check ran before AcoustID ever had a say.
+
+- **One verdict per file, with a sentence** (`core/imports/quarantine_verdict.py`), from the sidecar alone so the shared snapshot carries it:
+  - `right_song`: within 20% of Spotify's length (AcoustID's confirmation upgrades the sentence).
+  - `longer_version`: over 20% longer: usually an extended or original mix (Q11: Keep recommended).
+  - `shorter_or_cut`: 50–80%: a radio edit, or cut.
+  - `cut_off`: under 50%, or it stops before the length its header declares.
+  - `broken`: too small or unreadable ("Cannot stat file" is `other`: the disk said no).
+  - The length bands always apply: a file AcoustID recognises at under half the length is still cut off ("AcoustID recognises the song, but this is only 1:30 of 6:00: a clip or cut off"), and at 50–80% shorter.
+  - `different_song`: AcoustID heard another recording, named in the sentence.
+  - `other`: a damaged lossless file, a replacement shorter than the library copy, a quality rule.
+  - The best try per song: among right song / longer version tries that don't stop early and are at least 80% of Spotify's length, AcoustID-confirmed first, then quality (lossless over any bitrate), then the closest length. No such try: no best, and the song offers no keep-best. It's listed first; the others that match its length say "Same length as the best."
+  - Older sidecars are read from their reason text (every pattern above, and AcoustID's "identified as … by …"); structured `facts` win where present. Lengths read "5:48 · Spotify 6:20".
+  - Until a file has been checked, "plays to the end" is unknown and a length within 20% counts as the right song, as board 10's note said: those counts are estimates from length alone. The sentence says "Not checked yet whether it plays to the end."
+- **New downloads** (`core/imports/quarantine_facts.py`, the pipeline's integrity step): when the only failure is the length, it measures whether the file plays to the end (ffmpeg's decoded length against the header's) and asks AcoustID, when it's configured, before holding the file. It's held either way (Q10). The sidecar's new `facts` keep Spotify's length, the file's, whether it plays to the end, AcoustID's decision, score and the recording it heard, quality and size. Other integrity failures keep their behaviour and record what the check measured; an AcoustID failure records what it heard.
+- **The AcoustID re-check** (`core/imports/quarantine_recheck.py`): fingerprints each held file without an answer, writes the answer into its sidecar (not when the file went meanwhile), and hands the snapshot the re-classified record at once (the one-song read too). Light by default: the header's length and a fingerprint (fpcalc reads the first two minutes); the full ffmpeg decode behind "plays to the end" only with `quarantine.recheck_decode` (off), so without it that stays unknown. One AcoustID request every 0.34 s at most, one file at a time on one thread, and after each file a pause as long as it took (1–10 s). Expect 2–4 s a file: 2,568 files take roughly 1.5–3 hours. Pause, Resume and Cancel (read from the stored state on every file, so from any worker); progress done / total, confirmed, another song, no match. A lease row in the database (host:pid and a heartbeat, stale after 2 minutes) lets one process run it. A job running when the server stopped starts again a minute after start-up, skipping files already answered. A refused key stops it and the page says so until the key changes. It never imports anything.
+- **The page** (Downloads → Quarantine, `-ui/qx-explained.tsx`):
+  - The overview groups by verdict with the count, why, an example ("Fighting Fire (Original) · 5:48, Spotify lists 6:20"), Open, and the group's bulk action.
+  - The AcoustID banner: "AcoustID isn't working" or "refused the key", linking to Settings → Connections; when it works, "Re-check N with AcoustID", then its progress with Pause and Cancel.
+  - A group lists its songs (25 at a time). Each song has its sentence, "Keep the best, delete the rest" and "Delete all N"; each try its verdict tag, sentence, length next to Spotify's, quality, uploader, Play, Keep and Delete. The reason is on the page, not in a hover title.
+  - **Keep the best of each** (right song, longer version): a preview (songs kept, other tries deleted), a destructive confirm, then one song at a time in the background: the best is approved by the same core function as the approve route (`core/imports/quarantine_approve.py`: the owning task found by `quarantine_entry_id` and completed through the verification wrapper, a quarantine retry for the track cancelled) and only that song's previewed other tries are deleted. A file that's gone or changed since the preview is left alone.
+  - **Delete all N** (cut off, broken): a preview with files, songs and size, a confirm ("Songs still on Wanted stay wanted and will be searched again": deleting quarantined tries doesn't touch Wanted), and then exactly the previewed files: one that's gone, changed size or moved to another group since (the re-check) stays, and the answer says how many moved. A sidecar goes only with its file.
+  - **Keep the best, delete the rest** on a song asks first, naming the kept file and how many go. **Keep** on a try of a song with others asks too: "Keep this, delete N", "Keep only this, leave the others" or Cancel.
+  - Wanted's link (`?review=quarantine&entry=`) opens that song's tries explained. A profile that can't use the new view, or a failed read, gets the plain list, and "List every file instead" switches to it.
+  - Real buttons with names ("Play <file>", "Keep <file>", "Delete <file>"), 44 px targets, the board's colours for the verdicts, one column on a phone, and room at the bottom so the last row clears the floating help and notification buttons.
+- **Endpoints** (new, `api/quarantine_explained.py`, admin only): `GET /api/quarantine/explained/overview`, `songs?kind=`, `song?entry=`; `POST bulk/preview`, `bulk/confirm`, `bulk/cancel`; `GET`/`POST recheck`. All read the shared snapshot: no folder walk or sidecar read per request (the one-song read lists names, as the existing `?entry=` does). `/api/quarantine/list` entries gain `explained`; nothing else in the list or the summary changes.
+- **Tests:**
+  - pytest `tests/imports/test_quarantine_explained.py` (40): every legacy pattern of Ross's, the 20%, 50% and 80% boundaries, the sentences, structured facts winning, the best try, the pipeline asking AcoustID before quarantine for a length-only failure (and not for a stub), the re-check's rate limit, counts, refused key, pause, resume, cancel and resume after a restart, the snapshot and the one-song read following a sidecar the re-check wrote, the delete plan's safety, keep-best (and a best that changed since the preview), and the endpoints.
+  - vitest `-ui/qx-explained.test.tsx` (13): the overview, the banner's three states, the re-check's progress and Pause, the bulk actions' preview, confirm and cancel, a song's tries with their reasons as text, the deep link and the fallbacks. `-route.test.tsx`: the Wanted link shows the song explained.
+- **Screenshots** (seeded demo quarantine, real app): `scratchpad/qx-shots/` at 1440 and 390: `overview`, `group`, `song`, `recheck-running`, `keep-choice` (each with a `-full` version).
+- **Open:**
+  - "Plays to the end" for the 2,568 already held is only known once the re-check has run (it decodes each file with ffmpeg as it goes).
+  - Keep the best of each skips older entries without their import context (they need Recover to Staging one by one).
+- **Fix round 1 (review: 1 High, 3 Medium, Lows; all fixed):**
+  - **H1:** an AcoustID pass no longer lifts a clip out of its length band, and best needs 80% of the length (the review's repro: a 90 s confirmed clip now loses to the full FLAC, and keep-best keeps the FLAC).
+  - **M1:** the songs and song reads annotate from each entry's sidecar by name: no folder listing per entry (a 25-song page lists the folder zero times; it was once per try). The existing list benefits too.
+  - **M2:** the re-check pauses after each file and doesn't decode by default (above).
+  - **M3:** one approve for the route and keep-best (`core/imports/quarantine_approve.py`); the route's decorators and signature are as they were.
+  - **Lows:** the sidecar write is dropped for a file gone meanwhile; Delete all skips what moved group since and reports it; sidecars carry size and mtime and go only with their file; "Cannot stat file" is other; the delete wording is accurate; the keep confirms above; the lease; the runner's state under its lock; the bottom room.
+  - Tests: `tests/imports/test_quarantine_explained.py` 51 (the repro and band boundaries, best eligibility, zero listings, the shared approve completing the task and cancelling the retry, the pause scaling, decode off by default, the dropped sidecar write, the lease, pause and cancel through the stored state, the changed-verdict skip); `qx-explained.test.tsx` 15 (the keep confirms and both Keep choices).
+- **Runs (fix round 1):**
+  - pytest (`-n 2`) over `tests/imports`, `tests/downloads`, `tests/activity`, `tests/wishlist` and `tests/test_admin_gating.py`: 3,750 passed. One fails here and on `integration`: `test_activity_api.py::test_the_feed_answers_with_the_contract`.
+  - The full vitest: 12,997 of 12,998 (746 files, two workers). The one, `visuals-mount.test.ts` (opens the Visuals panel), is untouched here, passed in the first push's full run and passes alone (6 of 6, twice): a timing flake under load.
+  - ruff, tsc and `npm run check` are clean.
+- **Runs (first push):**
+  - pytest (`-n 2`) over `tests/imports`, `tests/downloads`, `tests/activity`, `tests/wishlist`, `tests/library`, `tests/test_admin_gating.py` and `tests/test_wanted_page_reads.py`: 4,322 passed. One fails here and on `integration`: `test_activity_api.py::test_the_feed_answers_with_the_contract`.
+  - The full vitest: 12,996 passed (746 files, two workers).
+  - ruff, tsc and `npm run check` are clean (no new warnings).
+
 ### 2026-11-24: Dev, the staging loop and the Wanted list reads
 
 Built on `fix/staging-loop-and-wishlist-reads` from `integration` (afb6c676), from Ross's numbers: 8,930 wanted songs, the process at 133% CPU with 196 threads and 414 download batches, one gunicorn worker with 8 threads. Wanted's albums read took 57 s, singles 47 s, the journey 47 s and the stats 58.6 s (5.9 s of it CPU).

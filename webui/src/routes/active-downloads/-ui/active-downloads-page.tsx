@@ -57,6 +57,7 @@ import {
   AdlUnverifiedRow,
 } from './adl-review';
 import { useReportActive } from './dl-header';
+import { QuarantineExplained, QxSongFocus } from './qx-explained';
 
 const toast = (message: string, type: string) => window.showToast?.(message, type);
 
@@ -154,7 +155,10 @@ export function ActiveDownloadsPage() {
 
   const refresh = useCallback(() => void downloads.refresh(), [downloads]);
   const focusEntryId = focus?.entryId ?? null;
+  // the grouped view (qx-explained) reads again when this moves
+  const [quarantineRefreshKey, setQuarantineRefreshKey] = useState(0);
   const refreshQuarantine = useCallback(() => {
+    setQuarantineRefreshKey((key) => key + 1);
     void verification.loadQuarantine(true);
     // an approve or delete in the narrowed view takes it off that view too
     if (focusEntryId) void loadFocus(focusEntryId);
@@ -522,92 +526,112 @@ export function ActiveDownloadsPage() {
               />
             </div>
           ) : focusing ? (
-            <div className="adl-list dlc-stack" id="adl-list" data-testid="quarantine-focus">
-              <div className="dlc-empty-line" role="status">
-                {focus.entries === null && !focus.error
-                  ? 'Loading this song’s attempts…'
-                  : focusFirst
-                    ? `${focus.entries!.length === 1 ? 'The attempt' : `${focus.entries!.length} attempts`} at “${focusFirst.expected_track || focusFirst.original_filename}”${focusFirst.expected_artist ? ` by ${focusFirst.expected_artist}` : ''}. Keep the right one or delete ${focus.entries!.length === 1 ? 'it' : 'them'}.`
-                    : focus.error
-                      ? `Couldn’t load this song’s attempts: ${focus.error}`
-                      : 'Nothing left to decide for this song: its attempts were kept or deleted.'}{' '}
-                <button type="button" className="dlc-more-link" onClick={showEverything}>
-                  Show everything in quarantine
-                </button>
-              </div>
-              {focusGroups.length ? (
-                <AdlQuarantineList
-                  groups={focusGroups}
-                  openDetails={verification.state.openQuarantine}
-                  openGroups={
-                    // one song: its group starts open
-                    new Set(
-                      focusGroups
-                        .map((group) => group.key || group.members[0]?.id || '')
-                        .filter((key) => !focusClosed.has(key)),
-                    )
-                  }
-                  onToggleDetails={verification.toggleQuarantine}
-                  onToggleGroup={(key) =>
-                    setFocusClosed((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(key)) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    })
-                  }
-                  handlersFor={quarantineHandlers}
-                  onDeleteGroup={(entry, count) =>
-                    void quarantineDeleteGroup(entry, count, refreshQuarantine)
-                  }
-                />
-              ) : null}
+            <div className="adl-list dlc-stack" id="adl-list">
+              <QxSongFocus
+                entryId={focus.entryId}
+                handlersFor={quarantineHandlers}
+                onShowAll={showEverything}
+                refreshKey={quarantineRefreshKey}
+                onChanged={refreshQuarantine}
+                fallback={
+                  <div className="adl-list dlc-stack" id="adl-list" data-testid="quarantine-focus">
+                    <div className="dlc-empty-line" role="status">
+                      {focus.entries === null && !focus.error
+                        ? 'Loading this song’s attempts…'
+                        : focusFirst
+                          ? `${focus.entries!.length === 1 ? 'The attempt' : `${focus.entries!.length} attempts`} at “${focusFirst.expected_track || focusFirst.original_filename}”${focusFirst.expected_artist ? ` by ${focusFirst.expected_artist}` : ''}. Keep the right one or delete ${focus.entries!.length === 1 ? 'it' : 'them'}.`
+                          : focus.error
+                            ? `Couldn’t load this song’s attempts: ${focus.error}`
+                            : 'Nothing left to decide for this song: its attempts were kept or deleted.'}{' '}
+                      <button type="button" className="dlc-more-link" onClick={showEverything}>
+                        Show everything in quarantine
+                      </button>
+                    </div>
+                    {focusGroups.length ? (
+                      <AdlQuarantineList
+                        groups={focusGroups}
+                        openDetails={verification.state.openQuarantine}
+                        openGroups={
+                          // one song: its group starts open
+                          new Set(
+                            focusGroups
+                              .map((group) => group.key || group.members[0]?.id || '')
+                              .filter((key) => !focusClosed.has(key)),
+                          )
+                        }
+                        onToggleDetails={verification.toggleQuarantine}
+                        onToggleGroup={(key) =>
+                          setFocusClosed((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return next;
+                          })
+                        }
+                        handlersFor={quarantineHandlers}
+                        onDeleteGroup={(entry, count) =>
+                          void quarantineDeleteGroup(entry, count, refreshQuarantine)
+                        }
+                      />
+                    ) : null}
+                  </div>
+                }
+              />
             </div>
           ) : showQuarantine ? (
             <div className="adl-list dlc-stack" id="adl-list">
-              {verification.state.quarantineError ? (
-                <div className="adl-client-empty adl-client-empty-error">
-                  couldn't load the quarantine list — {verification.state.quarantineError}
-                </div>
-              ) : null}
-              {!verification.state.quarantineLoaded ? (
-                <div className="dlc-loading">Loading quarantine…</div>
-              ) : quarantineGroups.length === 0 ? (
-                <div className="dlc-empty-line" id="adl-empty">
-                  Nothing in quarantine. Every download passed its checks.
-                </div>
-              ) : (
-                <>
-                  <AdlQuarantineList
-                    groups={quarantineGroups}
-                    partial={quarantineHasMore}
-                    openDetails={verification.state.openQuarantine}
-                    openGroups={verification.state.openGroups}
-                    onToggleDetails={verification.toggleQuarantine}
-                    onToggleGroup={verification.toggleGroup}
-                    handlersFor={quarantineHandlers}
-                    onDeleteGroup={(entry, count) =>
-                      void quarantineDeleteGroup(
-                        entry,
-                        quarantineHasMore ? null : count,
-                        refreshQuarantine,
-                      )
-                    }
-                  />
-                  {quarantineHasMore ? (
-                    <div>
-                      <button
-                        type="button"
-                        className="dlc-more-link"
-                        onClick={() => void verification.loadMoreQuarantine()}
-                      >
-                        Show more ({verification.state.quarantine.length} of{' '}
-                        {verification.state.quarantineTotal})
-                      </button>
-                    </div>
-                  ) : null}
-                </>
-              )}
+              <QuarantineExplained
+                handlersFor={quarantineHandlers}
+                refreshKey={quarantineRefreshKey}
+                onChanged={refreshQuarantine}
+                fallback={
+                  <div className="adl-list dlc-stack" id="adl-list">
+                    {verification.state.quarantineError ? (
+                      <div className="adl-client-empty adl-client-empty-error">
+                        couldn't load the quarantine list — {verification.state.quarantineError}
+                      </div>
+                    ) : null}
+                    {!verification.state.quarantineLoaded ? (
+                      <div className="dlc-loading">Loading quarantine…</div>
+                    ) : quarantineGroups.length === 0 ? (
+                      <div className="dlc-empty-line" id="adl-empty">
+                        Nothing in quarantine. Every download passed its checks.
+                      </div>
+                    ) : (
+                      <>
+                        <AdlQuarantineList
+                          groups={quarantineGroups}
+                          partial={quarantineHasMore}
+                          openDetails={verification.state.openQuarantine}
+                          openGroups={verification.state.openGroups}
+                          onToggleDetails={verification.toggleQuarantine}
+                          onToggleGroup={verification.toggleGroup}
+                          handlersFor={quarantineHandlers}
+                          onDeleteGroup={(entry, count) =>
+                            void quarantineDeleteGroup(
+                              entry,
+                              quarantineHasMore ? null : count,
+                              refreshQuarantine,
+                            )
+                          }
+                        />
+                        {quarantineHasMore ? (
+                          <div>
+                            <button
+                              type="button"
+                              className="dlc-more-link"
+                              onClick={() => void verification.loadMoreQuarantine()}
+                            >
+                              Show more ({verification.state.quarantine.length} of{' '}
+                              {verification.state.quarantineTotal})
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                }
+              />
             </div>
           ) : reviewing ? (
             <div className="adl-list dlc-stack" id="adl-list">

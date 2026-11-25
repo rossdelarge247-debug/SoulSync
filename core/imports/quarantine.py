@@ -356,7 +356,19 @@ def entry_from_sidecar(name: str, sidecar: Dict[str, Any], size_bytes: int) -> D
              for key in ("album", "download_source")}
             if isinstance(ctx.get("_album_import_extra"), dict) else None
         ),
+        # what it is, in one verdict and a sentence (core.imports.quarantine_verdict)
+        "explained": _explain(sidecar, size_bytes),
     }
+
+
+def _explain(sidecar: Dict[str, Any], size_bytes: int) -> Dict[str, Any]:
+    from core.imports.quarantine_verdict import explain
+    try:
+        return explain(sidecar, size_bytes)
+    except Exception as exc:  # noqa: BLE001 - an odd sidecar is "other", never a failed list
+        logger.debug("quarantine verdict failed: %s", exc)
+        return {"kind": "other", "label": "Other", "text": "", "length": "",
+                "spotify_length": "", "quality": "", "quality_rank": 0.0}
 
 
 def list_quarantine_entries(
@@ -413,18 +425,15 @@ def list_quarantine_entries(
 
 def get_quarantine_entry_context(quarantine_dir: str, entry_id: str) -> Dict[str, Any]:
     """The sidecar's embedded pipeline ``context`` dict for one entry.
-    Returns {} for thin/legacy sidecars, missing entries or read errors."""
-    _, sidecar_path = _resolve_entry_paths(quarantine_dir, entry_id)
-    if not sidecar_path or not os.path.isfile(sidecar_path):
+    Returns {} for thin/legacy sidecars, missing entries or read errors.
+
+    The sidecar is ``<entry_id>.json``: read by its name, never by listing the
+    folder (the review pages annotate a page of entries this way, and a
+    listing per entry on a slow mount was most of their time)."""
+    if not entry_id or os.sep in str(entry_id) or (os.altsep and os.altsep in str(entry_id)):
         return {}
-    try:
-        with open(sidecar_path, encoding="utf-8") as f:
-            loaded = json.load(f)
-        ctx = loaded.get("context") if isinstance(loaded, dict) else None
-        return ctx if isinstance(ctx, dict) else {}
-    except Exception as exc:
-        logger.debug("quarantine context read failed for %s: %s", entry_id, exc)
-        return {}
+    ctx = read_sidecar(quarantine_dir, entry_id).get("context")
+    return ctx if isinstance(ctx, dict) else {}
 
 
 def _extract_context_thumb(ctx: Dict[str, Any]) -> str:
