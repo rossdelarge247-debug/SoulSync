@@ -349,21 +349,26 @@ def _wishlist_batch_active(runtime: WishlistRouteRuntime) -> bool:
 def _sanitized_rows(build: Any, runtime: WishlistRouteRuntime) -> List[Dict[str, Any]]:
     """The build's rows formatted for download and sanitized, once per build
     (what get_wishlist_tracks_for_download + the display sanitizer made)."""
+    from core.wishlist.read_cache import CACHED_BODIES
     from core.wishlist.selection import sanitize_and_dedupe_wishlist_tracks
-    if build.sanitized is None:
+    sanitized = build.sanitized
+    if sanitized is None:
         service = get_wishlist_service()
         formatted = []
         for row in build.rows:
             track = service.format_track_for_download(row)
             track.setdefault("profile_id", runtime.profile_id)
             formatted.append(track)
-        build.sanitized, build.duplicates_found = sanitize_and_dedupe_wishlist_tracks(formatted)
+        sanitized, build.duplicates_found = sanitize_and_dedupe_wishlist_tracks(formatted)
         if build.duplicates_found > 0:
             runtime.logger.warning(
                 "[API-Wishlist-Tracks] Found and removed %s duplicate tracks during sanitization",
                 build.duplicates_found,
             )
-    return build.sanitized
+        # kept for the other category's body; once both exist it isn't needed
+        if not all(c in build.bodies for c in CACHED_BODIES):
+            build.sanitized = sanitized
+    return sanitized
 
 
 def _tracks_payload(runtime: WishlistRouteRuntime, db: Any, build: Any, category: str | None,
@@ -389,30 +394,30 @@ def _tracks_payload(runtime: WishlistRouteRuntime, db: Any, build: Any, category
     return {"tracks": tracks, "total": total, "artist_images": artist_images}
 
 
-def wishlist_tracks_read(
+def _tracks_build(runtime: WishlistRouteRuntime, db: Any) -> Any:
+    from core.wishlist.read_cache import shared_cache
+    return shared_cache().build(db, runtime.profile_id,
+                                batch_active=lambda: _wishlist_batch_active(runtime),
+                                log=runtime.logger)
+
+
+def wishlist_tracks_body(
     runtime: WishlistRouteRuntime,
-    *,
-    category: str | None = None,
-    limit: int | None = None,
-) -> tuple[Any, Dict[str, Any] | None, Dict[str, Any], int]:
-    """(build, cacheable_key, payload, status) for the tracks route, from the
-    shared read (core.wishlist.read_cache). ``cacheable_key`` is None when
-    the response can't be reused (a ``limit``)."""
+    category: str,
+    serialise: Callable[[Dict[str, Any]], bytes],
+) -> tuple[bytes | None, Dict[str, Any] | None, int]:
+    """(body, None, 200) for the albums or singles list, serialised once per
+    shared build (core.wishlist.read_cache), or (None, error payload, 500)."""
     from core.wishlist.read_cache import shared_cache
     try:
         db = runtime.get_music_database()
-        cache = shared_cache()
-        build = cache.build(db, runtime.profile_id,
-                            batch_active=lambda: _wishlist_batch_active(runtime),
-                            log=runtime.logger)
-        if limit is not None:
-            return build, None, _tracks_payload(runtime, db, build, category, limit), 200
-        payload = cache.payload(
-            build, category, lambda: _tracks_payload(runtime, db, build, category, None))
-        return build, {"category": category}, payload, 200
+        build = _tracks_build(runtime, db)
+        body = shared_cache().body(
+            build, category, lambda: serialise(_tracks_payload(runtime, db, build, category, None)))
+        return body, None, 200
     except Exception as exc:
         runtime.logger.error("Error getting wishlist tracks: %s", exc)
-        return None, None, {"error": str(exc)}, 500
+        return None, {"error": str(exc)}, 500
 
 
 def get_wishlist_tracks(
@@ -421,9 +426,14 @@ def get_wishlist_tracks(
     category: str | None = None,
     limit: int | None = None,
 ) -> tuple[Dict[str, Any], int]:
-    """Return wishlist tracks for the modal UI."""
-    _build, _key, payload, status = wishlist_tracks_read(runtime, category=category, limit=limit)
-    return payload, status
+    """Return wishlist tracks for the modal UI, from the shared build."""
+    try:
+        db = runtime.get_music_database()
+        build = _tracks_build(runtime, db)
+        return _tracks_payload(runtime, db, build, category, limit), 200
+    except Exception as exc:
+        runtime.logger.error("Error getting wishlist tracks: %s", exc)
+        return {"error": str(exc)}, 500
 
 
 def clear_wishlist(runtime: WishlistRouteRuntime) -> tuple[Dict[str, Any], int]:

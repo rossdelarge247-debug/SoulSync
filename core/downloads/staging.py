@@ -270,8 +270,7 @@ def _blocked_staging_files(target: str) -> set:
         return set()
     try:
         from database.music_database import MusicDatabase
-        wanted = f"{STAGING_BLOCK_PREFIX}{target}"
-        return {f for u, f in MusicDatabase().get_quarantine_source_blocks() if u == wanted}
+        return MusicDatabase().get_quarantine_source_block_files(f"{STAGING_BLOCK_PREFIX}{target}")
     except Exception as exc:  # noqa: BLE001 - without the table, nothing is blocked
         logger.debug("[Staging] block lookup failed: %s", exc)
         return set()

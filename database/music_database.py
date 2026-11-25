@@ -949,41 +949,6 @@ class MusicDatabase:
                 )
             """)
 
-            # Wishlist change counter: bumped by triggers on every insert,
-            # update and delete of wishlist_tracks, whichever code path writes,
-            # so the wishlist reads (core/wishlist/read_cache.py) can reuse what
-            # they built until the wishlist changes. `added` counts inserts
-            # only: the duplicate sweep runs when something was added.
-            with self._migration_step(cursor, 'wishlist_change_counter'):
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS wishlist_change_counter (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        version INTEGER NOT NULL DEFAULT 0,
-                        added INTEGER NOT NULL DEFAULT 0
-                    )
-                """)
-                cursor.execute("INSERT OR IGNORE INTO wishlist_change_counter (id, version, added)"
-                               " VALUES (1, 0, 0)")
-                cursor.execute("""
-                    CREATE TRIGGER IF NOT EXISTS wishlist_tracks_counter_insert
-                    AFTER INSERT ON wishlist_tracks BEGIN
-                        UPDATE wishlist_change_counter SET version = version + 1, added = added + 1
-                        WHERE id = 1;
-                    END
-                """)
-                cursor.execute("""
-                    CREATE TRIGGER IF NOT EXISTS wishlist_tracks_counter_update
-                    AFTER UPDATE ON wishlist_tracks BEGIN
-                        UPDATE wishlist_change_counter SET version = version + 1 WHERE id = 1;
-                    END
-                """)
-                cursor.execute("""
-                    CREATE TRIGGER IF NOT EXISTS wishlist_tracks_counter_delete
-                    AFTER DELETE ON wishlist_tracks BEGIN
-                        UPDATE wishlist_change_counter SET version = version + 1 WHERE id = 1;
-                    END
-                """)
-
             # Wishlist removal audit (#1289). A wishlist row is deleted, not
             # tombstoned, so when a user asks "where did this track go?" there
             # was nothing to look at: the only trace was a log line carrying an
@@ -2112,6 +2077,10 @@ class MusicDatabase:
             self._requeue_similar_artists_rematch(cursor)
             self._purge_beatport_positional_matches(cursor)
             self._normalize_genres_to_json(cursor)
+            # after every step that adds a wishlist_tracks column: the triggers
+            # name each column (see _ensure_wishlist_changes)
+            with self._migration_step(cursor, 'wishlist_changes'):
+                self._ensure_wishlist_changes(cursor)
             # after every step that creates indexes (and _replace_table, which
             # carries a rebuilt table's old ones over)
             self._drop_redundant_indexes(cursor)
@@ -18262,17 +18231,78 @@ class MusicDatabase:
             logger.error(f"Error clearing wishlist: {e}")
             return False
 
-    def get_wishlist_change_counter(self) -> tuple:
-        """(version, added) of wishlist_tracks: bumped by triggers on every
-        write; (-1, -1) when it can't be read (callers then don't reuse)."""
+    #: the columns a retry stamp writes (update_wishlist_retry, the backoff reset)
+    _WISHLIST_RETRY_COLUMNS = ("retry_count", "last_attempted", "failure_reason")
+
+    def _ensure_wishlist_changes(self, cursor) -> None:
+        """Per-profile change counters for wishlist_tracks, kept by triggers on
+        every write whichever code path makes it, so the Wanted reads
+        (core/wishlist/read_cache.py) can reuse what they built until the list
+        changes:
+
+        - ``version``: inserts, deletes and any update that changes a column
+          other than the retry ones (both the old and the new owner's row);
+        - ``added``: inserts only (the duplicate sweep runs after one);
+        - ``retry``: updates that change only the retry columns. A wishlist run
+          stamps one per track attempt; the reads may lag those by a few
+          seconds rather than rebuild on every one.
+
+        The update triggers list the table's columns, so they're made again on
+        every start, after every step that may add one.
+        """
+        # the first version: one global counter, every update a change
+        for name in ("insert", "update", "delete"):
+            cursor.execute(f"DROP TRIGGER IF EXISTS wishlist_tracks_counter_{name}")
+        cursor.execute("DROP TABLE IF EXISTS wishlist_change_counter")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wishlist_changes (
+                profile_id INTEGER PRIMARY KEY,
+                version INTEGER NOT NULL DEFAULT 0,
+                added INTEGER NOT NULL DEFAULT 0,
+                retry INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        columns = [row[1] for row in cursor.execute("PRAGMA table_info(wishlist_tracks)").fetchall()]
+        retry_cols = [c for c in columns if c in self._WISHLIST_RETRY_COLUMNS]
+        other_cols = [c for c in columns if c not in self._WISHLIST_RETRY_COLUMNS]
+        edited = " OR ".join(f'NEW."{c}" IS NOT OLD."{c}"' for c in other_cols) or "0"
+        retried = " OR ".join(f'NEW."{c}" IS NOT OLD."{c}"' for c in retry_cols) or "0"
+
+        def bump(row: str, sets: str) -> str:
+            pid = f"COALESCE({row}.profile_id, 0)"
+            return (f"INSERT OR IGNORE INTO wishlist_changes (profile_id) VALUES ({pid}); "
+                    f"UPDATE wishlist_changes SET {sets} WHERE profile_id = {pid};")
+
+        triggers = {
+            "wishlist_changes_insert": (
+                "AFTER INSERT ON wishlist_tracks",
+                bump("NEW", "version = version + 1, added = added + 1")),
+            "wishlist_changes_delete": (
+                "AFTER DELETE ON wishlist_tracks",
+                bump("OLD", "version = version + 1")),
+            "wishlist_changes_edit": (
+                f"AFTER UPDATE ON wishlist_tracks WHEN {edited}",
+                bump("OLD", "version = version + 1") + " " + bump("NEW", "version = version + 1")),
+            "wishlist_changes_retry": (
+                f"AFTER UPDATE ON wishlist_tracks WHEN NOT ({edited}) AND ({retried})",
+                bump("NEW", "retry = retry + 1")),
+        }
+        for name, (when, body) in triggers.items():
+            cursor.execute(f"DROP TRIGGER IF EXISTS {name}")
+            cursor.execute(f"CREATE TRIGGER {name} {when} BEGIN {body} END")
+
+    def get_wishlist_change_counter(self, profile_id: int = 1) -> tuple:
+        """(version, added, retry) for a profile's wishlist (see
+        _ensure_wishlist_changes); (-1, -1, -1) when it can't be read."""
         try:
             with self._get_connection() as conn:
                 row = conn.execute(
-                    "SELECT version, added FROM wishlist_change_counter WHERE id = 1").fetchone()
-                return (int(row[0]), int(row[1])) if row else (-1, -1)
-        except Exception as e:
-            logger.debug("wishlist change counter unavailable: %s", e)
-            return (-1, -1)
+                    "SELECT version, added, retry FROM wishlist_changes WHERE profile_id = ?",
+                    (int(profile_id),)).fetchone()
+            return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
+        except Exception as e:  # noqa: BLE001 - the reads then never reuse a build
+            logger.debug("wishlist change counter unreadable: %s", e)
+            return (-1, -1, -1)
 
     # a row the SQL aggregate can classify: JSON that parses (get_wishlist_tracks
     # skips a row whose spotify_data or source_info doesn't) and the plain shape
@@ -25698,6 +25728,19 @@ class MusicDatabase:
                 return {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
         except Exception as e:
             logger.error("Error loading quarantine source blocks: %s", e)
+            return set()
+
+    def get_quarantine_source_block_files(self, username: str) -> set:
+        """the blocked filenames for one username (the UNIQUE(username,
+        filename) index answers it)."""
+        try:
+            with self._get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT filename FROM quarantine_source_blocks WHERE username = ?",
+                    (str(username),)).fetchall()
+            return {str(r[0]) for r in rows}
+        except Exception as e:
+            logger.error("Error loading quarantine source blocks for %s: %s", username, e)
             return set()
 
     def remove_quarantine_source_block(self, username: str, filename: str) -> bool:

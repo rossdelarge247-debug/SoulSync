@@ -343,20 +343,22 @@ def get_wishlist_tracks():
     """
     try:
         from flask import Response
-        from core.wishlist.read_cache import shared_cache
-        from core.wishlist.routes import wishlist_tracks_read
+        from core.wishlist.read_cache import CACHED_BODIES
+        from core.wishlist.routes import wishlist_tracks_body
 
         category = request.args.get('category', None)  # None = all tracks
         limit = request.args.get('limit', type=int, default=None)  # None = no limit
         runtime = _build_wishlist_route_runtime()
-        # one shared read per profile until the wishlist changes, and the
-        # response serialised once per category (core/wishlist/read_cache.py)
-        build, reusable, payload, status_code = wishlist_tracks_read(
-            runtime, category=category, limit=limit)
-        if build is None or reusable is None or status_code != 200:
-            return jsonify(payload), status_code
-        body = shared_cache().body(build, category, lambda: jsonify(payload).get_data())
-        return Response(body, status=status_code, mimetype='application/json')
+        if limit is None and category in CACHED_BODIES:
+            # one shared read per profile until the wishlist changes, and the
+            # albums and singles bodies serialised once (core/wishlist/read_cache.py)
+            body, error, status_code = wishlist_tracks_body(
+                runtime, category, lambda payload: jsonify(payload).get_data())
+            if body is None:
+                return jsonify(error), status_code
+            return Response(body, status=status_code, mimetype='application/json')
+        payload, status_code = _wishlist_get_wishlist_tracks(runtime, category=category, limit=limit)
+        return jsonify(payload), status_code
     except Exception as e:
         logger.error(f"Error getting wishlist tracks: {e}")
         return jsonify({"error": str(e)}), 500

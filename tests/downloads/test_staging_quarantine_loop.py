@@ -54,8 +54,8 @@ def blocks(monkeypatch):
     rows = set()
 
     class FakeDb:
-        def get_quarantine_source_blocks(self):
-            return set(rows)
+        def get_quarantine_source_block_files(self, username):
+            return {f for u, f in rows if u == username}
 
         def add_quarantine_source_block(self, username, filename, **_):
             rows.add((username, filename))

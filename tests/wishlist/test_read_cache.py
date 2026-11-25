@@ -118,51 +118,95 @@ def _seed_edge_cases(mdb):
 # ── the change counter ───────────────────────────────────────────────────────
 
 
-def _counter(mdb):
-    return mdb.get_wishlist_change_counter()
+def _counter(mdb, profile=1):
+    return mdb.get_wishlist_change_counter(profile)
 
 
-def test_every_write_moves_the_counter_and_inserts_move_added(mdb):
-    v0, a0 = _counter(mdb)
-    _insert(mdb, "t1", _song("t1", "One"))
-    assert _counter(mdb) == (v0 + 1, a0 + 1)
+def _sql(mdb, statement, *args):
     conn = mdb._get_connection()
-    conn.execute("UPDATE wishlist_tracks SET retry_count = retry_count + 1")
-    conn.commit()
-    assert _counter(mdb) == (v0 + 2, a0 + 1)
-    conn.execute("DELETE FROM wishlist_tracks")
+    conn.execute(statement, args)
     conn.commit()
     conn.close()
-    assert _counter(mdb) == (v0 + 3, a0 + 1)
+
+
+def test_writes_move_the_counters(mdb):
+    """version: inserts, deletes, real edits; added: inserts; retry: updates
+    that change only the retry columns."""
+    assert _counter(mdb) == (0, 0, 0)
+    _insert(mdb, "t1", _song("t1", "One"))
+    assert _counter(mdb) == (1, 1, 0)
+    mdb.update_wishlist_retry("t1", False, "no results", profile_id=1)
+    assert _counter(mdb) == (1, 1, 1)
+    mdb.reset_wishlist_retry_backoff(profile_id=1)
+    assert _counter(mdb) == (1, 1, 2)
+    _sql(mdb, "UPDATE wishlist_tracks SET retry_count = retry_count")  # nothing changed
+    assert _counter(mdb) == (1, 1, 2)
+    _sql(mdb, "UPDATE wishlist_tracks SET source_info = '{}', retry_count = 9")  # an edit too
+    assert _counter(mdb)[:2] == (3, 1)  # both owners' rows: here the same one, twice
+    _sql(mdb, "DELETE FROM wishlist_tracks")
+    assert _counter(mdb)[:2] == (4, 1)
+
+
+def test_the_counters_are_per_profile(mdb):
+    _insert(mdb, "t1", _song("t1", "One"), profile=1)
+    _insert(mdb, "t2", _song("t2", "Two"), profile=2)
+    before = _counter(mdb, 2)
+    mdb.update_wishlist_retry("t1", False, "no results", profile_id=1)
+    _sql(mdb, "UPDATE wishlist_tracks SET source_info = '{}' WHERE profile_id = 1")
+    assert _counter(mdb, 2) == before
+    # a row moved between profiles moves both
+    _sql(mdb, "UPDATE wishlist_tracks SET profile_id = 2 WHERE spotify_track_id = 't1'")
+    assert _counter(mdb, 2)[0] == before[0] + 1
 
 
 def test_a_fresh_database_keeps_its_triggers_through_the_profile_rebuild(mdb):
     """The profile migration rebuilds wishlist_tracks (drop + rename), which
-    drops a table's triggers: they must be put back."""
+    drops a table's triggers; the triggers are made after every schema step."""
     conn = mdb._get_connection()
     names = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'wishlist_tracks'")}
     conn.close()
-    assert {"wishlist_tracks_counter_insert", "wishlist_tracks_counter_update",
-            "wishlist_tracks_counter_delete"} <= names
+    assert {"wishlist_changes_insert", "wishlist_changes_delete", "wishlist_changes_edit",
+            "wishlist_changes_retry"} <= names
 
 
-def test_an_old_database_gets_the_counter_on_start(tmp_path):
+def test_a_table_rebuild_keeps_its_triggers(mdb):
+    conn = mdb._get_connection()
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE wishlist_tracks_new AS SELECT * FROM wishlist_tracks")
+    mdb._replace_table(cursor, "wishlist_tracks", "wishlist_tracks_new")
+    conn.commit()
+    conn.close()
+    _insert(mdb, "t1", _song("t1", "One"))
+    assert _counter(mdb)[:2] == (1, 1)
+
+
+def test_an_old_database_gets_the_counters_on_start(tmp_path):
+    """Without the counters (an older install), or with the first version's
+    single global one: the next start makes them."""
     path = str(tmp_path / "old.db")
     MusicDatabase(path)
     conn = sqlite3.connect(path)
-    for name in ("insert", "update", "delete"):
-        conn.execute(f"DROP TRIGGER wishlist_tracks_counter_{name}")
-    conn.execute("DROP TABLE wishlist_change_counter")
+    for name in ("insert", "delete", "edit", "retry"):
+        conn.execute(f"DROP TRIGGER wishlist_changes_{name}")
+    conn.execute("DROP TABLE wishlist_changes")
+    conn.execute("CREATE TABLE wishlist_change_counter (id INTEGER PRIMARY KEY, version INTEGER,"
+                 " added INTEGER)")
+    conn.execute("CREATE TRIGGER wishlist_tracks_counter_update AFTER UPDATE ON wishlist_tracks"
+                 " BEGIN UPDATE wishlist_change_counter SET version = version + 1; END")
     conn.commit()
     conn.close()
 
     import database.music_database as mdb_module
     mdb_module._database_initialized_paths.discard(str((tmp_path / "old.db").resolve()))
     db = MusicDatabase(path)
-    assert _counter(db) == (0, 0)
+    assert _counter(db) == (0, 0, 0)
     _insert(db, "t1", _song("t1", "One"))
-    assert _counter(db) == (1, 1)
+    assert _counter(db) == (1, 1, 0)
+    conn = sqlite3.connect(path)
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+    conn.close()
+    assert "wishlist_change_counter" not in names and "wishlist_tracks_counter_update" not in names
 
 
 # ── the stats aggregate ──────────────────────────────────────────────────────
@@ -285,6 +329,154 @@ def test_a_build_older_than_max_age_is_made_again(mdb, service, monkeypatch):
     assert cache.build(mdb, 1) is not first
 
 
+# ── a wishlist run's retry stamps ────────────────────────────────────────────
+
+
+@pytest.fixture()
+def clock(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr("core.wishlist.read_cache.time.monotonic", lambda: now[0])
+    return now
+
+
+def _reads(mdb, monkeypatch):
+    reads = []
+    real = mdb.get_wishlist_tracks
+    monkeypatch.setattr(mdb, "get_wishlist_tracks", lambda **kw: reads.append(kw) or real(**kw))
+    return reads
+
+
+def _tries(payload, track_id):
+    return next(t for t in payload["tracks"]
+                if (t.get("spotify_track_id") or t.get("id")) == track_id)["retry_count"]
+
+
+def test_retry_stamps_reuse_the_build_for_up_to_15_s(mdb, service, monkeypatch, clock):
+    """A wishlist run stamps a retry about once a second: the reads keep the
+    build (retry details up to 15 s old) instead of rebuilding on each one."""
+    _seed_edge_cases(mdb)
+    reads = _reads(mdb, monkeypatch)
+    rt = _runtime(mdb)
+    first, _ = get_wishlist_tracks(rt, category="singles")
+    for second in range(1, 15):
+        clock[0] += 1
+        mdb.update_wishlist_retry("s1", False, "no results", profile_id=1)
+        payload, _ = get_wishlist_tracks(rt, category="singles")
+        assert _tries(payload, "s1") == _tries(first, "s1")
+    assert len(reads) == 1
+
+    clock[0] += 1  # 15 s since the build: the stamps show
+    payload, _ = get_wishlist_tracks(rt, category="singles")
+    assert len(reads) == 2
+    assert _tries(payload, "s1") == _tries(first, "s1") + 14
+
+
+def test_without_retry_stamps_a_build_isnt_redone_at_15_s(mdb, service, monkeypatch, clock):
+    _seed_edge_cases(mdb)
+    reads = _reads(mdb, monkeypatch)
+    rt = _runtime(mdb)
+    get_wishlist_tracks(rt, category="albums")
+    clock[0] += 50
+    get_wishlist_tracks(rt, category="albums")
+    assert len(reads) == 1
+
+
+def test_a_real_change_during_a_run_is_seen_at_once(mdb, service, monkeypatch, clock):
+    _seed_edge_cases(mdb)
+    reads = _reads(mdb, monkeypatch)
+    rt = _runtime(mdb)
+    before, _ = get_wishlist_tracks(rt, category="singles")
+    clock[0] += 1
+    mdb.update_wishlist_retry("s1", False, "no results", profile_id=1)
+    _insert(mdb, "new", _song("new", "New single", album_type="single"))
+    after, _ = get_wishlist_tracks(rt, category="singles")
+    assert len(reads) == 2 and after["total"] == before["total"] + 1
+    clock[0] += 1
+    _sql(mdb, "DELETE FROM wishlist_tracks WHERE spotify_track_id = 'new'")
+    assert get_wishlist_tracks(rt, category="singles")[0]["total"] == before["total"]
+
+
+def test_the_journey_rows_follow_the_same_rule(mdb, service, clock):
+    _seed_edge_cases(mdb)
+    rows = shared_cache().rows(mdb, 1)
+    clock[0] += 5
+    mdb.update_wishlist_retry("s1", False, "no results", profile_id=1)
+    assert shared_cache().rows(mdb, 1) is rows
+    clock[0] += 10
+    fresh = shared_cache().rows(mdb, 1)
+    assert fresh is not rows
+    assert next(r for r in fresh if r["spotify_track_id"] == "s1")["retry_count"] == 1
+
+
+def test_retry_stamps_dont_redo_the_stats(mdb, service, monkeypatch):
+    _seed_edge_cases(mdb)
+    made = []
+    real = mdb.count_wishlist_by_category
+    monkeypatch.setattr(mdb, "count_wishlist_by_category",
+                        lambda profile_id=1: made.append(profile_id) or real(profile_id))
+    rt = _runtime(mdb)
+    get_wishlist_stats(rt)
+    mdb.update_wishlist_retry("s1", False, "no results", profile_id=1)
+    get_wishlist_stats(rt)
+    assert made == [1]
+    _insert(mdb, "new", _song("new", "New single", album_type="single"))
+    assert get_wishlist_stats(rt)[0]["singles"] == real(1)["singles"]
+    assert made == [1, 1]
+
+
+def test_another_profiles_run_leaves_this_build_alone(mdb, service, monkeypatch):
+    _seed_edge_cases(mdb)
+    reads = _reads(mdb, monkeypatch)
+    rt = _runtime(mdb)
+    get_wishlist_tracks(rt, category="albums")
+    _insert(mdb, "p2", _song("p2", "Theirs", album_type="single"), profile=2)
+    _sql(mdb, "UPDATE wishlist_tracks SET source_info = '{}' WHERE profile_id = 2")
+    get_wishlist_tracks(rt, category="albums")
+    assert len(reads) == 1
+
+
+# ── what a build keeps ───────────────────────────────────────────────────────
+
+
+def test_once_both_bodies_exist_the_formatted_copy_is_let_go(mdb, service):
+    from flask import Flask, jsonify
+
+    from core.wishlist.routes import wishlist_tracks_body
+
+    _seed_edge_cases(mdb)
+    rt = _runtime(mdb)
+    with Flask(__name__).app_context():
+        def serialise(payload):
+            return jsonify(payload).get_data()
+
+        albums, _, _ = wishlist_tracks_body(rt, "albums", serialise)
+        build = shared_cache().build(mdb, 1)
+        assert build.sanitized is not None  # singles is still to come
+        singles, _, _ = wishlist_tracks_body(rt, "singles", serialise)
+        assert build.sanitized is None
+        assert set(build.bodies) == {"albums", "singles"}
+        # and the bodies are still the payloads, reused
+        assert wishlist_tracks_body(rt, "albums", serialise)[0] is albums
+        assert json.loads(singles) == json.loads(json.dumps(
+            _old_payload(service, mdb, "singles", None)))
+        # a limit or no category is still made, from the rows
+        assert get_wishlist_tracks(rt, category="albums", limit=2)[0]["tracks"]
+        assert build.sanitized is None
+
+
+def test_a_profile_unused_for_10_minutes_is_dropped(mdb, service, clock):
+    cache = WishlistReadCache()
+    cache.build(mdb, 1)
+    cache.counts(mdb, 1, lambda: {"singles": 0})
+    clock[0] += 599
+    cache.build(mdb, 2)
+    assert sorted(k[1] for k in cache._builds) == [1, 2]
+    clock[0] += 2  # profile 1 last used 601 s ago
+    cache.build(mdb, 2)
+    assert [k[1] for k in cache._builds] == [2]
+    assert [k[1] for k in cache._counts] == []
+
+
 # ── the duplicate sweep ──────────────────────────────────────────────────────
 
 
@@ -334,3 +526,11 @@ def test_the_journey_reads_the_shared_rows(mdb, service):
     assert {r["spotify_track_id"] for r in rows} == {
         r["spotify_track_id"] for r in mdb.get_wishlist_tracks(profile_id=1)}
     assert shared_cache().rows(mdb, 1) is rows
+
+
+def test_the_staging_block_lookup_reads_one_song(mdb):
+    mdb.add_quarantine_source_block("staging:id:a", "/s/x.mp3|1|2", trigger="t")
+    mdb.add_quarantine_source_block("staging:id:b", "/s/y.mp3|1|2", trigger="t")
+    mdb.add_quarantine_source_block("someone", "z.mp3", trigger="t")
+    assert mdb.get_quarantine_source_block_files("staging:id:a") == {"/s/x.mp3|1|2"}
+    assert mdb.get_quarantine_source_block_files("staging:id:none") == set()
