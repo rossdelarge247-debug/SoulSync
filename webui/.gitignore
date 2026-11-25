@@ -13,3 +13,6 @@ tests/layout/__fixtures__
 # cannot read a WSL /tmp path) and is unlinked on the way out — but a killed run
 # leaves one behind, and 43 of them would otherwise show up as untracked.
 .oxlintrc.globalcheck.*.json
+
+# tsc -b writes its incremental build state here
+*.tsbuildinfo

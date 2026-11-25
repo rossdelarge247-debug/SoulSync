@@ -17233,9 +17233,12 @@ def _get_staging_file_cache(batch_id):
                 del _staging_tag_cache[path]
         return []
 
+    from core.downloads.staging import staged_file_skip_reason
+
     files = []
     fresh = {}
     reused = 0
+    skipped = 0
     for root, _dirs, filenames in os.walk(staging_path):
         for fname in filenames:
             ext = os.path.splitext(fname)[1].lower()
@@ -17247,6 +17250,11 @@ def _get_staging_file_cache(batch_id):
             except OSError:
                 # Vanished mid-walk (import moved it out) — same outcome as
                 # the old cache-hit path, which filtered on os.path.exists.
+                continue
+            # empty files and macOS "._" resource forks can never be a match:
+            # leave them out (no tag read, no candidate)
+            if staged_file_skip_reason(fname, st.st_size):
+                skipped += 1
                 continue
             key = (st.st_mtime, st.st_size)
 
@@ -17286,7 +17294,9 @@ def _get_staging_file_cache(batch_id):
 
     logger.info(
         f"[Staging] Scanned {len(files)} audio files in staging folder "
-        f"({reused} tags reused from cache)"
+        f"({reused} tags reused from cache"
+        + (f", {skipped} empty or macOS resource files left out" if skipped else "")
+        + ")"
     )
     return files
 

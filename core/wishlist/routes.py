@@ -6,7 +6,8 @@ import json
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Dict
+from functools import lru_cache
+from typing import Any, Callable, Dict, List
 
 from core.metadata import normalize_image_url
 from core.metadata.artwork import is_internal_image_host
@@ -173,7 +174,12 @@ def get_wishlist_count(runtime: WishlistRouteRuntime) -> tuple[Dict[str, Any], i
 def get_wishlist_stats(runtime: WishlistRouteRuntime) -> tuple[Dict[str, Any], int]:
     """Return wishlist statistics for the UI."""
     try:
-        raw_tracks = get_wishlist_service().get_wishlist_tracks_for_download(profile_id=runtime.profile_id)
+        # one SQL pass (the same rule as classify_wishlist_track), not a parse
+        # of every row's JSON on each poll, and only when the wishlist changed
+        from core.wishlist.read_cache import shared_cache
+        db = runtime.get_music_database()
+        counts = shared_cache().counts(
+            db, runtime.profile_id, lambda: db.count_wishlist_by_category(runtime.profile_id))
         next_run_in_seconds = runtime.get_next_run_seconds("process_wishlist") if runtime.get_next_run_seconds else 0
         is_processing = runtime.is_wishlist_actually_processing()
         current_cycle = _get_wishlist_cycle(runtime.get_music_database)
@@ -186,12 +192,14 @@ def get_wishlist_stats(runtime: WishlistRouteRuntime) -> tuple[Dict[str, Any], i
                 and batch.get("phase") not in ["complete", "error", "cancelled"]
             )
 
-        payload = build_wishlist_stats_payload(
-            raw_tracks,
-            next_run_in_seconds=next_run_in_seconds,
-            is_auto_processing=is_processing,
-            current_cycle=current_cycle,
-        )
+        payload = {
+            "singles": counts["singles"],
+            "albums": counts["albums"],
+            "total": counts["total"],
+            "next_run_in_seconds": next_run_in_seconds,
+            "is_auto_processing": is_processing,
+            "current_cycle": current_cycle,
+        }
         payload["active_batches"] = active_batches
         return payload, 200
     except Exception as exc:
@@ -265,8 +273,14 @@ def _needs_image_fix(url: str | None) -> bool:
     if url.startswith('/') and not url.startswith('//'):
         return True
     if url.startswith('http://') or url.startswith('https://'):
-        return is_internal_image_host(url)
+        # decided once per origin: thousands of wanted songs share a few hosts
+        return _internal_origin('/'.join(url.split('/', 3)[:3]))
     return False
+
+
+@lru_cache(maxsize=1024)
+def _internal_origin(origin: str) -> bool:
+    return is_internal_image_host(origin)
 
 
 def _enrich_wishlist_images(tracks: list[dict[str, Any]], db: Any) -> dict[str, str]:
@@ -324,61 +338,99 @@ def _enrich_wishlist_images(tracks: list[dict[str, Any]], db: Any) -> dict[str, 
     return artist_images
 
 
+def _wishlist_batch_active(runtime: WishlistRouteRuntime) -> bool:
+    with runtime.tasks_lock:
+        return any(
+            batch.get("playlist_id") == "wishlist" and batch.get("phase") in ["analysis", "downloading"]
+            for batch in runtime.download_batches.values()
+        )
+
+
+def _sanitized_rows(build: Any, runtime: WishlistRouteRuntime) -> List[Dict[str, Any]]:
+    """The build's rows formatted for download and sanitized, once per build
+    (what get_wishlist_tracks_for_download + the display sanitizer made)."""
+    from core.wishlist.read_cache import CACHED_BODIES
+    from core.wishlist.selection import sanitize_and_dedupe_wishlist_tracks
+    sanitized = build.sanitized
+    if sanitized is None:
+        service = get_wishlist_service()
+        formatted = []
+        for row in build.rows:
+            track = service.format_track_for_download(row)
+            track.setdefault("profile_id", runtime.profile_id)
+            formatted.append(track)
+        sanitized, build.duplicates_found = sanitize_and_dedupe_wishlist_tracks(formatted)
+        if build.duplicates_found > 0:
+            runtime.logger.warning(
+                "[API-Wishlist-Tracks] Found and removed %s duplicate tracks during sanitization",
+                build.duplicates_found,
+            )
+        # kept for the other category's body; once both exist it isn't needed
+        if not all(c in build.bodies for c in CACHED_BODIES):
+            build.sanitized = sanitized
+    return sanitized
+
+
+def _tracks_payload(runtime: WishlistRouteRuntime, db: Any, build: Any, category: str | None,
+                    limit: int | None) -> Dict[str, Any]:
+    """The tracks route's payload: the same steps as before (sanitize, filter
+    by category, cut to the limit, then the art), from the shared build."""
+    from core.wishlist.selection import filter_wishlist_tracks_by_category
+    sanitized = _sanitized_rows(build, runtime)
+    tracks, total = sanitized, len(sanitized)
+    if category:
+        tracks, total = filter_wishlist_tracks_by_category(sanitized, category)
+    if limit is not None:
+        tracks = tracks[:limit]
+    # Make library-sourced art renderable + supply artist photos (see _enrich_wishlist_images).
+    artist_images = _enrich_wishlist_images(tracks, db)
+    if category:
+        runtime.logger.info(
+            "Wishlist filter: %s/%s tracks in '%s' category (limit: %s)",
+            len(tracks), total, category, limit or "none",
+        )
+        return {"tracks": tracks, "category": category, "total": total,
+                "artist_images": artist_images}
+    return {"tracks": tracks, "total": total, "artist_images": artist_images}
+
+
+def _tracks_build(runtime: WishlistRouteRuntime, db: Any) -> Any:
+    from core.wishlist.read_cache import shared_cache
+    return shared_cache().build(db, runtime.profile_id,
+                                batch_active=lambda: _wishlist_batch_active(runtime),
+                                log=runtime.logger)
+
+
+def wishlist_tracks_body(
+    runtime: WishlistRouteRuntime,
+    category: str,
+    serialise: Callable[[Dict[str, Any]], bytes],
+) -> tuple[bytes | None, Dict[str, Any] | None, int]:
+    """(body, None, 200) for the albums or singles list, serialised once per
+    shared build (core.wishlist.read_cache), or (None, error payload, 500)."""
+    from core.wishlist.read_cache import shared_cache
+    try:
+        db = runtime.get_music_database()
+        build = _tracks_build(runtime, db)
+        body = shared_cache().body(
+            build, category, lambda: serialise(_tracks_payload(runtime, db, build, category, None)))
+        return body, None, 200
+    except Exception as exc:
+        runtime.logger.error("Error getting wishlist tracks: %s", exc)
+        return None, {"error": str(exc)}, 500
+
+
 def get_wishlist_tracks(
     runtime: WishlistRouteRuntime,
     *,
     category: str | None = None,
     limit: int | None = None,
 ) -> tuple[Dict[str, Any], int]:
-    """Return wishlist tracks for the modal UI."""
+    """Return wishlist tracks for the modal UI, from the shared build."""
     try:
         db = runtime.get_music_database()
-
-        with runtime.tasks_lock:
-            wishlist_batch_active = any(
-                batch.get("playlist_id") == "wishlist" and batch.get("phase") in ["analysis", "downloading"]
-                for batch in runtime.download_batches.values()
-            )
-
-        if not wishlist_batch_active:
-            duplicates_removed = db.remove_wishlist_duplicates(profile_id=runtime.profile_id)
-            if duplicates_removed > 0:
-                runtime.logger.warning("Cleaned %s duplicate tracks from wishlist", duplicates_removed)
-        else:
-            runtime.logger.warning("Skipping wishlist duplicate cleanup - download in progress")
-
-        raw_tracks = get_wishlist_service().get_wishlist_tracks_for_download(profile_id=runtime.profile_id)
-        prepared = prepare_wishlist_tracks_for_display(raw_tracks, category=category, limit=limit)
-
-        if prepared["duplicates_found"] > 0:
-            runtime.logger.warning(
-                "[API-Wishlist-Tracks] Found and removed %s duplicate tracks during sanitization",
-                prepared["duplicates_found"],
-            )
-
-        # Make library-sourced art renderable + supply artist photos (see _enrich_wishlist_images).
-        artist_images = _enrich_wishlist_images(prepared["tracks"], db)
-
-        if category:
-            runtime.logger.info(
-                "Wishlist filter: %s/%s tracks in '%s' category (limit: %s)",
-                len(prepared["tracks"]),
-                prepared["total"],
-                category,
-                limit or "none",
-            )
-            return {
-                "tracks": prepared["tracks"],
-                "category": category,
-                "total": prepared["total"],
-                "artist_images": artist_images,
-            }, 200
-
-        return {
-            "tracks": prepared["tracks"],
-            "total": prepared["total"],
-            "artist_images": artist_images,
-        }, 200
+        build = _tracks_build(runtime, db)
+        return _tracks_payload(runtime, db, build, category, limit), 200
     except Exception as exc:
         runtime.logger.error("Error getting wishlist tracks: %s", exc)
         return {"error": str(exc)}, 500

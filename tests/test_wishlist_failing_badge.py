@@ -28,6 +28,10 @@ _ORB = (_WL / "-ui" / "wishlist-orb.tsx").read_text(encoding="utf-8", errors="re
 _WANTED = _ROOT / "webui" / "src" / "routes" / "wanted"
 _WANTED_TAB = (_WANTED / "-ui" / "wanted-tab.tsx").read_text(encoding="utf-8", errors="replace")
 _WANTED_HELPERS = (_WANTED / "-wanted.helpers.ts").read_text(encoding="utf-8", errors="replace")
+_WANTED_JOURNEY = (_WANTED / "-wanted.journey.ts").read_text(encoding="utf-8", errors="replace")
+_WANTED_TYPES = (_WANTED / "-wanted.types.ts").read_text(encoding="utf-8", errors="replace")
+_WANTED_REDIRECTS = (_WANTED / "-wanted.redirects.ts").read_text(encoding="utf-8", errors="replace")
+_WISHLIST_ROUTE = (_WL / "route.tsx").read_text(encoding="utf-8", errors="replace")
 _NEBULA = (_WANTED / "-ui" / "nebula-view.tsx").read_text(encoding="utf-8", errors="replace")
 _NEBULA_HELPERS = (_WANTED / "-wanted.nebula.ts").read_text(encoding="utf-8", errors="replace")
 # where the Wanted tab hands the nebula its props
@@ -69,11 +73,21 @@ def test_failing_rollup_counts_albums_and_singles():
 
 
 def test_failing_filter_chip_is_wired():
-    # the Failing chip is the Wanted tab's "Not found yet" filter now, at the
-    # same threshold
-    assert "{ key: 'not-found', label: 'Not found yet'" in _WANTED_TAB
-    assert "tries >= WL_FAILING_ATTEMPTS ? 'not-found' : 'searching'" in _WANTED_HELPERS
-    assert "filter === 'not-found' && (row.type !== 'wanted' || row.item.status !== 'not-found')" in _WANTED_HELPERS
+    # the Failing chip is the Wanted tab's "Not found" Show filter now (the
+    # Wanted journey, step 1: one status per song), at the same threshold
+    assert "{ key: 'not-found', label: 'Not found', count: counts.notFound, dot: 'danger' }" in _WANTED_TAB
+    # a song is Not found once it has had WL_FAILING_ATTEMPTS tries (and isn't
+    # downloading, searching or held for a decision right now)
+    assert "if (track.tries >= WL_FAILING_ATTEMPTS) return 'not-found';" in _WANTED_JOURNEY
+    # the chip lists the rows with a song at that step
+    assert "case 'not-found':\n      return filter;" in _WANTED_HELPERS
+    assert "if (step && (row.type !== 'wanted' || row.item.trackStates[step] === 0)) return false;" in _WANTED_HELPERS
+    # ?filter=not-found is a Show filter the URL keeps
+    assert "'not-found'," in _WANTED_TYPES[_WANTED_TYPES.index("export const WANTED_FILTERS"):]
+    # the old Wishlist link's ?failing=1 (or =true) lands on that filter
+    assert ".transform((v) => v === true || v === 1 || v === '1' || v === 'true')" in _TYPES
+    assert "...(search.failing ? { filter: 'not-found' } : {})," in _WANTED_REDIRECTS
+    assert "wantedSearchFromWishlist(search)" in _WISHLIST_ROUTE
     # the nebula follows the same filter, and respects the rollup. Since the
     # board 9a redraw it takes the Show filter itself and draws one column per
     # state: an artist is filed under its worst thing (not found first), so

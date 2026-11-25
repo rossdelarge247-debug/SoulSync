@@ -235,6 +235,59 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-11-24: Dev, the staging loop and the Wanted list reads
+
+Built on `fix/staging-loop-and-wishlist-reads` from `integration` (afb6c676), from Ross's numbers: 8,930 wanted songs, the process at 133% CPU with 196 threads and 414 download batches, one gunicorn worker with 8 threads. Wanted's albums read took 57 s, singles 47 s, the journey 47 s and the stats 58.6 s (5.9 s of it CPU).
+
+- **The staging → quarantine loop.** 'Tribes (Original Mix)' by Monty matched the staged '95. Monte - True (Original Mix).mp3' at 0.85 (the shared "(Original Mix)" lifted the title over 0.80, Monty/Monte the artist). Verification quarantined the copy, Wanted still wanted Tribes, and every ~17 s the next cycle took the same file again. The file is 0 bytes (from 2012, in a staging folder of ~1,400 files copied off a Mac over SMB).
+  - **Core titles.** Titles are also compared with bracketed parts, a trailing " - … Mix/Edit/…" and "feat …" stripped from both sides (and each tail of a release-style stem, "Artist - Album - 03 - Title"). A different core title is a mismatch whatever the suffix (`_core_titles_differ` in `core/downloads/staging.py`).
+  - **A rejected file isn't tried again for that song.** When post-processing quarantines a staged copy, `move_to_quarantine` records a block in `quarantine_source_blocks` (`staging:<song>`, the file as `path|size|mtime_ns`; the song is its source id, else artist and title). `try_staging_match` skips blocked files for that song. Another song can still take the file, and a changed file (another size or mtime) gets another chance.
+  - **Files that can't be audio are never candidates.** The staging scan leaves out empty files and macOS "._" resource forks (no tag read), and `try_staging_match` also turns away a missing, unreadable or empty file, and one whose header is a macOS resource fork, before copying anything.
+  - **Transfer is clean.** The copy in Transfer is what gets moved into quarantine, so nothing is left behind there; the test checks it.
+- **The Wanted list reads** (`core/wishlist/read_cache.py`):
+  - **One shared read per profile, reused until the list changes.** Triggers on `wishlist_tracks` keep per-profile counters in `wishlist_changes`, whichever code path writes: `version` for inserts, deletes and any update that changes a column other than `retry_count`, `last_attempted` and `failure_reason`; `added` for inserts; `retry` for updates that change only those three. The update triggers list the table's columns, so they're made again on every start, after every schema step. A real change is seen on the next read. While only `retry` has moved (a wishlist run stamps one per track it tries, about one a second), a build is kept until it's 15 s old, so retry details lag by at most 15 s. A build is also at most 60 s old (the artist photos come from the library), and one unused for 10 minutes is dropped. One profile's writes leave the others' builds alone. The albums and singles requests share one parse and one formatting pass, and each response is serialised once: a repeat answers with the same bytes.
+  - **What a build holds:** the parsed rows (the journey reads them; a request with a limit or without a category is made from them) and the albums and singles bodies. The formatted copy is let go once both bodies exist, and the rows share one copy of each repeated `available_markets` list (every song carries Spotify's ~185-country list twice). At 9,000 rows that's about 122 MB of Python memory: 70 MB of bodies (42.5 MB albums, 27.7 MB singles) and ~52 MB of rows, down from ~300 MB.
+  - **The duplicate sweep is off the plain GET.** It runs on the first read after something was added (the counter's `added`), and never while a wishlist batch runs, instead of on every albums and singles request.
+  - **The stats are a SQL aggregate** (`count_wishlist_by_category`, the same rule as `classify_wishlist_track`; odd rows are classified in Python and rows that don't parse are left out, as before), kept until `version` moves (retry stamps don't change them).
+  - **The journey reads the shared rows.** The image fix-up decides once per host, and the category filter classifies each row once.
+  - The staging block lookup reads one song's blocks (`WHERE username = ?`, on the table's index), not the whole table.
+  - **Responses are unchanged:** the same payloads, built by the same functions; the tests compare them with the old route's output.
+  - A table rebuild (`_replace_table`) now puts back the table's triggers as well as its indexes: the profile migration rebuilds `wishlist_tracks` on a fresh install.
+- **Wanted waits up to 60 s for each list read** (was ky's 10 s), and keeps saying "Loading your list…" meanwhile.
+- **Measured** at 9,000 rows (~3.2 KB of track JSON each, as Spotify stores it), CPU per request on this machine, same script on both:
+
+  | | `integration` | this branch, after a write | this branch, unchanged |
+  | --- | --- | --- | --- |
+  | Albums | 1.05 s | 0.91 s | 0.00 s |
+  | Singles | 0.95 s | 0.22 s | 0.00 s |
+  | Stats | 0.65 s | 0.16 s | 0.00 s |
+  | Journey | 0.47 s | 0.04 s | 0.03 s |
+  | A page load (all four) | 3.1 s | 1.33 s | 0.03 s |
+
+  **During a wishlist run** (a retry stamp every second, the four reads polled every 5 s for a minute), CPU per poll of all four: `integration` 3.53 s on average (3.12–3.97 s); the first push of this branch (4f08b10c, every stamp a change) 2.52 s; now 0.35 s on average, 1.45 s for the poll that lands on the 15 s rebuild and 0.03 s otherwise.
+
+  The top costs before (cProfile): parsing every row's JSON (27,001 `json.loads`, ~0.4 s per read), serialising 42 MB for albums and 28 MB for singles, the duplicate sweep on every request (~0.24 s), formatting every row, and checking every image URL's host. After a write, albums' first read is mostly the one parse (~0.4 s) and the serialisation (~0.25 s); singles then reuses the parse.
+- **Not changed, worth a look** (report only):
+  - Most of the 42 MB is each song's `available_markets` list. Leaving it out of the list response would roughly halve the albums read and the transfer, but changes the response, so it's left.
+  - **Spelling variants under a shared suffix are left as they are.** The core-title check compares the cores by similarity (0.80), so "Luv You (Original Mix)" against "Love You (Original Mix)" can still match on a close core. Only a different core title is turned away.
+  - The staging scan walks and stats all ~1,400 files for every download task, and the wishlist dispatches one batch per song. A walk shared for a few seconds across tasks would save most of it.
+  - Finished batches stay for at least 5 minutes, and the 30 s healer walks all of them under the tasks lock; with one batch per wanted song that's hundreds. No busy loop: the healer runs every 30 s and auto-import every 60 s (`auto_import.scan_interval`), each one pass.
+- **Tests:**
+  - pytest `tests/downloads/test_staging_quarantine_loop.py`: the Monte/Monty case (no match, nothing in Transfer), the same file still claimed by "True (Original Mix)", no repeat quarantine over three cycles, another song and a changed file, empty, resource-fork and missing files, and the scan leaving them out.
+  - pytest `tests/wishlist/test_read_cache.py`: the counters (what moves which, per profile, on an old database and through a rebuild), the stats counts against parsing every row (odd rows included), the payloads and response bytes against the old route, a write seen on the next read, retry stamps kept for up to 15 s and shown after, a real change during a run seen at once, the journey and stats following the same rule, another profile's writes, the formatted copy let go, a profile dropped after 10 minutes, the sweep after inserts only and never during a batch, the 60 s limit, and the one-song block lookup.
+  - pytest `tests/test_wishlist_failing_badge.py`: the Failing chip's check follows the Wanted journey: the "Not found" Show filter, a song's Not found status at the threshold, the filter listing those rows, `?filter=not-found` kept in the URL, and the old `?failing=1` link landing on it.
+  - vitest: the list read is still waiting at 30 s and gives up after a minute.
+  - Staging fixtures that matched on an empty file now write a few bytes. The route fakes in `tests/wishlist/test_routes.py` gained the methods the shared read and the stats now call.
+- **Fix round 1 (review: no High or Medium; L1, L2, L3, L5 fixed, L4 left, see above):** retry stamps no longer rebuild the reads (L1), a build keeps only the bodies and the rows (L2), the staging block lookup reads one song (L3), and `webui/tsconfig.tsbuildinfo` is out of the repository and ignored (L5). The Failing chip's test, broken by the Wanted journey merge, checks the current wiring.
+- **Runs after fix round 1:**
+  - pytest (`-n 2`) over `tests/wishlist`, `tests/downloads`, `tests/imports`, `tests/activity`, `tests/database`, `tests/test_wishlist_failing_badge.py` and `tests/test_wanted_page_reads.py`: 4,028 passed. One fails here and on `integration`: `test_activity_api.py::test_the_feed_answers_with_the_contract`.
+  - The full vitest: 12,982 passed (745 files, two workers).
+  - ruff, tsc and `npm run check` are clean.
+- **Runs before fix round 1:**
+  - pytest (`-n 2`, numba warmed first) over `tests/downloads`, `tests/imports`, `tests/database`, `tests/wishlist` and every other test file that mentions the wishlist or staging (340 files): 11,247 passed. Two fail here and on `integration`: `test_activity_api.py::test_the_feed_answers_with_the_contract` and `test_wishlist_failing_badge.py::test_failing_filter_chip_is_wired`.
+  - The full vitest: 12,982 passed (745 files, two workers).
+  - ruff, tsc and `npm run check` are clean.
+
 ### 2026-11-24: Dev, Wanted on a slow downloads folder
 
 Built on `fix/wanted-slow-quarantine` from `integration` (e528e210). Ross's media PC (Docker Desktop on Windows, `downloads/` a bind mount) holds about 4,500 quarantined files, and listing and statting them there takes about 5 s. Wanted's journey read, Activity's badge and Needs you, Downloads' review count and list, and the approve/delete sibling lookups each listed and statted the folder on every request. Gunicorn runs one worker with 8 threads (`gunicorn.conf.py`: `gthread`, `workers = 1`, `threads = 8`, unchanged), and a few polls at once held them all, so Wanted's list timed out at 10 s ("Couldn't load your list").

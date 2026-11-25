@@ -54,12 +54,22 @@ export async function setWishlistRetryProfile(name: string): Promise<WishlistRet
   return payload;
 }
 
+/**
+ * How long a Wanted list read may take before it counts as failed. Reading a
+ * list of thousands on a busy server can take well over ky's default 10 s, and
+ * the page should keep saying "Loading your list…" meanwhile, not show an error.
+ */
+export const WISHLIST_TRACKS_TIMEOUT_MS = 60_000;
+
 export function wishlistTracksQueryOptions(profileId: number, category: 'albums' | 'singles') {
   return queryOptions({
     queryKey: [...WISHLIST_QUERY_KEY, 'tracks', profileId, category] as const,
     queryFn: () =>
       readJson<WishlistTracksResponse>(
-        apiClient.get('wishlist/tracks', { searchParams: { category } }),
+        apiClient.get('wishlist/tracks', {
+          searchParams: { category },
+          timeout: WISHLIST_TRACKS_TIMEOUT_MS,
+        }),
       ),
   });
 }

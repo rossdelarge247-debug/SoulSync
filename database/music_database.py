@@ -2077,6 +2077,12 @@ class MusicDatabase:
             self._requeue_similar_artists_rematch(cursor)
             self._purge_beatport_positional_matches(cursor)
             self._normalize_genres_to_json(cursor)
+            # after every step that adds a wishlist_tracks column: the triggers
+            # name each column (see _ensure_wishlist_changes)
+            with self._migration_step(cursor, 'wishlist_changes'):
+                # the request columns are otherwise added lazily at runtime
+                self._ensure_music_request_schema(cursor)
+                self._ensure_wishlist_changes(cursor)
             # after every step that creates indexes (and _replace_table, which
             # carries a rebuilt table's old ones over)
             self._drop_redundant_indexes(cursor)
@@ -2534,7 +2540,7 @@ class MusicDatabase:
 
     def _replace_table(self, cursor, table: str, new_table: str) -> None:
         """The end of a rebuild: drop ``table``, rename ``new_table`` to it and
-        put back the indexes ``table`` had.
+        put back the indexes and triggers ``table`` had.
 
         DROP TABLE takes a table's indexes with it, and the rebuilds only
         recreated one or two by hand. The rest came back on the next start, if
@@ -2546,6 +2552,10 @@ class MusicDatabase:
         cursor.execute("SELECT name, sql FROM sqlite_master "
                        "WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", (table,))
         indexes = cursor.fetchall()
+        # its triggers go with it too (e.g. wishlist_tracks' change counter)
+        cursor.execute("SELECT name, sql FROM sqlite_master "
+                       "WHERE type = 'trigger' AND tbl_name = ? AND sql IS NOT NULL", (table,))
+        triggers = cursor.fetchall()
         cursor.execute(f"DROP TABLE {table}")
         cursor.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
         for name, sql in indexes:
@@ -2555,6 +2565,12 @@ class MusicDatabase:
                 cursor.execute(sql)
             except sqlite3.Error as e:
                 logger.info("Rebuild of %s leaves out index %s, which the new table can't have: %s",
+                            table, name, e)
+        for name, sql in triggers:
+            try:
+                cursor.execute(sql)
+            except sqlite3.Error as e:
+                logger.info("Rebuild of %s leaves out trigger %s, which the new table can't have: %s",
                             table, name, e)
 
     def _sync_migration_ledger(self, cursor):
@@ -18217,6 +18233,143 @@ class MusicDatabase:
             logger.error(f"Error clearing wishlist: {e}")
             return False
 
+    #: the columns a retry stamp writes (update_wishlist_retry, the backoff reset)
+    _WISHLIST_RETRY_COLUMNS = ("retry_count", "last_attempted", "failure_reason")
+
+    def _ensure_wishlist_changes(self, cursor) -> None:
+        """Per-profile change counters for wishlist_tracks, kept by triggers on
+        every write whichever code path makes it, so the Wanted reads
+        (core/wishlist/read_cache.py) can reuse what they built until the list
+        changes:
+
+        - ``version``: inserts, deletes and any update that changes a column
+          other than the retry ones (both the old and the new owner's row);
+        - ``added``: inserts only (the duplicate sweep runs after one);
+        - ``retry``: updates that change only the retry columns. A wishlist run
+          stamps one per track attempt; the reads may lag those by a few
+          seconds rather than rebuild on every one.
+
+        The update triggers list the table's columns, so they're made again on
+        every start, after every step that may add one.
+        """
+        # the first version: one global counter, every update a change
+        for name in ("insert", "update", "delete"):
+            cursor.execute(f"DROP TRIGGER IF EXISTS wishlist_tracks_counter_{name}")
+        cursor.execute("DROP TABLE IF EXISTS wishlist_change_counter")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wishlist_changes (
+                profile_id INTEGER PRIMARY KEY,
+                version INTEGER NOT NULL DEFAULT 0,
+                added INTEGER NOT NULL DEFAULT 0,
+                retry INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        columns = [row[1] for row in cursor.execute("PRAGMA table_info(wishlist_tracks)").fetchall()]
+        retry_cols = [c for c in columns if c in self._WISHLIST_RETRY_COLUMNS]
+        other_cols = [c for c in columns if c not in self._WISHLIST_RETRY_COLUMNS]
+        edited = " OR ".join(f'NEW."{c}" IS NOT OLD."{c}"' for c in other_cols) or "0"
+        retried = " OR ".join(f'NEW."{c}" IS NOT OLD."{c}"' for c in retry_cols) or "0"
+
+        def bump(row: str, sets: str) -> str:
+            pid = f"COALESCE({row}.profile_id, 0)"
+            return (f"INSERT OR IGNORE INTO wishlist_changes (profile_id) VALUES ({pid}); "
+                    f"UPDATE wishlist_changes SET {sets} WHERE profile_id = {pid};")
+
+        triggers = {
+            "wishlist_changes_insert": (
+                "AFTER INSERT ON wishlist_tracks",
+                bump("NEW", "version = version + 1, added = added + 1")),
+            "wishlist_changes_delete": (
+                "AFTER DELETE ON wishlist_tracks",
+                bump("OLD", "version = version + 1")),
+            "wishlist_changes_edit": (
+                f"AFTER UPDATE ON wishlist_tracks WHEN {edited}",
+                bump("OLD", "version = version + 1") + " " + bump("NEW", "version = version + 1")),
+            "wishlist_changes_retry": (
+                f"AFTER UPDATE ON wishlist_tracks WHEN NOT ({edited}) AND ({retried})",
+                bump("NEW", "retry = retry + 1")),
+        }
+        for name, (when, body) in triggers.items():
+            cursor.execute(f"DROP TRIGGER IF EXISTS {name}")
+            cursor.execute(f"CREATE TRIGGER {name} {when} BEGIN {body} END")
+
+    def get_wishlist_change_counter(self, profile_id: int = 1) -> tuple:
+        """(version, added, retry) for a profile's wishlist (see
+        _ensure_wishlist_changes); (-1, -1, -1) when it can't be read."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT version, added, retry FROM wishlist_changes WHERE profile_id = ?",
+                    (int(profile_id),)).fetchone()
+            return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
+        except Exception as e:  # noqa: BLE001 - the reads then never reuse a build
+            logger.debug("wishlist change counter unreadable: %s", e)
+            return (-1, -1, -1)
+
+    # a row the SQL aggregate can classify: JSON that parses (get_wishlist_tracks
+    # skips a row whose spotify_data or source_info doesn't) and the plain shape
+    # classify_wishlist_track reads (no nested track, album an object or absent)
+    # (the json_* reads only once json_valid holds: they raise on bad JSON)
+    _WISHLIST_PLAIN_ROW = """
+        (CASE WHEN json_valid(spotify_data)
+              AND (source_info IS NULL OR source_info = '' OR json_valid(source_info))
+         THEN json_type(spotify_data) = 'object'
+              AND (json_type(spotify_data, '$.album') IS NULL
+                   OR json_type(spotify_data, '$.album') = 'object')
+              AND json_type(spotify_data, '$.track_data') IS NULL
+              AND json_type(spotify_data, '$.spotify_data') IS NULL
+              AND json_type(spotify_data, '$.metadata') IS NULL
+              AND json_type(spotify_data, '$.track') IS NULL
+         ELSE 0 END)
+    """
+
+    def count_wishlist_by_category(self, profile_id: int = 1) -> Dict[str, int]:
+        """Singles and albums on a profile's Wanted list, in one SQL pass: the
+        same counts the stats route made by parsing every row
+        (count_wishlist_tracks_by_category over get_wishlist_tracks_for_download).
+        The rule is classify_wishlist_track's: album_type single/ep -> singles,
+        album/compilation -> albums, else fewer than 6 tracks -> singles, else
+        albums. Rows of any other shape are parsed and classified in Python,
+        as before, and rows that don't parse are left out, as before."""
+        with self._get_connection() as conn:
+            row = conn.execute(f"""
+                SELECT
+                  SUM(CASE WHEN kind IN ('single', 'ep')
+                        OR (kind NOT IN ('album', 'compilation') AND tracks > 0 AND tracks < 6)
+                      THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN kind IN ('single', 'ep')
+                        OR (kind NOT IN ('album', 'compilation') AND tracks > 0 AND tracks < 6)
+                      THEN 0 ELSE 1 END)
+                FROM (
+                  SELECT
+                    lower(COALESCE(json_extract(spotify_data, '$.album.album_type'), '')) AS kind,
+                    CASE WHEN json_type(spotify_data, '$.album.total_tracks')
+                             IN ('integer', 'real', 'text', 'true', 'false')
+                    THEN CAST(json_extract(spotify_data, '$.album.total_tracks') AS INTEGER)
+                    ELSE 0 END AS tracks
+                  FROM wishlist_tracks WHERE profile_id = ? AND {self._WISHLIST_PLAIN_ROW}
+                )
+            """, (profile_id,)).fetchone()
+            singles, albums = int(row[0] or 0), int(row[1] or 0)
+            odd = conn.execute(f"""
+                SELECT spotify_data, source_info FROM wishlist_tracks
+                WHERE profile_id = ? AND NOT ({self._WISHLIST_PLAIN_ROW})
+            """, (profile_id,)).fetchall()
+        if odd:
+            from core.wishlist.classification import classify_wishlist_track
+            for raw, source_info in odd:
+                try:
+                    data = json.loads(raw)
+                    if source_info:
+                        json.loads(source_info)
+                except (TypeError, ValueError):
+                    continue
+                if classify_wishlist_track({"spotify_data": data}) == "singles":
+                    singles += 1
+                else:
+                    albums += 1
+        return {"singles": singles, "albums": albums, "total": singles + albums}
+
     def remove_wishlist_duplicates(self, profile_id: int = 1) -> int:
         """Remove duplicate tracks from wishlist.
         When allow_duplicate_tracks is True, only removes exact duplicates
@@ -25579,6 +25732,19 @@ class MusicDatabase:
             logger.error("Error loading quarantine source blocks: %s", e)
             return set()
 
+    def get_quarantine_source_block_files(self, username: str) -> set:
+        """the blocked filenames for one username (the UNIQUE(username,
+        filename) index answers it)."""
+        try:
+            with self._get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT filename FROM quarantine_source_blocks WHERE username = ?",
+                    (str(username),)).fetchall()
+            return {str(r[0]) for r in rows}
+        except Exception as e:
+            logger.error("Error loading quarantine source blocks for %s: %s", username, e)
+            return set()
+
     def remove_quarantine_source_block(self, username: str, filename: str) -> bool:
         """unblock one upload.
 
@@ -28984,10 +29150,17 @@ class MusicDatabase:
         from a fixed column list."""
         cursor.execute("PRAGMA table_info(wishlist_tracks)")
         cols = {c[1] for c in cursor.fetchall()}
+        added = False
         if cols and 'request_status' not in cols:
             cursor.execute("ALTER TABLE wishlist_tracks ADD COLUMN request_status TEXT DEFAULT NULL")
+            added = True
         if cols and 'request_resolved_at' not in cols:
             cursor.execute("ALTER TABLE wishlist_tracks ADD COLUMN request_resolved_at TIMESTAMP DEFAULT NULL")
+            added = True
+        if added:
+            # the change-counter triggers name each column: regenerate them so
+            # an approve (which writes only these two) is seen by Wanted's read
+            self._ensure_wishlist_changes(cursor)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS music_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
