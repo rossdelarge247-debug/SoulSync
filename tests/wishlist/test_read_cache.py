@@ -147,6 +147,38 @@ def test_writes_move_the_counters(mdb):
     assert _counter(mdb)[:2] == (4, 1)
 
 
+
+def test_approving_a_request_moves_the_counter(mdb):
+    """request_status / request_resolved_at exist from start, so the triggers
+    name them: an approve (which writes only those) is a real change."""
+    conn = mdb._get_connection()
+    cols = {c[1] for c in conn.execute("PRAGMA table_info(wishlist_tracks)")}
+    conn.close()
+    assert {"request_status", "request_resolved_at"} <= cols
+    _insert(mdb, "t1", _song("t1", "One"))
+    before = _counter(mdb)[0]
+    _sql(mdb, "UPDATE wishlist_tracks SET request_status = 'approved'")
+    assert _counter(mdb)[0] > before
+
+
+def test_columns_added_later_are_named_by_regenerated_triggers(mdb):
+    """a database whose request columns arrive at runtime (an old wishlist
+    rebuild drops them) gets triggers that name them as they're added."""
+    conn = mdb._get_connection()
+    for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                                "AND tbl_name = 'wishlist_tracks'").fetchall():
+        conn.execute(f'DROP TRIGGER "{name}"')
+    conn.execute("ALTER TABLE wishlist_tracks DROP COLUMN request_resolved_at")
+    conn.execute("ALTER TABLE wishlist_tracks DROP COLUMN request_status")
+    mdb._ensure_wishlist_changes(conn.cursor())  # triggers without the two columns
+    mdb._ensure_music_request_schema(conn.cursor())
+    conn.commit()
+    conn.close()
+    _insert(mdb, "t1", _song("t1", "One"))
+    before = _counter(mdb)[0]
+    _sql(mdb, "UPDATE wishlist_tracks SET request_status = 'approved'")
+    assert _counter(mdb)[0] > before
+
 def test_the_counters_are_per_profile(mdb):
     _insert(mdb, "t1", _song("t1", "One"), profile=1)
     _insert(mdb, "t2", _song("t2", "Two"), profile=2)

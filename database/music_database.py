@@ -2080,6 +2080,8 @@ class MusicDatabase:
             # after every step that adds a wishlist_tracks column: the triggers
             # name each column (see _ensure_wishlist_changes)
             with self._migration_step(cursor, 'wishlist_changes'):
+                # the request columns are otherwise added lazily at runtime
+                self._ensure_music_request_schema(cursor)
                 self._ensure_wishlist_changes(cursor)
             # after every step that creates indexes (and _replace_table, which
             # carries a rebuilt table's old ones over)
@@ -29148,10 +29150,17 @@ class MusicDatabase:
         from a fixed column list."""
         cursor.execute("PRAGMA table_info(wishlist_tracks)")
         cols = {c[1] for c in cursor.fetchall()}
+        added = False
         if cols and 'request_status' not in cols:
             cursor.execute("ALTER TABLE wishlist_tracks ADD COLUMN request_status TEXT DEFAULT NULL")
+            added = True
         if cols and 'request_resolved_at' not in cols:
             cursor.execute("ALTER TABLE wishlist_tracks ADD COLUMN request_resolved_at TIMESTAMP DEFAULT NULL")
+            added = True
+        if added:
+            # the change-counter triggers name each column: regenerate them so
+            # an approve (which writes only these two) is seen by Wanted's read
+            self._ensure_wishlist_changes(cursor)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS music_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
