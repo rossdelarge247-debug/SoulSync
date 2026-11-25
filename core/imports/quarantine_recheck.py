@@ -430,8 +430,12 @@ class RecheckJob:
     def _work(self, pending: List[Any]) -> None:
         folder = self.deps.quarantine_dir()
         for index, record in enumerate(pending):
+            held_ticks = 0
             while self._held() and not self._cancelled():
-                self.deps.lease.renew()
+                # keep the lease while paused, without a write every tick
+                if held_ticks % 60 == 0:
+                    self.deps.lease.renew()
+                held_ticks += 1
                 self.deps.sleep(0.5)
             if self._cancelled():
                 return
@@ -501,14 +505,31 @@ def shared_job(config_manager: Any = None) -> RecheckJob:
         return _shared
 
 
-def resume_if_interrupted(config_manager: Any = None) -> bool:
-    """Start again a job that was running when the server stopped."""
+def resume_if_interrupted(config_manager: Any = None, *, tries_left: int = 3,
+                          schedule: Optional[Callable[[float, Callable[[], Any]], Any]] = None) -> bool:
+    """Start again a job that was running when the server stopped.
+
+    The stopped process's lease only goes stale LEASE_STALE seconds after its
+    last heartbeat, so a quick restart can find it still held: try again once
+    it has gone stale (a few times, then leave it to the page's Resume)."""
     job = shared_job(config_manager)
     state = job.deps.store.get()
     if state.get("status") != "running":
         return False
     result = job.start(resume=True)
     logger.info("[Quarantine re-check] resumed after a restart: %s", result)
+    if result.get("reason") == "running_elsewhere" and tries_left > 0:
+        def _again() -> None:
+            try:
+                resume_if_interrupted(config_manager, tries_left=tries_left - 1, schedule=schedule)
+            except Exception as exc:  # noqa: BLE001 - the page's Resume still works
+                logger.debug("re-check resume retry failed: %s", exc)
+        if schedule is None:
+            timer = threading.Timer(LEASE_STALE + 5, _again)
+            timer.daemon = True
+            timer.start()
+        else:
+            schedule(LEASE_STALE + 5, _again)
     return bool(result.get("started"))
 
 

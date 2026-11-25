@@ -916,3 +916,41 @@ def test_a_bulk_keep_is_the_approve_route_s_keep(client, monkeypatch):
     assert tasks["t-retry"]["status"] == "cancelled"
     # the plan deletes the song's other tries; the approve itself removed none
     assert os.path.exists(os.path.join(client.folder, "20261102_a2.mp3.quarantined"))
+
+
+def test_a_quick_restart_retries_the_resume_once_the_old_lease_is_stale(monkeypatch):
+    """the stopped process's heartbeat stays fresh for LEASE_STALE seconds, so
+    the first resume can find the lease held: it tries again after that."""
+    from types import SimpleNamespace
+
+    answers = iter([{"started": False, "reason": "running_elsewhere"}, {"started": True}])
+    started = []
+
+    def start(*, resume=False):
+        result = next(answers)
+        started.append(result)
+        return result
+
+    fake = SimpleNamespace(start=start, deps=SimpleNamespace(
+        store=SimpleNamespace(get=lambda: {"status": "running"})))
+    monkeypatch.setattr(qr, "shared_job", lambda config_manager=None: fake)
+    scheduled = []
+    assert qr.resume_if_interrupted(schedule=lambda delay, fn: scheduled.append((delay, fn))) is False
+    assert [d for d, _ in scheduled] == [qr.LEASE_STALE + 5]
+    scheduled[0][1]()  # the timer fires
+    assert started[-1] == {"started": True}
+    assert len(scheduled) == 1  # started: nothing more to retry
+
+
+def test_the_retries_stop_after_a_few(monkeypatch):
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(start=lambda *, resume=False: {"started": False, "reason": "running_elsewhere"},
+                           deps=SimpleNamespace(store=SimpleNamespace(get=lambda: {"status": "running"})))
+    monkeypatch.setattr(qr, "shared_job", lambda config_manager=None: fake)
+    scheduled = []
+    qr.resume_if_interrupted(schedule=lambda delay, fn: scheduled.append(fn))
+    while scheduled:
+        scheduled.pop(0)()
+        assert len(scheduled) <= 1
+    # 1 first try + 3 retries, then left to the page's Resume
