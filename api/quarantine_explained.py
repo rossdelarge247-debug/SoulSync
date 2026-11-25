@@ -113,22 +113,23 @@ def _delete_entry(entry_id: str) -> bool:
 
 
 def _approve_entry(entry_id: str) -> bool:
-    """Keep one file: what the approve route does, run here and now (one song
-    at a time): the file restored and imported with the checks skipped."""
-    from core.imports.quarantine import approve_quarantine_entry
+    """Keep one file exactly as the approve route does
+    (core.imports.quarantine_approve: the owning task found and completed
+    through the verification wrapper, a retry for the track cancelled), run
+    here and now, one song at a time. Its siblings are the plan's to delete."""
+    from core.imports.quarantine_approve import approve_and_import
     q = _q()
     restore_dir = os.path.join(
         q.docker_resolve_path(q.config_manager.get("soulseek.download_path", "./downloads")),
         "Transfer")
-    result = approve_quarantine_entry(_folder(), entry_id, restore_dir)
+    result = approve_and_import(
+        _folder(), entry_id, restore_dir,
+        post_process=q._post_process_matched_download,
+        post_process_with_verification=q._post_process_matched_download_with_verification,
+        download_tasks=q.download_tasks, tasks_lock=q.tasks_lock)
     if result is None:  # an older entry without its import context
         return False
-    restored_path, context, trigger = result
-    context["_skip_quarantine_check"] = "all"
-    context["_approved_quarantine_trigger"] = trigger
-    q._post_process_matched_download(f"keepbest_{entry_id}_{int(time.time())}", context,
-                                     restored_path)
-    logger.info("[Quarantine] Kept %s (best of its song, original_trigger=%s)", entry_id, trigger)
+    logger.info("[Quarantine] Kept %s (the best of its song)", entry_id)
     return True
 
 
@@ -152,7 +153,7 @@ def explained_overview():
         runner = _runner_instance()
         if snap is None:
             return jsonify({"success": True, "ready": False, "acoustid": acoustid,
-                            "recheck": recheck, "keep_best": runner.state})
+                            "recheck": recheck, "keep_best": runner.snapshot()})
         records = list(snap.records)
         groups = sorted(overview(records),
                         key=lambda g: KIND_ORDER.index(g["kind"]) if g["kind"] in KIND_ORDER else 99)
@@ -160,7 +161,7 @@ def explained_overview():
             "success": True, "ready": True, "files": len(records), "songs": count_songs(records),
             "groups": groups, "acoustid": acoustid,
             "recheck": {**recheck, "pending": sum(1 for r in records if needs_recheck(r))},
-            "keep_best": runner.state,
+            "keep_best": runner.snapshot(),
         })
     except Exception as exc:
         logger.error("[Quarantine] overview failed: %s", exc)
@@ -281,13 +282,20 @@ def explained_bulk_confirm():
         except PlanError as exc:
             return jsonify({"success": False, "code": exc.code, "error": exc.message}), 409
         if action == "delete":
-            from core.library.cleanup import clear_planned_quarantine
-            result = clear_planned_quarantine(_folder(), plan.items)
+            from core.imports.quarantine_bulk import delete_planned
+            snap = _snapshot()
+            current = ({r.filename: str((r.entry.get("explained") or {}).get("kind") or "other")
+                        for r in snap.records} if snap is not None else {})
+            result = delete_planned(_folder(), plan.items, current)
             files = result["files_removed"]
-            logger.info("[Quarantine] Deleted %s file(s) of %s (planned)", files,
-                        plan.meta.get("kind"))
-            return jsonify({"success": True, **result,
-                            "message": f"Deleted {files} file{'s' if files != 1 else ''}."})
+            logger.info("[Quarantine] Deleted %s file(s) of %s (planned; %s changed since, "
+                        "%s gone or changed size)", files, plan.meta.get("kind"),
+                        result["changed"], result["skipped"])
+            message = f"Deleted {files} file{'s' if files != 1 else ''}."
+            if result["changed"]:
+                message += (f" {result['changed']} left: "
+                            "AcoustID's re-check put them in another group since.")
+            return jsonify({"success": True, **result, "message": message})
         runner.start(plan.items)
         return jsonify({"success": True, "started": True, "songs": len(plan.items)})
     except Exception as exc:

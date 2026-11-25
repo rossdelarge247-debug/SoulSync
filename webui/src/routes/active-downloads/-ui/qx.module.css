@@ -7,6 +7,11 @@
   min-width: 0;
 }
 
+/* the last row clears the floating help and notification buttons */
+.page {
+  padding-bottom: 96px;
+}
+
 .h1 {
   margin: 0;
   font-size: 24px;

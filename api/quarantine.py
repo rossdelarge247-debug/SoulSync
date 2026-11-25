@@ -294,9 +294,13 @@ def delete_quarantine_item(entry_id):
 @bp.route('/api/quarantine/<entry_id>/approve', methods=['POST'])
 def approve_quarantine_item(entry_id):
     """One-click approve: restore the file and re-run post-process with the
-    quarantine gates skipped for this explicit user-approved pass."""
+    quarantine gates skipped for this explicit user-approved pass.
+
+    The steps (siblings, the owning task, the verification wrapper, the retry
+    cancel) are core.imports.quarantine_approve.approve_and_import, shared
+    with the Quarantine page's "Keep the best of each"."""
     try:
-        from core.imports.quarantine import approve_quarantine_entry
+        from core.imports.quarantine_approve import approve_and_import
         # Restore inside the soulseek download dir so existing path-resolution
         # logic finds it. Unique subdir keeps it from re-mingling with active
         # transfers.
@@ -305,110 +309,26 @@ def approve_quarantine_item(entry_id):
             'Transfer',
         )
         _req = request.get_json(silent=True) or {}
-        # #876: capture the sibling alternatives BEFORE approving — the approve
-        # restores (moves) this entry's file out of quarantine, after which its
-        # own group_key can no longer be looked up by id. Read-only here; the
-        # actual deletion happens only after the re-import is safely kicked off.
-        _sibling_ids = []
-        if _req.get('remove_siblings'):
-            from core.imports.quarantine import find_quarantine_siblings
-            try:
-                _sibling_ids = find_quarantine_siblings(_get_quarantine_dir(), entry_id)
-            except Exception as sib_exc:
-                logger.warning(f"[Quarantine] Sibling lookup for {entry_id} failed: {sib_exc}")
-        result = approve_quarantine_entry(_get_quarantine_dir(), entry_id, restore_dir)
+        result = approve_and_import(
+            _get_quarantine_dir(), entry_id, restore_dir,
+            post_process=_post_process_matched_download,
+            post_process_with_verification=_post_process_matched_download_with_verification,
+            task_id=_req.get('task_id'),
+            remove_siblings=bool(_req.get('remove_siblings')),
+            run=lambda fn: threading.Thread(target=fn, daemon=True).start(),
+            download_tasks=download_tasks, tasks_lock=tasks_lock,
+        )
         if result is None:
             return jsonify({
                 "success": False,
                 "error": "Cannot one-click approve — entry has thin sidecar (no embedded context). Use 'Recover to Staging' instead.",
             }), 400
-        restored_path, context, trigger = result
-        # User approval means "import this file"; skip all quarantine gates
-        # for this one restored pass so multi-reason failures do not loop.
-        context['_skip_quarantine_check'] = 'all'
-        context['_approved_quarantine_trigger'] = trigger
-        # If the caller (download-modal chooser) passed the originating task, run
-        # the re-import through the verification WRAPPER with that task_id so the
-        # task is marked completed on success — otherwise the modal row stays
-        # stuck on "Quarantined" even though the file imported. The sidecar
-        # context lost task_id/batch_id (the wrapper pops them before quarantine),
-        # so we re-supply them here. Manager-tab approvals (no task_id) keep the
-        # original inner-pipeline path.
-        _task_id = (_req.get('task_id') or '').strip() or None
-        _batch_id = None
-        if _task_id:
-            with tasks_lock:
-                _t = download_tasks.get(_task_id)
-                if isinstance(_t, dict):
-                    _batch_id = _t.get('batch_id')
-        else:
-            # Manager-tab approve: no task_id in the request. Find the task that
-            # owns this quarantine entry so the re-import marks it completed in
-            # the downloads list without waiting for the batch to finish.
-            with tasks_lock:
-                for _tid, _t in download_tasks.items():
-                    if isinstance(_t, dict) and _t.get('quarantine_entry_id') == entry_id:
-                        _task_id = _tid
-                        _batch_id = _t.get('batch_id')
-                        break
-        if _task_id:
-            context['task_id'] = _task_id
-            if _batch_id:
-                context['batch_id'] = _batch_id
-        context_key = f"approve_{entry_id}_{int(time.time())}"
-        if _task_id:
-            _reprocess = lambda: _post_process_matched_download_with_verification(
-                context_key, context, restored_path, _task_id, _batch_id,
-            )
-        else:
-            _reprocess = lambda: _post_process_matched_download(context_key, context, restored_path)
-        threading.Thread(target=_reprocess, daemon=True).start()
-        logger.info(f"[Quarantine] Approved {entry_id} (original_trigger={trigger}, bypass=all, task={_task_id}) → re-running pipeline")
-        # #876: once one alternative for a song is accepted, the other
-        # quarantined attempts at the SAME intended target are redundant
-        # failed downloads of a track the user now owns. Delete the siblings
-        # captured above (scoped to the quarantine manager via `remove_siblings`
-        # — the download-modal chooser passes no flag and is unaffected).
-        removed_siblings = []
-        if _sibling_ids:
-            from core.imports.quarantine import delete_quarantine_entry
-            try:
-                for sib_id in _sibling_ids:
-                    if delete_quarantine_entry(_get_quarantine_dir(), sib_id):
-                        removed_siblings.append(sib_id)
-                if removed_siblings:
-                    logger.info(f"[Quarantine] Auto-removed {len(removed_siblings)} sibling alternative(s) of {entry_id}: {removed_siblings}")
-            except Exception as sib_exc:
-                logger.warning(f"[Quarantine] Sibling cleanup for {entry_id} failed: {sib_exc}")
-        # Cancel any still-running quarantine-retry task for the same track so
-        # the engine doesn't keep fetching new candidates after the user has
-        # already accepted one. Match by track title from the restored context.
-        cancelled_retry_task = None
-        try:
-            ti = context.get('track_info') if isinstance(context.get('track_info'), dict) else {}
-            _approved_name = (ti.get('name') or '').strip().lower()
-            if _approved_name:
-                with tasks_lock:
-                    for _tid, _t in download_tasks.items():
-                        if not _t.get('_quarantine_retry'):
-                            continue
-                        if _t.get('status') in ('completed', 'cancelled', 'failed'):
-                            continue
-                        _tti = _t.get('track_info') if isinstance(_t.get('track_info'), dict) else {}
-                        if (_tti.get('name') or '').strip().lower() == _approved_name:
-                            _t['status'] = 'cancelled'
-                            _t['_quarantine_approved_alternative'] = True
-                            cancelled_retry_task = _tid
-                            logger.info(f"[Quarantine] Cancelled in-flight retry task {_tid} for '{_approved_name}' (user approved alternative)")
-                            break
-        except Exception as _crt_exc:
-            logger.debug(f"[Quarantine] Retry-cancel scan failed: {_crt_exc}")
         return jsonify({
             "success": True,
-            "trigger_bypassed": "all",
-            "original_trigger": trigger,
-            "removed_siblings": removed_siblings,
-            "cancelled_retry_task": cancelled_retry_task,
+            "trigger_bypassed": result["trigger_bypassed"],
+            "original_trigger": result["original_trigger"],
+            "removed_siblings": result["removed_siblings"],
+            "cancelled_retry_task": result["cancelled_retry_task"],
         })
     except Exception as e:
         logger.error(f"[Quarantine] Error approving {entry_id}: {e}")

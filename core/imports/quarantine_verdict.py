@@ -63,7 +63,7 @@ _MISMATCH_ARTIST = re.compile(
 _VERSION = re.compile(r"Version mismatch: expected \((?P<want>[^)]*)\) but file is \((?P<got>[^)]*)\)",
                       re.I)
 _UNREADABLE = ("mutagen could not parse", "could not identify file format",
-               "no audio info block", "cannot stat file")
+               "no audio info block")
 
 
 def fmt_len(seconds: Any) -> str:
@@ -115,6 +115,9 @@ def facts_from(sidecar: Dict[str, Any], size_bytes: Optional[int] = None) -> Dic
         facts.update(check="too_small", size_bytes=int(m.group(1)))
     elif any(text in low for text in _UNREADABLE):
         facts["check"] = "unreadable"
+    elif "cannot stat file" in low:
+        # the disk said no when it was checked: says nothing about the file
+        facts["check"] = "stat"
     elif "lossless file holds only" in low:
         facts["check"] = "density"
     elif "flac decode test failed" in low:
@@ -209,27 +212,44 @@ def classify(sidecar: Dict[str, Any], *, size_bytes: Optional[int] = None,
         return "other", "Damaged lossless audio: some of it doesn't decode."
     if check == "replacement":
         return "other", "Shorter than the copy already in your library, so it wasn't swapped in."
+    if check == "stat":
+        return "other", "The file couldn't be read from the disk when it was checked."
 
-    if decision == "pass":
-        diff = _diff_words(facts)
-        lead = "AcoustID confirms it's the right song"
-        if ratio is not None and ratio > 1.2:
-            return "longer_version", (f"{lead}, {diff}: an extended or original mix."
-                                      + _ends(facts))
-        return "right_song", (f"{lead}" + (f", {diff}." if diff else ".") + _ends(facts))
-
+    # the length bands always apply: AcoustID knowing the song says nothing about
+    # whether this file is all of it. A confirmation only upgrades the sentence
+    # within a band (and breaks ties for the best try).
+    confirmed = decision == "pass"
     if ratio is not None:
         if ratio < 0.5:
+            if confirmed:
+                return "cut_off", (f"AcoustID recognises the song, but this is only "
+                                   f"{fmt_len(actual)} of {fmt_len(expected)}: a clip or cut off.")
             return "cut_off", f"Only {fmt_len(actual)} of a {fmt_len(expected)} song."
         if ratio < 0.8:
-            return "shorter_or_cut", (f"{int(round(ratio * 100))}% of Spotify's length: a radio "
+            pct = int(round(ratio * 100))
+            if confirmed:
+                return "shorter_or_cut", (f"AcoustID confirms the song, but it's {pct}% of "
+                                          "Spotify's length: a radio edit, or cut off. Listen to "
+                                          "the end to tell which.")
+            return "shorter_or_cut", (f"{pct}% of Spotify's length: a radio "
                                       "edit, or cut off. Listen to the end to tell which.")
+        if confirmed:
+            diff = _diff_words(facts)
+            lead = "AcoustID confirms it's the right song"
+            if ratio > 1.2:
+                return "longer_version", (f"{lead}, {diff}: an extended or original mix."
+                                          + _ends(facts))
+            return "right_song", (f"{lead}" + (f", {diff}." if diff else ".") + _ends(facts))
         if ratio <= 1.2:
             return "right_song", (f"Probably the right song, {_diff_words(facts)}: a different "
                                   "master, fade or intro." + _ends(facts))
         diff = _diff_words(facts)
         return "longer_version", (f"{diff[:1].upper()}{diff[1:]}: probably an extended or "
                                   "original mix." + _ends(facts))
+
+    if confirmed:
+        # no lengths to compare: the right song, but never a "best" (choose_best)
+        return "right_song", "AcoustID confirms it's the right song." + _ends(facts)
 
     if trigger == "acoustid_unverified":
         return "other", "AcoustID couldn't confirm it, and “require verified” is on."
@@ -269,12 +289,15 @@ def choose_best(tries: Iterable[Dict[str, Any]]) -> Optional[str]:
     candidates = []
     for t in tries:
         facts = t.get("facts") or {}
-        if t.get("kind") not in KEEP_KINDS or facts.get("plays_to_end") is False:
+        # eligible: a keep kind, not known to stop early, and at least four
+        # fifths of Spotify's length (a confirmed clip is still a clip)
+        ratio = _ratio(facts)
+        if (t.get("kind") not in KEEP_KINDS or facts.get("plays_to_end") is False
+                or ratio is None or ratio < 0.8):
             continue
         acoustid = facts.get("acoustid") if isinstance(facts.get("acoustid"), dict) else {}
         confirmed = acoustid.get("decision") == "pass"
-        ratio = _ratio(facts)
-        closeness = abs(ratio - 1.0) if ratio is not None else 9.0
+        closeness = abs(ratio - 1.0)
         candidates.append(((0 if confirmed else 1), -quality_rank(facts), closeness,
                            str(t.get("id"))))
     if not candidates:

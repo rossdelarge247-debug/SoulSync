@@ -13,6 +13,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog/dialog';
+
 import type { AdlQuarantineEntry, QxKind } from '../-adl.types';
 import type { QxBulkAction, QxGroup, QxOverview, QxRecheck, QxSong } from '../-qx.api';
 import type { ReviewActionHandlers } from './adl-review';
@@ -22,6 +24,7 @@ import { quarantineApproveEntry, quarantineDeleteGroup } from '../-adl.verif-act
 import { relTime } from '../-dl.format';
 import {
   QxForbidden,
+  approveOnlyThis,
   cancelQxKeepBest,
   confirmQxBulk,
   fetchQxOverview,
@@ -142,21 +145,22 @@ export async function runQxBulk(
     }
     const message =
       action === 'delete'
-        ? `Delete ${plural(plan.files ?? 0, 'file')} (${plural(plan.songs, 'song')}, ${formatBytes(plan.bytes) || '0 bytes'}) for good? Songs still on Wanted go back to Waiting so they're searched again. Anything held after this preview stays.`
+        ? `Delete ${plural(plan.files ?? 0, 'file')} (${plural(plan.songs, 'song')}, ${formatBytes(plan.bytes) || '0 bytes'}) for good? Songs still on Wanted stay wanted and will be searched again. Anything held after this preview, or moved to another group since, stays.`
         : `Keep the best try of ${plural(plan.songs, 'song')} and delete their other ${plural(plan.delete ?? 0, 'try', 'tries')}? Each kept file is imported as if it had passed. It runs in the background, one song at a time.`;
     const confirmed = await window.showConfirmDialog?.({
       title: action === 'delete' ? 'Delete these files?' : 'Keep the best of each?',
       message,
       confirmText: action === 'delete' ? `Delete ${n(plan.files ?? 0)}` : `Keep ${n(plan.songs)}`,
       cancelText: 'Cancel',
-      destructive: action === 'delete',
+      // both delete files for good (keep-best deletes each song's other tries)
+      destructive: true,
     });
     if (!confirmed) return;
     const result = await confirmQxBulk(plan.plan_id, action);
     if (!result.success) {
       toast(result.error || "Couldn't do that.", 'error');
     } else if (action === 'delete') {
-      toast(`Deleted ${plural(result.files_removed ?? 0, 'file')}.`, 'success');
+      toast(result.message || `Deleted ${plural(result.files_removed ?? 0, 'file')}.`, 'success');
     } else {
       toast(`Keeping the best of ${plural(result.songs ?? plan.songs, 'song')}…`, 'success');
     }
@@ -281,10 +285,13 @@ export function QxTryRow({
   entry,
   best,
   handlers,
+  onKeep,
 }: {
   entry: AdlQuarantineEntry;
   best: boolean;
   handlers: ReviewActionHandlers;
+  /** Keep, when the song has other tries: asks what to do with them first. */
+  onKeep?: () => void;
 }) {
   const ex = entry.explained;
   const file = entry.original_filename || entry.filename || 'Unknown file';
@@ -338,9 +345,9 @@ export function QxTryRow({
           title={
             legacy
               ? 'Recover to Staging for a manual import (an older entry without its import context)'
-              : 'Import this file as if it had passed, and delete the other tries at this song'
+              : 'Import this file as if it had passed'
           }
-          onClick={handlers.onApprove}
+          onClick={legacy || !onKeep ? handlers.onApprove : onKeep}
         >
           {legacy ? 'Recover' : 'Keep'}
         </button>
@@ -370,6 +377,35 @@ export function QxSongCard({
   const first = song.tries[0];
   const count = song.tries.length;
   const headingId = `qx-song-${song.key.replace(/[^a-z0-9]+/gi, '-')}`;
+  const [choosing, setChoosing] = useState<AdlQuarantineEntry | null>(null);
+  const fileOf = (entry: AdlQuarantineEntry) =>
+    entry.original_filename || entry.filename || 'this file';
+
+  const keepBest = async () => {
+    if (!best) return;
+    const confirmed = await window.showConfirmDialog?.({
+      title: 'Keep the best, delete the rest?',
+      message: `Keep “${fileOf(best)}” and delete the other ${plural(count - 1, 'try', 'tries')} at this song for good? The kept file is imported as if it had passed.`,
+      confirmText: `Keep it, delete ${n(count - 1)}`,
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+    if (confirmed) await quarantineApproveEntry(best, onChanged);
+  };
+
+  const keepOnly = async (entry: AdlQuarantineEntry) => {
+    setChoosing(null);
+    try {
+      const result = await approveOnlyThis(entry.id);
+      if (result.success) {
+        toast('Kept: importing it now. The other tries are still here.', 'success');
+        onChanged();
+      } else toast(result.error || "Couldn't keep it.", 'error');
+    } catch (e) {
+      toast(`Couldn't keep it: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    }
+  };
+
   return (
     <article className={styles.song} aria-labelledby={headingId}>
       <header className={styles.songHead}>
@@ -385,7 +421,7 @@ export function QxSongCard({
             <button
               type="button"
               className={`${styles.btn} ${styles.primary}`}
-              onClick={() => void quarantineApproveEntry(best, onChanged)}
+              onClick={() => void keepBest()}
             >
               Keep the best, delete the rest
             </button>
@@ -408,9 +444,58 @@ export function QxSongCard({
             entry={entry}
             best={entry.id === song.best}
             handlers={handlersFor(entry)}
+            onKeep={count > 1 ? () => setChoosing(entry) : undefined}
           />
         ))}
       </ul>
+      <DialogFrame
+        open={choosing !== null}
+        onOpenChange={(open) => {
+          if (!open) setChoosing(null);
+        }}
+      >
+        <DialogHeader
+          title="Keep this try?"
+          description={
+            choosing
+              ? `“${fileOf(choosing)}” is imported as if it had passed. This song has ${plural(count - 1, 'other try', 'other tries')}.`
+              : ''
+          }
+        />
+        <DialogBody>
+          <p className={styles.muted}>
+            Keep this and delete the others removes {plural(count - 1, 'file')} for good:{' '}
+            {song.tries
+              .filter((t) => t.id !== choosing?.id)
+              .map(fileOf)
+              .join(', ')}
+            .
+          </p>
+        </DialogBody>
+        <DialogFooter>
+          <button type="button" className={styles.btn} onClick={() => setChoosing(null)}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={() => choosing && void keepOnly(choosing)}
+          >
+            Keep only this, leave the others
+          </button>
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.danger}`}
+            onClick={() => {
+              const entry = choosing;
+              setChoosing(null);
+              if (entry) void quarantineApproveEntry(entry, onChanged);
+            }}
+          >
+            Keep this, delete {n(count - 1)}
+          </button>
+        </DialogFooter>
+      </DialogFrame>
     </article>
   );
 }
@@ -639,7 +724,7 @@ export function QuarantineExplained({
   const openGroup = open ? groups.find((g) => g.kind === open) : null;
   if (openGroup) {
     return (
-      <div className={styles.stack}>
+      <div className={`${styles.stack} ${styles.page}`}>
         <GroupSongs
           group={openGroup}
           handlersFor={handlersFor}
@@ -659,7 +744,7 @@ export function QuarantineExplained({
     .reduce((sum, g) => sum + g.files, 0);
   const keepBest = overview.keep_best;
   return (
-    <div className={styles.stack} data-testid="quarantine-explained">
+    <div className={`${styles.stack} ${styles.page}`} data-testid="quarantine-explained">
       <header>
         <h2 className={styles.h1}>Quarantine</h2>
         {files ? (
@@ -758,8 +843,8 @@ export function QuarantineExplained({
       )}
 
       <p className={styles.muted}>
-        "Keep" imports the file as if it had passed. Bulk delete asks first and shows how many songs
-        go back to Waiting so they're searched again.{' '}
+        "Keep" imports the file as if it had passed. Bulk delete asks first and says how many files
+        and songs it covers; songs still on Wanted stay wanted and will be searched again.{' '}
         <button type="button" className={styles.link} onClick={() => setPlain(true)}>
           List every file instead
         </button>
@@ -815,7 +900,7 @@ export function QxSongFocus({
     onChanged?.();
   };
   return (
-    <div className={styles.stack} data-testid="quarantine-focus">
+    <div className={`${styles.stack} ${styles.page}`} data-testid="quarantine-focus">
       <p role="status" className={styles.muted}>
         {song === undefined
           ? 'Loading this song’s tries…'

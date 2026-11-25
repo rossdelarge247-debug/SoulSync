@@ -170,7 +170,7 @@ def test_best_prefers_confirmed_then_quality_then_closest_length():
     a = {"id": "a", "kind": "right_song", "facts": {"quality": "MP3 320", "actual_s": 348,
                                                      "expected_s": 380}}
     b = {"id": "b", "kind": "right_song", "facts": {"quality": "FLAC 16bit/44.1kHz",
-                                                     "actual_s": 300, "expected_s": 380}}
+                                                     "actual_s": 340, "expected_s": 380}}
     c = {"id": "c", "kind": "right_song", "facts": {"quality": "MP3 128", "actual_s": 380,
                                                      "expected_s": 380,
                                                      "acoustid": {"decision": "pass"}}}
@@ -182,6 +182,57 @@ def test_best_prefers_confirmed_then_quality_then_closest_length():
     a2 = dict(a, id="a2", facts={**a["facts"], "actual_s": 379})
     assert qv.choose_best([a, a2]) == "a2"                # same quality: closest length
     assert qv.choose_best([cut, stops]) is None
+
+
+def test_an_acoustid_pass_never_lifts_a_clip_out_of_its_length_band():
+    """The review's repro: a 90 s clip AcoustID recognises against a full FLAC.
+    It used to be "right song", win best on the confirmation, and keep-best
+    deleted the full-length try."""
+    def side(actual, expected, facts=None, quality="FLAC 16bit"):
+        s = _side(_dur(actual, expected))
+        s["context"] = {"_audio_quality": quality}
+        if facts:
+            s["facts"] = facts
+        return s
+
+    clip = side(90, 360, {"plays_to_end": True, "acoustid": {"decision": "pass", "score": 0.9}},
+                quality="MP3 320")
+    full = side(362, 360)
+    kind, text = qv.classify(clip)
+    assert kind == "cut_off"
+    assert text == "AcoustID recognises the song, but this is only 1:30 of 6:00: a clip or cut off."
+    assert qv.classify(full)[0] == "right_song"
+    tries = [{"id": "clip", "kind": kind, "facts": qv.explain(clip)},
+             {"id": "full", "kind": "right_song", "facts": qv.explain(full)}]
+    assert qv.choose_best(tries) == "full"
+
+    # 50–80% confirmed: shorter, and the sentence says AcoustID knows the song
+    kind, text = qv.classify(side(200, 360, {"acoustid": {"decision": "pass"}}))
+    assert kind == "shorter_or_cut" and text.startswith("AcoustID confirms the song, but it's 56%")
+    # the boundaries hold with a confirmation too
+    assert qv.classify(side(179, 360, {"acoustid": {"decision": "pass"}}))[0] == "cut_off"
+    assert qv.classify(side(180, 360, {"acoustid": {"decision": "pass"}}))[0] == "shorter_or_cut"
+    assert qv.classify(side(288, 360, {"acoustid": {"decision": "pass"}}))[0] == "right_song"
+    assert qv.classify(side(433, 360, {"acoustid": {"decision": "pass"}}))[0] == "longer_version"
+
+
+def test_best_needs_four_fifths_of_the_length():
+    def t(i, actual, expected=360, **facts):
+        return {"id": i, "kind": "right_song",
+                "facts": {"actual_s": actual, "expected_s": expected, **facts}}
+
+    # 79% confirmed and lossless loses to an unconfirmed 80% MP3
+    assert qv.choose_best([t("short", 284, quality="FLAC 24bit", acoustid={"decision": "pass"}),
+                           t("ok", 288, quality="MP3 128")]) == "ok"
+    # no length to compare, or only short tries: no best, so no keep-best
+    assert qv.choose_best([t("x", None, acoustid={"decision": "pass"})]) is None
+    assert qv.choose_best([t("y", 200), t("z", 100)]) is None
+    # stops early: never best; unknown completeness is allowed
+    assert qv.choose_best([t("a", 360, plays_to_end=False), t("b", 350)]) == "b"
+
+
+def test_cannot_stat_is_other_not_broken():
+    assert _kind("Integrity check failed: Cannot stat file: [Errno 5] Input/output error")[0] == "other"
 
 
 def test_a_song_view_marks_its_best_and_says_what_the_tries_are():
@@ -330,7 +381,7 @@ def _folder_with(tmp_path, names):
     return str(folder), records
 
 
-def _job(folder, records, answers, *, store=None, clock=None, interval=0.34):
+def _job(folder, records, answers, *, store=None, clock=None, interval=0.34, lease=None):
     clock = clock or _Clock()
     calls = []
 
@@ -342,7 +393,7 @@ def _job(folder, records, answers, *, store=None, clock=None, interval=0.34):
     job = qr.RecheckJob(qr.RecheckDeps(
         records=lambda: list(records), quarantine_dir=lambda: folder, check=check,
         available=lambda: (True, "ready"), store=store or _Store(), clock=clock,
-        sleep=clock.sleep, interval=interval))
+        sleep=clock.sleep, interval=interval, lease=lease or qr.LocalLease()))
     return job, calls, clock
 
 
@@ -442,6 +493,94 @@ def test_the_recheck_resumes_after_a_restart_where_it_left_off(tmp_path):
         4, 4, 4, "done")
 
 
+def test_after_each_file_it_gives_way_as_long_as_the_file_took(tmp_path):
+    folder, records = _folder_with(tmp_path, [f"2026110{i}_x" for i in range(4)])
+    took = iter([0.2, 3.0, 25.0, 0.5])
+    clock = _Clock()
+
+    def answers(record):
+        clock.now += next(took)  # the work on this file
+        return {"decision": "pass"}
+
+    job, calls, _ = _job(folder, records, answers, clock=clock)
+    job.start()
+    job.wait(5)
+    starts = [t for t, _ in calls]
+    # gap = the file's own time + the pause after it (at least 1 s, at most 10 s)
+    gaps = [round(b - a, 2) for a, b in zip(starts, starts[1:])]
+    assert gaps == [1.2, 6.0, 35.0]
+
+
+def test_the_recheck_doesnt_decode_unless_the_setting_says(tmp_path, monkeypatch):
+    from core.imports import quarantine_facts
+    folder, records = _folder_with(tmp_path, ["20261101_a"])
+    seen = []
+    monkeypatch.setattr(quarantine_facts, "audio_facts",
+                        lambda path, decode=True, **_k: seen.append(decode) or {"actual_s": 348.0})
+    monkeypatch.setattr(quarantine_facts, "acoustid_facts", lambda *a, **k: None)
+    monkeypatch.setattr(qr, "_decode_enabled", lambda: False)
+    qr.check_one(folder, records[0])
+    monkeypatch.setattr(qr, "_decode_enabled", lambda: True)
+    qr.check_one(folder, records[0])
+    assert seen == [False, True]
+    # without the decode, "plays to the end" stays unknown
+    side = json.loads((tmp_path / "ss_quarantine" / "20261101_a.json").read_text())
+    assert "plays_to_end" not in side["facts"]
+    assert qv.explain(side)["plays_to_end"] is None
+
+
+def test_no_sidecar_is_written_for_a_file_that_went_meanwhile(tmp_path, monkeypatch):
+    from core.imports import quarantine_facts
+    folder, records = _folder_with(tmp_path, ["20261101_a"])
+    os.remove(os.path.join(folder, records[0].filename))
+    os.remove(os.path.join(folder, "20261101_a.json"))
+    monkeypatch.setattr(quarantine_facts, "audio_facts", lambda path, **_k: {})
+    monkeypatch.setattr(quarantine_facts, "acoustid_facts",
+                        lambda *a, **k: {"decision": "pass"})
+    qr.check_one(folder, records[0])
+    assert os.listdir(folder) == []
+
+
+def test_only_one_process_runs_the_recheck(tmp_path):
+    import sqlite3
+    db = str(tmp_path / "lease.db")
+    now = [1000.0]
+    one = qr.DbLease("host:1", clock=lambda: now[0], connect=lambda: sqlite3.connect(db))
+    two = qr.DbLease("host:2", clock=lambda: now[0], connect=lambda: sqlite3.connect(db))
+    assert one.acquire() and not two.acquire()
+    assert two.held_elsewhere() and not one.held_elsewhere()
+    now[0] += 60
+    assert one.renew() and not two.acquire()
+    # a process that stopped renewing: its lease goes stale and can be taken
+    now[0] += qr.LEASE_STALE + 1
+    assert two.acquire() and not one.renew()
+    two.release()
+    assert one.acquire()
+
+    folder, records = _folder_with(tmp_path, ["20261101_a"])
+    held = qr.LocalLease()
+    held.holder = "someone else"
+    job, calls, _ = _job(folder, records, {"decision": "pass"}, lease=held)
+    assert job.start() == {"started": False, "reason": "running_elsewhere"}
+    assert calls == []
+
+
+def test_pause_and_cancel_reach_the_job_through_the_stored_state(tmp_path):
+    """Another worker's Pause or Cancel only changes the stored state."""
+    folder, records = _folder_with(tmp_path, [f"2026110{i}_x" for i in range(4)])
+    store = _Store()
+
+    def answers(record):
+        if len(calls) == 2:
+            store.state["status"] = "cancelled"
+        return {"decision": "pass"}
+
+    job, calls, _ = _job(folder, records, answers, store=store)
+    job.start()
+    job.wait(5)
+    assert len(calls) == 2
+
+
 def test_check_one_writes_the_sidecar_and_the_snapshot_follows(tmp_path, monkeypatch):
     from core.imports import quarantine_facts
     from core.imports import quarantine_index as qi
@@ -490,8 +629,12 @@ def _held(tmp_path, specs):
     return str(folder), list(index.refresh_now(str(folder)).records)
 
 
+def _kinds_now(folder):
+    return {r.filename: r.entry["explained"]["kind"]
+            for r in QuarantineSnapshots().refresh_now(folder).records}
+
+
 def test_delete_all_deletes_only_what_was_previewed(tmp_path):
-    from core.library.cleanup import clear_planned_quarantine
     folder, records = _held(tmp_path, [
         ("20261101_cut", _dur(30, 380), "song-a", 2000, None),
         ("20261102_ok", _dur(348, 380), "song-a", 9000, None),
@@ -503,16 +646,34 @@ def test_delete_all_deletes_only_what_was_previewed(tmp_path):
     # after the preview: a new cut-off file arrives and another one changes
     (tmp_path / "ss_quarantine" / "20261105_new.mp3.quarantined").write_bytes(b"x" * 2000)
     (tmp_path / "ss_quarantine" / "20261104_grown.mp3.quarantined").write_bytes(b"x" * 3000)
-    result = clear_planned_quarantine(folder, items)
+    result = qb.delete_planned(folder, items, _kinds_now(folder))
     left = sorted(os.listdir(folder))
     assert "20261105_new.mp3.quarantined" in left        # not previewed: stays
     assert "20261104_grown.mp3.quarantined" in left      # changed since: stays
+    assert "20261104_grown.json" in left                 # and so does its sidecar
     assert "20261102_ok.mp3.quarantined" in left         # another verdict: stays
     assert "20261101_cut.mp3.quarantined" not in left
     assert "20261101_cut.json" not in left               # its sidecar went with it
-    assert result["files_removed"] == 2 and result["skipped"] == 1
+    assert result["files_removed"] == 2 and result["sidecars_removed"] == 2
+    assert result["skipped"] == 1 and result["changed"] == 0
     with pytest.raises(ValueError):
         qb.delete_plan_items(folder, records, "right_song")
+
+
+def test_a_file_the_recheck_moved_to_another_group_isnt_deleted(tmp_path):
+    folder, records = _held(tmp_path, [
+        ("20261101_a", _dur(30, 380), "song-a", 2000, None),
+        ("20261102_b", _dur(30, 380), "song-b", 2000, None),
+    ])
+    items = qb.delete_plan_items(folder, records, "cut_off")
+    side = tmp_path / "ss_quarantine" / "20261102_b.json"
+    data = json.loads(side.read_text())
+    # AcoustID heard another song in it since the preview
+    data["facts"] = {"acoustid": {"decision": "fail", "title": "Else", "artist": "X"}}
+    side.write_text(json.dumps(data))
+    result = qb.delete_planned(folder, items, _kinds_now(folder))
+    assert result["changed"] == 1 and result["files_removed"] == 1
+    assert sorted(os.listdir(folder)) == ["20261102_b.json", "20261102_b.mp3.quarantined"]
 
 
 def test_keep_the_best_of_each(tmp_path):
@@ -578,7 +739,7 @@ def client(tmp_path, monkeypatch):
                         lambda *a, **k: None)
     monkeypatch.setattr(qr, "_shared", qr.RecheckJob(qr.RecheckDeps(
         records=lambda: list(index.peek(folder).records), quarantine_dir=lambda: folder,
-        store=_Store())))
+        store=_Store(), lease=qr.LocalLease())))
     admin = {"on": True}
     monkeypatch.setattr(profile_context, "is_admin_request", lambda: admin["on"])
     app = Flask(__name__)
@@ -665,3 +826,93 @@ def test_the_list_entries_carry_their_verdict(tmp_path):
     assert entry["trigger"] == "integrity"
     assert entry["explained"]["kind"] == "right_song"
     assert entry["explained"]["length"] == "5:48"
+
+
+def test_a_page_of_songs_lists_the_folder_zero_times(client, monkeypatch):
+    """The annotation reads each entry's sidecar by name: no folder listing
+    per entry (the review's probe counted one per try)."""
+    import core.imports.quarantine_library as qlib
+    # the real annotation (the fixture stubbed it), on the fixture's folder
+    monkeypatch.undo()
+    import api.quarantine as quarantine_api
+    import api.quarantine_explained as explained
+    import core.imports.quarantine_index as qi
+    import core.profile_context as profile_context
+    folder = client.folder
+    for i in range(30):
+        name = f"20261120_{i:04d}_s"
+        with open(os.path.join(folder, f"{name}.mp3.quarantined"), "wb") as f:
+            f.write(b"x" * 100)
+        with open(os.path.join(folder, f"{name}.json"), "w") as f:
+            json.dump(_side(_dur(348, 380), context={"track_info": {"id": f"t{i}", "name": f"S{i}"}},
+                            expected_track=f"S{i}"), f)
+    index = QuarantineSnapshots()
+    index.refresh_now(folder)
+    monkeypatch.setattr(qi, "shared_index", lambda: index)
+    monkeypatch.setattr(quarantine_api, "_get_quarantine_dir", lambda: folder)
+    monkeypatch.setattr(quarantine_api, "config_manager",
+                        types.SimpleNamespace(get=lambda k, d=None: d))
+    monkeypatch.setattr(profile_context, "is_admin_request", lambda: True)
+    monkeypatch.setattr(qlib, "_library_paths", lambda database, config: [])
+    monkeypatch.setattr(qlib, "_presence", lambda *a, **k: ("missing", None))
+    calls = {"listdir": 0, "scandir": 0}
+    real_listdir, real_scandir = os.listdir, os.scandir
+
+    def counting_listdir(*a, **k):
+        calls["listdir"] += 1
+        return real_listdir(*a, **k)
+
+    def counting_scandir(*a, **k):
+        calls["scandir"] += 1
+        return real_scandir(*a, **k)
+
+    from flask import Flask
+    app = Flask(__name__)
+    app.register_blueprint(explained.bp)
+    monkeypatch.setattr(os, "listdir", counting_listdir)
+    monkeypatch.setattr(os, "scandir", counting_scandir)
+    body = app.test_client().get("/api/quarantine/explained/songs?limit=25").get_json()
+    monkeypatch.setattr(os, "listdir", real_listdir)
+    monkeypatch.setattr(os, "scandir", real_scandir)
+    assert len(body["songs"]) == 25
+    assert all(t["library_status"] == "missing" for s_ in body["songs"] for t in s_["tries"])
+    assert calls == {"listdir": 0, "scandir": 0}
+
+
+def test_a_bulk_keep_is_the_approve_route_s_keep(client, monkeypatch):
+    """The owning task is completed through the verification wrapper and a
+    retry still searching for the track is cancelled."""
+    import api.quarantine as quarantine_api
+    import api.quarantine_explained as explained
+
+    tasks = {
+        "t-owner": {"status": "failed", "batch_id": "b1", "quarantine_entry_id": "20261101_a1"},
+        "t-retry": {"status": "searching", "_quarantine_retry": True,
+                    "track_info": {"name": "song-a"}},
+    }
+    wrapped, plain = [], []
+
+    def wrapper(key, ctx, path, task_id, batch_id):
+        wrapped.append((task_id, batch_id, ctx.get("_skip_quarantine_check")))
+        tasks[task_id]["status"] = "completed"
+
+    monkeypatch.setattr(quarantine_api, "download_tasks", tasks)
+    monkeypatch.setattr(quarantine_api, "tasks_lock", threading.Lock())
+    monkeypatch.setattr(quarantine_api, "docker_resolve_path", lambda p: p)
+    monkeypatch.setattr(quarantine_api, "config_manager",
+                        types.SimpleNamespace(get=lambda k, d=None: str(os.path.dirname(client.folder))))
+    monkeypatch.setattr(quarantine_api, "_post_process_matched_download_with_verification", wrapper)
+    monkeypatch.setattr(quarantine_api, "_post_process_matched_download",
+                        lambda *a: plain.append(a))
+    # the sidecar names the track the retry is searching for
+    side = os.path.join(client.folder, "20261101_a1.json")
+    data = json.load(open(side))
+    data["context"]["track_info"]["name"] = "song-a"
+    json.dump(data, open(side, "w"))
+
+    assert explained._approve_entry("20261101_a1") is True
+    assert wrapped == [("t-owner", "b1", "all")] and plain == []
+    assert tasks["t-owner"]["status"] == "completed"
+    assert tasks["t-retry"]["status"] == "cancelled"
+    # the plan deletes the song's other tries; the approve itself removed none
+    assert os.path.exists(os.path.join(client.folder, "20261102_a2.mp3.quarantined"))

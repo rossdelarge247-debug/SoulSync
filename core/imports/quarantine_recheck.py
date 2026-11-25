@@ -10,8 +10,20 @@ entry is re-classified, and the shared snapshot gets the new record at once.
 * **Rate limited.** At most one AcoustID request every ``INTERVAL`` seconds
   (AcoustID allows three a second; every lookup also goes through
   core.acoustid_api's own pacing).
-* **Low priority.** One file at a time, on one thread, with a pause between
-  files; it never imports, moves or deletes anything.
+* **Low priority.** One file at a time, on one thread, and after each file a
+  pause as long as the file took (at least ``MIN_PAUSE``, at most
+  ``MAX_PAUSE``), so on a slow disk it gives way in proportion. It never
+  imports, moves or deletes anything.
+* **Light.** Per file: the header's length (mutagen) and a fingerprint
+  (fpcalc reads only the first two minutes). The full ffmpeg decode that
+  tells whether a file plays to the end is off unless
+  ``quarantine.recheck_decode`` is on; without it "plays to the end" stays
+  unknown. Expect about 2–4 s per file with the pause (1–1.5 s of work on a
+  slow mount, the pause as long again, a 0.3–0.5 s lookup): 2,568 files take
+  roughly 1.5–3 hours.
+* **One at a time across processes.** A lease row in the database (owner
+  host:pid and a heartbeat) lets one process run it; pause and cancel are
+  read from the stored state on every file, so they reach it from any worker.
 * **Resumable.** Each file's answer is in its sidecar, so a file that has one
   is skipped. The job's own state (running, paused, the counts) is kept in the
   database, and a job that was running when the server stopped starts again
@@ -39,6 +51,13 @@ logger = get_logger("imports.quarantine_recheck")
 
 #: seconds between AcoustID requests (AcoustID allows three a second)
 INTERVAL = 0.34
+#: the pause after each file: as long as the file took, within these bounds
+MIN_PAUSE = 1.0
+MAX_PAUSE = 10.0
+#: a lease not renewed for this long is taken for a dead process's
+LEASE_STALE = 120.0
+#: the setting that turns the full decode ("plays to the end") on
+DECODE_SETTING = "quarantine.recheck_decode"
 #: the database metadata key holding the job's state
 STATE_KEY = "quarantine_recheck_state"
 #: the decisions that count as answered (an error is tried again next run)
@@ -74,6 +93,100 @@ class DbStateStore:
             MusicDatabase().set_metadata(STATE_KEY, json.dumps(state))
         except Exception as exc:  # noqa: BLE001
             logger.debug("recheck state not saved: %s", exc)
+
+
+def _me() -> str:
+    import socket
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+class DbLease:
+    """Who runs the re-check: one row, taken atomically, renewed by a
+    heartbeat; a row not renewed for ``LEASE_STALE`` seconds can be taken."""
+
+    def __init__(self, owner: Optional[str] = None, clock: Callable[[], float] = time.time,
+                 connect: Optional[Callable[[], Any]] = None) -> None:
+        self.owner = owner or _me()
+        self.clock = clock
+        self.connect = connect
+
+    def _conn(self):
+        if self.connect is not None:
+            conn = self.connect()
+        else:
+            from database.music_database import MusicDatabase
+            conn = MusicDatabase()._get_connection()
+        conn.execute("CREATE TABLE IF NOT EXISTS quarantine_recheck_lease ("
+                     "id INTEGER PRIMARY KEY CHECK (id = 1), owner TEXT, heartbeat REAL)")
+        return conn
+
+    def acquire(self) -> bool:
+        now = self.clock()
+        conn = self._conn()
+        try:
+            conn.execute("INSERT OR IGNORE INTO quarantine_recheck_lease (id, owner, heartbeat) "
+                         "VALUES (1, ?, ?)", (self.owner, now))
+            conn.execute("UPDATE quarantine_recheck_lease SET owner = ?, heartbeat = ? "
+                         "WHERE id = 1 AND (owner = ? OR owner IS NULL OR heartbeat < ?)",
+                         (self.owner, now, self.owner, now - LEASE_STALE))
+            conn.commit()
+            row = conn.execute("SELECT owner FROM quarantine_recheck_lease WHERE id = 1").fetchone()
+            return bool(row) and row[0] == self.owner
+        finally:
+            conn.close()
+
+    def renew(self) -> bool:
+        conn = self._conn()
+        try:
+            cur = conn.execute("UPDATE quarantine_recheck_lease SET heartbeat = ? "
+                               "WHERE id = 1 AND owner = ?", (self.clock(), self.owner))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def release(self) -> None:
+        conn = self._conn()
+        try:
+            conn.execute("UPDATE quarantine_recheck_lease SET owner = NULL "
+                         "WHERE id = 1 AND owner = ?", (self.owner,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def held_elsewhere(self) -> bool:
+        """Another live process runs it."""
+        conn = self._conn()
+        try:
+            row = conn.execute("SELECT owner, heartbeat FROM quarantine_recheck_lease "
+                               "WHERE id = 1").fetchone()
+        finally:
+            conn.close()
+        return bool(row and row[0] and row[0] != self.owner
+                    and (row[1] or 0) >= self.clock() - LEASE_STALE)
+
+
+class LocalLease:
+    """A lease for one process (tests, tools)."""
+
+    def __init__(self) -> None:
+        self.holder: Optional[str] = None
+
+    def acquire(self) -> bool:
+        if self.holder in (None, "me"):
+            self.holder = "me"
+            return True
+        return False
+
+    def renew(self) -> bool:
+        return self.holder == "me"
+
+    def release(self) -> None:
+        if self.holder == "me":
+            self.holder = None
+
+    def held_elsewhere(self) -> bool:
+        return self.holder not in (None, "me")
 
 
 def _current_key() -> str:
@@ -120,19 +233,33 @@ def _write_sidecar_facts(quarantine_dir: str, filename: str, facts: Dict[str, An
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(sidecar, f, indent=2, ensure_ascii=False)
+    if not os.path.exists(os.path.join(quarantine_dir, filename)):
+        # approved or deleted while it was being listened to: no orphan sidecar
+        os.remove(tmp)
+        return {}
     os.replace(tmp, path)
     shared_index().replace(quarantine_dir, filename, sidecar)
     return sidecar
 
 
+def _decode_enabled() -> bool:
+    try:
+        from core.settings import config_manager
+        return bool(config_manager.get(DECODE_SETTING, False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def check_one(quarantine_dir: str, record: Any, *, verifier: Any = None,
-              probe: Optional[Callable[[str], float]] = None) -> Dict[str, Any]:
+              probe: Optional[Callable[[str], float]] = None,
+              decode: Optional[bool] = None) -> Dict[str, Any]:
     """Listen to one held file: its facts (AcoustID's answer included, when
-    it gave one), written into its sidecar."""
+    it gave one), written into its sidecar. The full decode ("plays to the
+    end") only with ``decode`` (default: the setting, off)."""
     from core.imports.quarantine_facts import acoustid_facts, audio_facts
 
     path = os.path.join(quarantine_dir, record.filename)
-    facts = audio_facts(path, probe=probe)
+    facts = audio_facts(path, probe=probe, decode=_decode_enabled() if decode is None else decode)
     sidecar_facts = ((getattr(record, "entry", None) or {}).get("explained") or {})
     expected_s = sidecar_facts.get("expected_s")
     answer = acoustid_facts(path, record.expected_track, record.expected_artist, expected_s,
@@ -158,6 +285,9 @@ class RecheckDeps:
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
     interval: float = INTERVAL
+    lease: Any = field(default_factory=DbLease)
+    min_pause: float = MIN_PAUSE
+    max_pause: float = MAX_PAUSE
 
 
 def _acoustid_available() -> tuple:
@@ -198,7 +328,14 @@ class RecheckJob:
             "active": running,
         }
         if out["status"] in ("running", "paused") and not running:
-            out["status"] = "interrupted"
+            try:
+                elsewhere = self.deps.lease.held_elsewhere()
+            except Exception:  # noqa: BLE001
+                elsewhere = False
+            if elsewhere:
+                out["active"] = True  # another worker runs it
+            else:
+                out["status"] = "interrupted"
         return out
 
     def _save(self, **changes: Any) -> Dict[str, Any]:
@@ -220,6 +357,8 @@ class RecheckJob:
         ok, why = self.deps.available()
         if not ok:
             return {"started": False, "reason": "acoustid_unavailable", "detail": why}
+        if not self.deps.lease.acquire():
+            return {"started": False, "reason": "running_elsewhere"}
         pending = [r for r in self.deps.records() if needs_recheck(r)]
         state = self.deps.store.get()
         if resume and state.get("status") in ("running", "paused"):
@@ -242,7 +381,9 @@ class RecheckJob:
         self._save(status="paused")
 
     def resume(self) -> Dict[str, Any]:
-        if self._thread is not None and self._thread.is_alive():
+        mine = self._thread is not None and self._thread.is_alive()
+        if mine or self.deps.lease.held_elsewhere():
+            # the running loop reads the stored state on every file
             self._pause.clear()
             self._save(status="running")
             return {"started": True}
@@ -267,34 +408,63 @@ class RecheckJob:
                 self.deps.sleep(wait)
         self._last_request = self.deps.clock()
 
+    def _stored_status(self) -> str:
+        return str(self.deps.store.get().get("status") or "")
+
+    def _held(self) -> bool:
+        """Paused here or from another worker (the stored state)."""
+        return self._pause.is_set() or self._stored_status() == "paused"
+
+    def _cancelled(self) -> bool:
+        return self._cancel.is_set() or self._stored_status() == "cancelled"
+
     def _run(self, pending: List[Any]) -> None:
+        try:
+            self._work(pending)
+        finally:
+            try:
+                self.deps.lease.release()
+            except Exception as exc:  # noqa: BLE001 - goes stale on its own
+                logger.debug("re-check lease release failed: %s", exc)
+
+    def _work(self, pending: List[Any]) -> None:
         folder = self.deps.quarantine_dir()
-        for record in pending:
-            while self._pause.is_set() and not self._cancel.is_set():
-                self.deps.sleep(0.2)
-            if self._cancel.is_set():
+        for index, record in enumerate(pending):
+            while self._held() and not self._cancelled():
+                self.deps.lease.renew()
+                self.deps.sleep(0.5)
+            if self._cancelled():
+                return
+            if not self.deps.lease.renew():
+                logger.warning("[Quarantine re-check] another process took it over: stopped here")
                 return
             if not os.path.exists(os.path.join(folder, record.filename)):
                 self._bump(errors=0)  # gone meanwhile: counted as done
                 continue
             self._pace()
+            started = self.deps.clock()
             try:
                 facts = self.deps.check(folder, record)
             except Exception as exc:  # noqa: BLE001 - one bad file never stops the job
                 logger.debug("re-check failed for %s: %s", record.filename, exc)
                 self._bump(errors=1)
-                continue
-            answer = facts.get("acoustid") if isinstance(facts, dict) else None
-            if isinstance(answer, dict) and answer.get("invalid_key"):
-                note_key_refused(self.deps.store)
-                self._save(status="key_refused")
-                logger.warning("[Quarantine re-check] AcoustID refused the key: stopped")
-                return
-            decision = (answer or {}).get("decision")
-            self._bump(confirmed=int(decision == "pass"), different=int(decision == "fail"),
-                       no_match=int(decision == "skip"),
-                       errors=int(decision not in ("pass", "fail", "skip")))
-        if not self._cancel.is_set():
+                facts = None
+            took = self.deps.clock() - started
+            if facts is not None:
+                answer = facts.get("acoustid") if isinstance(facts, dict) else None
+                if isinstance(answer, dict) and answer.get("invalid_key"):
+                    note_key_refused(self.deps.store)
+                    self._save(status="key_refused")
+                    logger.warning("[Quarantine re-check] AcoustID refused the key: stopped")
+                    return
+                decision = (answer or {}).get("decision")
+                self._bump(confirmed=int(decision == "pass"), different=int(decision == "fail"),
+                           no_match=int(decision == "skip"),
+                           errors=int(decision not in ("pass", "fail", "skip")))
+            if index < len(pending) - 1:
+                # low priority: give way for as long as the file took
+                self.deps.sleep(max(self.deps.min_pause, min(took, self.deps.max_pause)))
+        if not self._cancelled():
             self._save(status="done")
 
     def _bump(self, **counts: int) -> None:
@@ -342,5 +512,6 @@ def resume_if_interrupted(config_manager: Any = None) -> bool:
     return bool(result.get("started"))
 
 
-__all__ = ["INTERVAL", "RecheckDeps", "RecheckJob", "check_one", "key_refused",
+__all__ = ["DECODE_SETTING", "INTERVAL", "DbLease", "LocalLease", "MAX_PAUSE", "MIN_PAUSE",
+           "RecheckDeps", "RecheckJob", "check_one", "key_refused",
            "needs_recheck", "note_key_refused", "resume_if_interrupted", "shared_job"]

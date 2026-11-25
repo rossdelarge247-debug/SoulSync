@@ -133,7 +133,14 @@ export function previewQxBulk(kind: QxKind, action: QxBulkAction): Promise<QxPla
 export function confirmQxBulk(
   planId: string,
   action: QxBulkAction,
-): Promise<{ success: boolean; files_removed?: number; songs?: number; error?: string }> {
+): Promise<{
+  success: boolean;
+  files_removed?: number;
+  changed?: number;
+  songs?: number;
+  message?: string;
+  error?: string;
+}> {
   return read(
     apiClient.post('quarantine/explained/bulk/confirm', { json: { plan_id: planId, action } }),
   );
@@ -147,4 +154,16 @@ export function qxRecheck(
   action: 'start' | 'pause' | 'resume' | 'cancel',
 ): Promise<{ success: boolean; recheck?: QxRecheck; error?: string }> {
   return read(apiClient.post('quarantine/explained/recheck', { json: { action } }));
+}
+
+/**
+ * Keep one try and leave the song's other tries where they are (the approve
+ * route without `remove_siblings`): "Keep only this, leave the others".
+ */
+export function approveOnlyThis(id: string): Promise<{ success: boolean; error?: string }> {
+  return read(
+    apiClient.post(`quarantine/${encodeURIComponent(id)}/approve`, {
+      json: { remove_siblings: false },
+    }),
+  );
 }

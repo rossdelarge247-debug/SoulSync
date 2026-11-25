@@ -146,14 +146,20 @@ def _file_items(quarantine_dir: str, record: Any) -> List[Dict[str, Any]]:
     from core.imports.quarantine import _entry_id_from_filename
     size = int(record.entry.get("size_bytes") or 0)
     sidecar = f"{_entry_id_from_filename(record.filename)}.json"
+    side_path = os.path.join(quarantine_dir, sidecar)
+    try:
+        st = os.stat(side_path)
+        side_size, side_mtime = st.st_size, st.st_mtime_ns
+    except OSError:
+        side_size = side_mtime = None
     return [
         {"name": record.filename, "path": os.path.join(quarantine_dir, record.filename),
          "kind": "file", "size": size, "action": "delete_permanently",
          "title": record.expected_track, "artist": record.expected_artist,
-         "song": _song_key(record)},
-        # no size: the AcoustID re-check may have rewritten it since
-        {"name": sidecar, "path": os.path.join(quarantine_dir, sidecar), "kind": "info",
-         "action": "delete_permanently"},
+         "song": _song_key(record), "verdict": _kind(record)},
+        # deleted only with its file (delete_planned)
+        {"name": sidecar, "path": side_path, "kind": "info", "for": record.filename,
+         "size": side_size, "mtime_ns": side_mtime, "action": "delete_permanently"},
     ]
 
 
@@ -166,6 +172,63 @@ def delete_plan_items(quarantine_dir: str, records: List[Any], kind: str) -> Lis
         if _kind(record) == kind:
             items.extend(_file_items(quarantine_dir, record))
     return items
+
+
+def delete_planned(quarantine_dir: str, items: List[Dict[str, Any]],
+                   current_kinds: Dict[str, str]) -> Dict[str, Any]:
+    """Delete a "Delete all" plan: exactly the files previewed, each only if
+    it's still there at the size previewed and its verdict hasn't changed
+    since (``current_kinds``: file name -> verdict now, from the snapshot),
+    and a sidecar only when its file was deleted here."""
+    from core.imports.quarantine import _entry_id_from_filename
+    out: Dict[str, Any] = {"files_removed": 0, "sidecars_removed": 0, "freed_bytes": 0,
+                           "skipped": 0, "changed": 0, "errors": []}
+    sidecars = {i.get("for"): i for i in items if i.get("kind") == "info"}
+    deleted: List[str] = []
+    for item in items:
+        if item.get("kind") != "file":
+            continue
+        name = str(item.get("name") or "")
+        if not name or os.sep in name or (os.altsep and os.altsep in name) or name in (".", ".."):
+            out["skipped"] += 1
+            continue
+        now = current_kinds.get(name)
+        if now is not None and now != item.get("verdict"):
+            out["changed"] += 1  # the AcoustID re-check (or a refresh) says otherwise now
+            continue
+        path = os.path.join(quarantine_dir, name)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            out["skipped"] += 1
+            continue
+        if size != item.get("size"):
+            out["skipped"] += 1
+            continue
+        try:
+            os.remove(path)
+        except OSError as exc:
+            out["errors"].append({"entry": name, "error": str(exc)})
+            continue
+        out["files_removed"] += 1
+        out["freed_bytes"] += size
+        deleted.append(_entry_id_from_filename(name))
+        side = sidecars.get(name)
+        if side:
+            try:
+                os.remove(os.path.join(quarantine_dir, str(side["name"])))
+                out["sidecars_removed"] += 1
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                out["errors"].append({"entry": side["name"], "error": str(exc)})
+    if deleted:
+        try:
+            from core.imports.quarantine_index import shared_index
+            shared_index().forget(quarantine_dir, deleted)
+        except Exception as exc:  # noqa: BLE001 - the snapshot catches up on its own
+            logger.debug("quarantine snapshot forget after a group delete failed: %s", exc)
+    return out
 
 
 def keep_best_plan_items(records: List[Any], kind: str) -> List[Dict[str, Any]]:
@@ -223,6 +286,10 @@ class KeepBestRunner:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def snapshot(self) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self.state)
+
     def start(self, items: List[Dict[str, Any]], *, background: bool = True) -> bool:
         with self._lock:
             if self.running():
@@ -238,6 +305,10 @@ class KeepBestRunner:
         self._run(items)
         return True
 
+    def _set_status(self, status: str) -> None:
+        with self._lock:
+            self.state["status"] = status
+
     def cancel(self) -> None:
         self._cancel.set()
 
@@ -249,7 +320,7 @@ class KeepBestRunner:
     def _run(self, items: List[Dict[str, Any]]) -> None:
         for item in items:
             if self._cancel.is_set():
-                self.state["status"] = "cancelled"
+                self._set_status("cancelled")
                 return
             try:
                 # only the file previewed: gone, or another size, and the song is left as it is
@@ -269,9 +340,10 @@ class KeepBestRunner:
             except Exception as exc:  # noqa: BLE001 - one song never stops the rest
                 logger.warning("keep-best failed for %s: %s", item.get("title"), exc)
                 self._count(done=1, errors=1)
-        self.state["status"] = "done"
+        self._set_status("done")
 
 
 __all__ = ["GROUP_DELETE_TOOL", "KEEP_BEST_TOOL", "KeepBestRunner", "delete_plan_items",
+           "delete_planned",
            "group_by_song", "keep_best_plan_items", "overview", "plan_counts", "song_view",
            "songs_for_kind"]

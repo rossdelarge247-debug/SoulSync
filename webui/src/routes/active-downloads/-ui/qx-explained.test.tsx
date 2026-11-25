@@ -297,7 +297,10 @@ describe('the bulk actions', () => {
     expect(String(confirms[0].message)).toMatch(
       /^Delete 210 files \(190 songs, 2(\.0)? KB\) for good\?/,
     );
-    expect(String(confirms[0].message)).toContain('go back to Waiting');
+    expect(String(confirms[0].message)).toContain(
+      'Songs still on Wanted stay wanted and will be searched again.',
+    );
+    expect(confirms[0].destructive).toBe(true);
     await waitFor(() =>
       expect(posts.map((p) => p.url)).toEqual([
         '/api/quarantine/explained/bulk/preview',
@@ -323,6 +326,7 @@ describe('the bulk actions', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Keep the best of each' }));
     await waitFor(() => expect(posts).toHaveLength(2));
     expect(String(confirms[0].message)).toContain('Keep the best try of 190 songs');
+    expect(confirms[0].destructive).toBe(true);
     expect(posts[1].body).toEqual({ plan_id: 'plan-1', action: 'keep_best' });
   });
 });
@@ -358,6 +362,67 @@ describe('a group, song by song', () => {
     expect(within(song).getByRole('button', { name: 'Delete all 3' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '← All groups' }));
     expect(await screen.findByRole('heading', { name: 'Quarantine' })).toBeInTheDocument();
+  });
+});
+
+describe('keeping a try', () => {
+  function serveApprove() {
+    const approves: { id: string; body: unknown }[] = [];
+    server.use(
+      http.post('*/api/quarantine/:id/approve', async ({ request, params }) => {
+        approves.push({ id: String(params.id), body: await request.json() });
+        return HttpResponse.json({ success: true, removed_siblings: [] });
+      }),
+    );
+    return approves;
+  }
+
+  async function openSong() {
+    serve(overview(), { songs: [SONG] });
+    render(<QuarantineExplained handlersFor={() => handlers} fallback={null} />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Open Probably the right song, a slightly different edit',
+      }),
+    );
+    return screen.findByRole('article', { name: 'Fighting Fire' });
+  }
+
+  it('Keep the best, delete the rest asks first, naming the kept file', async () => {
+    const approves = serveApprove();
+    const song = await openSong();
+    fireEvent.click(within(song).getByRole('button', { name: 'Keep the best, delete the rest' }));
+    await waitFor(() => expect(confirms).toHaveLength(1));
+    expect(String(confirms[0].message)).toContain(
+      'Keep “best-one.mp3” and delete the other 2 tries',
+    );
+    expect(confirms[0].destructive).toBe(true);
+    await waitFor(() =>
+      expect(approves).toEqual([{ id: 'best-one', body: { remove_siblings: true } }]),
+    );
+  });
+
+  it('a Keep on a song with other tries asks what happens to them', async () => {
+    const approves = serveApprove();
+    const song = await openSong();
+    fireEvent.click(within(song).getByRole('button', { name: 'Keep other-one.mp3' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('This song has 2 other tries.');
+    expect(dialog).toHaveTextContent('best-one.mp3, clip.mp3');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Keep only this, leave the others' }),
+    );
+    await waitFor(() =>
+      expect(approves).toEqual([{ id: 'other-one', body: { remove_siblings: false } }]),
+    );
+
+    fireEvent.click(within(song).getByRole('button', { name: 'Keep clip.mp3' }));
+    const again = await screen.findByRole('dialog');
+    fireEvent.click(within(again).getByRole('button', { name: 'Keep this, delete 2' }));
+    await waitFor(() =>
+      expect(approves[1]).toEqual({ id: 'clip', body: { remove_siblings: true } }),
+    );
+    expect(handlers.onApprove).not.toHaveBeenCalled();
   });
 });
 
