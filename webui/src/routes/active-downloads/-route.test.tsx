@@ -292,6 +292,60 @@ describe('the active-downloads route', () => {
     );
   });
 
+  it('a link to one song shows its tries explained, when the grouped view is there', async () => {
+    stub();
+    const tryAt = (id: string, kind: string, text: string) => ({
+      id,
+      filename: `${id}.flac.quarantined`,
+      original_filename: `${id}.flac`,
+      reason: 'Integrity check failed: Duration mismatch',
+      expected_track: 'Night Ferry',
+      expected_artist: 'Pale Harbour',
+      group_key: 'nm:pale harbour|night ferry',
+      timestamp: '',
+      size_bytes: 1,
+      has_full_context: true,
+      trigger: 'integrity',
+      source_username: 'peer',
+      source_filename: '',
+      thumb_url: '',
+      quality: '',
+      explained: {
+        kind,
+        label: kind,
+        text,
+        length: '5:48',
+        spotify_length: '6:20',
+        quality: 'FLAC',
+      },
+    });
+    server.use(
+      http.get('/api/quarantine/explained/song', ({ request }) =>
+        HttpResponse.json({
+          success: true,
+          entry: new URL(request.url).searchParams.get('entry'),
+          song: {
+            key: 'nm:pale harbour|night ferry',
+            title: 'Night Ferry',
+            artist: 'Pale Harbour',
+            best: '20261120_b',
+            summary: 'Probably the right song in every try.',
+            kinds: ['right_song'],
+            tries: [
+              tryAt('20261120_b', 'right_song', 'Probably the right song, 32 s shorter.'),
+              tryAt('20261119_a', 'right_song', 'Probably the right song, 32 s shorter.'),
+            ],
+          },
+        }),
+      ),
+    );
+    renderRoute('/active-downloads?review=quarantine&entry=20261120_b');
+    const song = await screen.findByRole('article', { name: 'Night Ferry' });
+    expect(song).toHaveTextContent('Probably the right song in every try.');
+    expect(song).toHaveTextContent('5:48 · Spotify 6:20');
+    expect(screen.getByTestId('quarantine-focus')).toHaveTextContent('Every try at “Night Ferry”.');
+  });
+
   it('opens on Quarantine from Activity’s link, without narrowing', async () => {
     stub();
     const { container } = renderRoute('/active-downloads?review=quarantine');

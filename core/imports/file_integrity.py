@@ -580,6 +580,8 @@ def _check_audio_integrity_tier1(
 
     if drift_s > effective_tolerance_s:
         runs_long = signed_drift_s > 0
+        # the only failed leg: a caller can tell a length-only failure apart
+        checks["length_check"] = "mismatch"
         return IntegrityResult(
             ok=False,
             reason=f"Duration mismatch: file is {actual_length_s:.1f}s, "

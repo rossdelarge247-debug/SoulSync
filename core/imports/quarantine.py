@@ -356,7 +356,19 @@ def entry_from_sidecar(name: str, sidecar: Dict[str, Any], size_bytes: int) -> D
              for key in ("album", "download_source")}
             if isinstance(ctx.get("_album_import_extra"), dict) else None
         ),
+        # what it is, in one verdict and a sentence (core.imports.quarantine_verdict)
+        "explained": _explain(sidecar, size_bytes),
     }
+
+
+def _explain(sidecar: Dict[str, Any], size_bytes: int) -> Dict[str, Any]:
+    from core.imports.quarantine_verdict import explain
+    try:
+        return explain(sidecar, size_bytes)
+    except Exception as exc:  # noqa: BLE001 - an odd sidecar is "other", never a failed list
+        logger.debug("quarantine verdict failed: %s", exc)
+        return {"kind": "other", "label": "Other", "text": "", "length": "",
+                "spotify_length": "", "quality": "", "quality_rank": 0.0}
 
 
 def list_quarantine_entries(

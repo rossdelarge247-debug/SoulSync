@@ -264,6 +264,34 @@ export interface AdlQuarantineEntry {
   source_filename: string;
   thumb_url: string;
   quality: string;
+  /** What it is, in one verdict and a sentence (core/imports/quarantine_verdict.py). */
+  explained?: QxExplained;
+}
+
+/** The kinds of quarantined file, by what to do with them. */
+export type QxKind =
+  | 'right_song'
+  | 'longer_version'
+  | 'shorter_or_cut'
+  | 'cut_off'
+  | 'broken'
+  | 'different_song'
+  | 'other';
+
+export interface QxExplained {
+  kind: QxKind;
+  label: string;
+  /** One plain sentence: why it was held and what it probably is. */
+  text: string;
+  /** m:ss, '' when unknown. */
+  length: string;
+  spotify_length: string;
+  plays_to_end?: boolean | null;
+  acoustid?: { decision?: string; score?: number; title?: string; artist?: string } | null;
+  quality: string;
+  /** Only on a song's tries: 'best' for its best one, else its kind. */
+  verdict?: QxKind | 'best';
+  verdict_label?: string;
 }
 
 // ── Filters ───────────────────────────────────────────────────────────────

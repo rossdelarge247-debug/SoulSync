@@ -24657,6 +24657,10 @@ _cfg_quar(config_manager_=config_manager, docker_resolve_path_=docker_resolve_pa
           download_orchestrator_getter=lambda: download_orchestrator,
           matching_engine_getter=lambda: matching_engine)
 app.register_blueprint(_bp_quar())
+# Quarantine explained: verdicts, songs, bulk actions, AcoustID re-check
+# (api/quarantine_explained.py; reads api.quarantine's configuration).
+from api.quarantine_explained import create_blueprint as _bp_quar_explained
+app.register_blueprint(_bp_quar_explained())
 # Download-client hub - the Clients tab on the downloads page (api/clients.py).
 def _client_known_items():
     """What SoulSync itself dispatched, per client, so hub rows can say what
@@ -25900,6 +25904,19 @@ def start_runtime_services():
         # to fire at module import, which started the 30s loop in every
         # importer — tests, workers, CLI tools.)
         start_batch_healing_timer()
+
+        # A quarantine AcoustID re-check that was running when the server
+        # stopped carries on (core/imports/quarantine_recheck.py), after a
+        # minute so start-up isn't competing with it.
+        def _resume_quarantine_recheck():
+            try:
+                from core.imports.quarantine_recheck import resume_if_interrupted
+                resume_if_interrupted(config_manager)
+            except Exception as _rq_err:  # noqa: BLE001 - never stops start-up
+                logger.debug(f"[Startup] quarantine re-check resume skipped: {_rq_err}")
+        _rq_timer = threading.Timer(60.0, _resume_quarantine_recheck)
+        _rq_timer.daemon = True
+        _rq_timer.start()
 
         # One-time repair: purge artist album-list cache entries poisoned by
         # partial watchlist probes (limit=5/max_pages=1 results stored in the

@@ -872,6 +872,24 @@ def post_process_matched_download(context_key, context, file_path, runtime, meta
             logger.error(f"[Integrity] Rejected {_basename}: {integrity.reason}")
             context['_integrity_failure_msg'] = integrity.reason
             context['_integrity_checks'] = integrity.checks
+            # What the review needs to decide with (core.imports.quarantine_facts).
+            # A length that only disagrees with Spotify's is usually another
+            # edit, not a broken file: measure whether it plays to the end and
+            # ask AcoustID before holding it. It's held either way (Q10).
+            _q_facts = None
+            try:
+                from core.imports import quarantine_facts as _qf
+                if (integrity.checks or {}).get('length_check') == 'mismatch':
+                    _q_facts = _qf.duration_failure_facts(
+                        file_path, integrity.checks or {}, context, _expected_duration_ms)
+                    _q_ac = _q_facts.get('acoustid') or {}
+                    logger.info(
+                        "[Integrity] %s: length only — plays to the end: %s, AcoustID: %s",
+                        _basename, _q_facts.get('plays_to_end'), _q_ac.get('decision', 'not run'))
+                else:
+                    _q_facts = _qf.integrity_facts(integrity.checks or {}, _expected_duration_ms)
+            except Exception as _facts_error:  # noqa: BLE001 - facts never stop a quarantine
+                logger.debug(f"[Integrity] Facts for the review failed: {_facts_error}")
             try:
                 quarantine_path = move_to_quarantine(
                     file_path,
@@ -879,6 +897,7 @@ def post_process_matched_download(context_key, context, file_path, runtime, meta
                     f"Integrity check failed: {integrity.reason}",
                     automation_engine,
                     trigger='integrity',
+                    facts=_q_facts,
                 )
                 _mark_task_quarantined(context, quarantine_path)
                 logger.error(f"File quarantined due to integrity failure: {quarantine_path}")
@@ -1111,6 +1130,20 @@ def post_process_matched_download(context_key, context, file_path, runtime, meta
                         logger.warning("[AcoustID] Require-verified: SKIP treated as FAIL — %s", verification_msg)
 
                     if verification_result == VerificationResult.FAIL or _skip_as_fail:
+                        _q_facts = None
+                        try:
+                            _q_facts = {'acoustid': {'decision': verification_result.value}}
+                            _q_score = context.get('_acoustid_best_score')
+                            if isinstance(_q_score, (int, float)):
+                                _q_facts['acoustid']['score'] = round(float(_q_score), 3)
+                            _q_outcome = context.get('_acoustid_decision')
+                            if verification_result == VerificationResult.FAIL and _q_outcome is not None:
+                                _q_facts['acoustid']['title'] = str(getattr(_q_outcome, 'matched_title', '') or '')
+                                _q_facts['acoustid']['artist'] = str(getattr(_q_outcome, 'matched_artist', '') or '')
+                            if _expected_s:
+                                _q_facts['expected_s'] = round(_expected_s, 1)
+                        except Exception:  # noqa: BLE001 - facts never stop a quarantine
+                            _q_facts = None
                         try:
                             quarantine_path = move_to_quarantine(
                                 file_path,
@@ -1118,6 +1151,7 @@ def post_process_matched_download(context_key, context, file_path, runtime, meta
                                 verification_msg,
                                 automation_engine,
                                 trigger='acoustid_unverified' if _skip_as_fail else 'acoustid',
+                                facts=_q_facts,
                             )
                             _mark_task_quarantined(context, quarantine_path)
                             logger.error(f"File quarantined due to verification failure: {quarantine_path}")
